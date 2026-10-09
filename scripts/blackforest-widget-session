@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Secure session helper for the Black Forest Plasma widget.
+# Tokens stay in ~/.local/share/blackforest-tools/widget-session.json (mode 0600).
+# Never prints the token. Never logs the PIN.
+set -euo pipefail
+
+DIR="${XDG_DATA_HOME:-$HOME/.local/share}/blackforest-tools"
+FILE="$DIR/widget-session.json"
+
+cmd="${1:-}"
+case "$cmd" in
+  path)
+    printf '%s\n' "$FILE"
+    ;;
+  read)
+    if [[ ! -f "$FILE" ]]; then
+      exit 2
+    fi
+    # Emit JSON to stdout for the plasmoid; caller must not log it.
+    cat "$FILE"
+    ;;
+  write)
+    mkdir -p "$DIR"
+    chmod 700 "$DIR"
+    umask 077
+    # Read JSON from stdin
+    cat >"$FILE.tmp"
+    mv "$FILE.tmp" "$FILE"
+    chmod 600 "$FILE"
+    ;;
+  clear)
+    rm -f "$FILE"
+    ;;
+  *)
+    echo "usage: blackforest-widget-session path|read|write|clear" >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,20 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "service@blackforestautomotive.com",
+                "Name": "Black Forest Automotive"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "Live shop views for Black Forest Tools (lot, book, notes). Unlock once with your shop PIN.",
+        "Icon": "view-calendar-agenda",
+        "Id": "com.blackforestautomotive.shop",
+        "License": "LicenseRef-Proprietary",
+        "Name": "Black Forest Shop",
+        "Version": "1.0.0",
+        "Website": "https://shop.blackforestautomotive.com"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
