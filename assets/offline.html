@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Black Forest Tools</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #efe9dc;
+        --fg: #1c1915;
+        --muted: #5c564c;
+        --brand: #0058b8;
+        --brand-ink: #f4efe4;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #161410;
+          --fg: #f4efe4;
+          --muted: #c4bbaa;
+          --brand: #2b7de0;
+          --brand-ink: #f4efe4;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      main {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 32px 20px;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+      }
+      .eyebrow {
+        margin: 18px 0 0;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      h1 {
+        margin: 10px 0 0;
+        font-size: 28px;
+        letter-spacing: 0.04em;
+        font-weight: 650;
+      }
+      p {
+        max-width: 36rem;
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 22px;
+        min-height: 44px;
+        padding: 0 18px;
+        border-radius: 4px;
+        background: var(--brand);
+        color: var(--brand-ink);
+        text-decoration: none;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      a:focus-visible {
+        outline: 2px solid var(--fg);
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="icon.png" alt="" />
+      <p class="eyebrow">Black Forest Tools</p>
+      <h1>The shop site didn't answer</h1>
+      <p>
+        This window is shop.blackforestautomotive.com. The book and the rest of
+        the shop are still on the site. This computer just can't reach it right now.
+      </p>
+      <a href="https://shop.blackforestautomotive.com/">Try again</a>
+    </main>
+  </body>
+</html>
