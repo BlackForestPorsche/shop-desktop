@@ -1,0 +1,55 @@
+{
+  "name": "blackforest-tools",
+  "productName": "Black Forest Tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop window for the Black Forest Automotive shop tools site.",
+  "main": "src/main.js",
+  "author": "Black Forest Automotive",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "install-menu": "bash scripts/install-manjaro.sh",
+    "dist": "electron-builder --linux AppImage"
+  },
+  "dependencies": {
+    "electron": "^44.7.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.blackforestautomotive.tools",
+    "productName": "Black Forest Tools",
+    "executableName": "blackforest-tools",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "icon": "assets/icon.png",
+      "synopsis": "Live window for the Black Forest shop tools",
+      "maintainer": "Black Forest Automotive",
+      "desktop": {
+        "Name": "Black Forest Tools",
+        "Comment": "Live window for shop.blackforestautomotive.com",
+        "Categories": "Office;Utility;",
+        "StartupWMClass": "black-forest-tools",
+        "Keywords": "shop;automotive;blackforest;"
+      }
+    }
+  }
+}
