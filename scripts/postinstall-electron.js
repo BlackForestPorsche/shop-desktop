@@ -5,7 +5,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.join(__dirname, "..");
-const electronBin = path.join(root, "node_modules", "electron", "dist", "electron");
+const electronName = process.platform === "win32" ? "electron.exe" : "electron";
+const electronBin = path.join(root, "node_modules", "electron", "dist", electronName);
 const installJs = path.join(root, "node_modules", "electron", "install.js");
 
 if (fs.existsSync(electronBin)) {

@@ -15,8 +15,9 @@
     "start": "electron .",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
-    "dist": "electron-builder --linux AppImage",
-    "dist:win": "electron-builder --win"
+    "ensure-icon": "node scripts/ensure-icon.js",
+    "dist": "npm run ensure-icon && electron-builder --linux AppImage",
+    "dist:win": "npm run ensure-icon && electron-builder --win"
   },
   "devDependencies": {
     "electron": "^44.7.0",

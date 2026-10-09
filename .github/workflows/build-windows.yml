@@ -23,6 +23,12 @@ jobs:
       - name: Install
         run: npm install
 
+      # Binary icons are not in git (GitHub text upload skips PNG/ICO). Pull the
+      # live shop mark so electron-builder can stamp the .exe before packaging.
+      - name: Fetch app icon
+        shell: bash
+        run: node scripts/ensure-icon.js
+
       - name: Build Windows installer and portable exe
         env:
           # Unsigned shop build — do not look for a code-signing certificate.
