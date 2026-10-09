@@ -63,7 +63,7 @@
         }
       ],
       "icon": "assets/icon.png",
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "nsis": {
       "oneClick": true,
