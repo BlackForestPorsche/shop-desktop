@@ -67,15 +67,15 @@ npm install
 
 ## Windows
 
-GitHub Actions builds a Windows installer and a portable `.exe` on every push to `main`.
+GitHub Actions builds a portable Windows `.exe` on every push to `main`.
 
 1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
-2. Download **Black Forest Tools-Setup-…exe** (installer) or **Black Forest Tools-Portable-…exe**
+2. Download **Black Forest Tools-Portable-…exe**
 3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
 
 Same live shop site as Manjaro. Unlock with your PIN.
 
-To build the Windows apps yourself (on Windows, or with electron-builder):
+To build the Windows app yourself (on Windows):
 
 ```bash
 npm install

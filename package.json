@@ -50,12 +50,6 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
           "target": "portable",
           "arch": [
             "x64"
@@ -63,17 +57,12 @@
         }
       ],
       "icon": "assets/icon.png",
-      "signExecutable": false
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Black Forest Tools",
-      "uninstallDisplayName": "Black Forest Tools",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "signAndEditExecutable": false,
+      "signExecutable": false,
+      "verifyUpdateCodeSignature": false,
+      "signtoolOptions": {
+        "sign": "./scripts/skip-windows-sign.js"
+      }
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
