@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
   "main": "src/main.js",
