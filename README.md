@@ -101,3 +101,32 @@ sudo pacman -S fuse2
 ```
 
 The Manjaro source install above is the straightforward Linux setup.
+
+## KDE Plasma widget (Manjaro)
+
+Live read-only shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance on that computer shares the session.
+
+Requires **Plasma 6** (Manjaro KDE current).
+
+```bash
+cd ~/shop-desktop
+git pull
+npm run install-plasma
+```
+
+That installs:
+
+- the plasmoid to `~/.local/share/plasma/plasmoids/com.blackforestautomotive.shop`
+- `blackforest-widget-session` to `~/.local/bin` (keeps the token file mode `0600`)
+- `~/.local/share/blackforest-tools` at mode `700`
+
+Then:
+
+1. Right-click the desktop or a panel → **Add Widgets…**
+2. Search for **Black Forest Shop** and add it (add more than once for multiple views)
+3. Open the widget, unlock with your shop person and PIN
+4. Configure each copy: right-click the widget → **Configure…** → pick **On the Lot**, **Book — today**, or **My open notes**, and the refresh interval
+
+Lock from any instance clears the shared session for all copies. The widget never writes shop data; PIN and token are not logged.
+
+If the widget does not show up after install, log out of Plasma once, or run `plasmashell --replace &`. `~/.local/bin` must be on `PATH` so the widget can call the session helper.
