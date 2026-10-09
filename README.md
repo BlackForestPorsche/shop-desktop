@@ -58,9 +58,17 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 
 ## Update the window itself
 
-Shop publishes do not require an update of this project. Pull only when this repo changes:
+Shop publishes do not require an update of this project — the window reloads the live site.
+
+**Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
+
+- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates**.
+- **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+
+Manual update on Manjaro still works:
 
 ```bash
+cd ~/shop-desktop
 git pull
 npm install
 ```

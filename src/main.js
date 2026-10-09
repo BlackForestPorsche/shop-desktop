@@ -5,14 +5,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { SHOP_HOME, classifyUrl } = require("./policy");
 const { fetchShopStamp, stampFromHtml } = require("./updates");
+const {
+  appRootFromMain,
+  applyGitUpdate,
+  checkShellUpdate,
+} = require("./shell-update");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
 const STATE_NAME = "window-state.json";
 const UPDATE_EVERY_MS = 3 * 60 * 1000;
+const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
+const APP_ROOT = appRootFromMain(__dirname);
 
 app.setName("Black Forest Tools");
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
@@ -29,9 +36,14 @@ let runningStamp = "";
 let snoozedStamp = "";
 let snoozeUntil = 0;
 let updateTimer = null;
+let shellUpdateTimer = null;
 let lastFocusCheck = 0;
 let promptOpen = false;
 let checking = false;
+let shellChecking = false;
+let shellPromptOpen = false;
+let snoozedShellKey = "";
+let shellSnoozeUntil = 0;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -175,6 +187,128 @@ function showWindow() {
   mainWindow.focus();
 }
 
+function shellUpdateKey(info) {
+  if (!info) return "";
+  if (info.mode === "git") return `git:${info.upstream || ""}`;
+  return `release:${info.remoteVersion || ""}`;
+}
+
+async function checkForShellUpdate({ interactive }) {
+  if (!mainWindow || mainWindow.isDestroyed() || shellChecking) return;
+  shellChecking = true;
+  try {
+    const info = await checkShellUpdate({
+      root: APP_ROOT,
+      currentVersion: app.getVersion(),
+      packaged: app.isPackaged,
+    });
+
+    if (!info.available) {
+      if (interactive) {
+        await dialog.showMessageBox(mainWindow, {
+          type: "info",
+          title: "Desktop app",
+          message: "This desktop app is up to date.",
+          detail:
+            info.mode === "git"
+              ? "Your Manjaro install already matches the latest shop-desktop on GitHub."
+              : `You are on version ${app.getVersion()}.`,
+        });
+      }
+      return;
+    }
+
+    const key = shellUpdateKey(info);
+    if (!interactive && key === snoozedShellKey && Date.now() < shellSnoozeUntil) return;
+    if (shellPromptOpen) return;
+    shellPromptOpen = true;
+
+    if (info.mode === "git") {
+      const choice = await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        buttons: ["Update and restart", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Desktop app update",
+        message: "A newer desktop app is available.",
+        detail: [
+          "This updates the window itself (menus, shortcuts, offline page) — not the shop site.",
+          info.shortCurrent && info.shortUpstream
+            ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
+            : "",
+          info.summary ? `\n${info.summary.split("\n").slice(0, 8).join("\n")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+      shellPromptOpen = false;
+      if (choice.response !== 0) {
+        snoozedShellKey = key;
+        shellSnoozeUntil = Date.now() + SNOOZE_MS;
+        return;
+      }
+
+      try {
+        applyGitUpdate(APP_ROOT);
+      } catch (error) {
+        await dialog.showMessageBox(mainWindow, {
+          type: "warning",
+          title: "Desktop app update",
+          message: "Couldn't apply the desktop app update.",
+          detail: [
+            error instanceof Error ? error.message : "The update failed.",
+            "",
+            "You can update by hand:",
+            "cd ~/shop-desktop",
+            "git pull",
+            "npm install",
+          ].join("\n"),
+        });
+        return;
+      }
+
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
+
+    const choice = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["Download update", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Desktop app update",
+      message: `Version ${info.remoteVersion} is available.`,
+      detail: [
+        `You are on ${info.currentVersion}.`,
+        "This is the Windows desktop window, not the shop site.",
+        info.assetName ? `File: ${info.assetName}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+    shellPromptOpen = false;
+    if (choice.response === 0 && info.downloadUrl) {
+      openOutside(info.downloadUrl);
+    } else {
+      snoozedShellKey = key;
+      shellSnoozeUntil = Date.now() + SNOOZE_MS;
+    }
+  } catch (error) {
+    shellPromptOpen = false;
+    if (interactive) {
+      await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        title: "Desktop app",
+        message: "Couldn't check for desktop app updates.",
+        detail: error instanceof Error ? error.message : "The check failed.",
+      });
+    }
+  } finally {
+    shellChecking = false;
+  }
+}
+
 async function checkForSiteUpdate({ interactive }) {
   if (!mainWindow || mainWindow.isDestroyed() || checking) return;
   checking = true;
@@ -268,6 +402,10 @@ function shopMenu() {
         },
         { type: "separator" },
         { label: "Check for site updates", click: () => checkForSiteUpdate({ interactive: true }) },
+        {
+          label: "Check for desktop app updates",
+          click: () => checkForShellUpdate({ interactive: true }),
+        },
         { type: "separator" },
         { label: "Quit", accelerator: "CmdOrCtrl+Q", role: "quit" },
       ],
@@ -317,7 +455,10 @@ function shopMenu() {
                 "",
                 "This is a window onto shop.blackforestautomotive.com.",
                 "The book, the lot, notes, parts, crew, and Google calendar are the live shop site.",
-                "Publishing the site updates this window. Nothing in the app is a separate copy.",
+                "Publishing the site updates this window. Shop data is not a separate copy.",
+                "",
+                "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
+                "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
                 "",
                 "This computer keeps its own unlock and display settings, the same way another browser would.",
               ].join("\n"),
@@ -438,10 +579,17 @@ if (gotLock) {
     updateTimer = setInterval(() => {
       checkForSiteUpdate({ interactive: false });
     }, UPDATE_EVERY_MS);
+    shellUpdateTimer = setInterval(() => {
+      checkForShellUpdate({ interactive: false });
+    }, SHELL_UPDATE_EVERY_MS);
+    setTimeout(() => {
+      checkForShellUpdate({ interactive: false });
+    }, 20_000);
   });
 
   app.on("window-all-closed", () => {
     if (updateTimer) clearInterval(updateTimer);
+    if (shellUpdateTimer) clearInterval(shellUpdateTimer);
     app.quit();
   });
 }
