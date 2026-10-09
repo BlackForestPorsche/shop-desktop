@@ -19,7 +19,15 @@ If zsh asks `correct 'npm' to 'nm'?`, answer `n`. After `pacman` finishes, open 
 
 Open **Black Forest Tools** from the application menu, or run `blackforest-tools`.
 
-`~/.local/bin` needs to be on `PATH` for the command. The menu entry does not depend on that. A new login picks up the path on Manjaro.
+If the window opens and closes right away, the Electron binary may not have downloaded. Fix it from a terminal:
+
+```bash
+cd ~/shop-desktop
+bash scripts/ensure-electron.sh
+npm start
+```
+
+`~/.local/bin` needs to be on `PATH` for the command. The menu entry does not depend on that. A new login picks up the path on Manjaro. Launch errors are written to `~/.local/state/blackforest-tools/launch.log`.
 
 To run it without installing the menu entry:
 

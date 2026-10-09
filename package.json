@@ -11,6 +11,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "postinstall": "node scripts/postinstall-electron.js",
     "start": "electron .",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",

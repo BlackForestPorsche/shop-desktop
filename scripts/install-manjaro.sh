@@ -9,16 +9,23 @@ APP_DIR="$DATA_HOME/applications"
 ICON_DIR="$DATA_HOME/icons/hicolor/512x512/apps"
 BIN_DIR="$HOME/.local/bin"
 
-chmod +x "$LAUNCHER" "$ROOT/scripts/install-manjaro.sh"
+chmod +x \
+  "$LAUNCHER" \
+  "$ROOT/scripts/install-manjaro.sh" \
+  "$ROOT/scripts/ensure-electron.sh"
 
-if [[ ! -x "$ROOT/node_modules/electron/dist/electron" ]]; then
-  if ! command -v npm >/dev/null 2>&1; then
-    echo "Install Node first: sudo pacman -S nodejs npm" >&2
-    exit 1
-  fi
-  echo "Installing the window runtime..."
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Install Node first: sudo pacman -S nodejs npm" >&2
+  exit 1
+fi
+
+if [[ ! -d "$ROOT/node_modules/electron" ]]; then
+  echo "Installing packages..."
   (cd "$ROOT" && npm install)
 fi
+
+echo "Installing the window runtime..."
+bash "$ROOT/scripts/ensure-electron.sh"
 
 mkdir -p "$APP_DIR" "$ICON_DIR" "$BIN_DIR"
 ICON_SRC="$ROOT/assets/icon.png"
@@ -55,3 +62,7 @@ fi
 echo "Black Forest Tools is in the application menu."
 echo "Command: blackforest-tools"
 echo "If the command is not found, log out once, or open it from the menu."
+echo
+echo "If the window closes right away, run this in a terminal and send the output:"
+echo "  cd ~/shop-desktop && npm start"
+echo "Log file: \${XDG_STATE_HOME:-\$HOME/.local/state}/blackforest-tools/launch.log"
