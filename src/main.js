@@ -19,7 +19,9 @@ app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  app.quit();
+  // Another copy already owns the shop window. Bring that one forward, then leave.
+  console.error("Black Forest Tools is already open.");
+  app.exit(0);
 }
 
 let mainWindow = null;
