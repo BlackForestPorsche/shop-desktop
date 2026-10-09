@@ -15,7 +15,8 @@
     "start": "electron .",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
-    "dist": "electron-builder --linux AppImage"
+    "dist": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win"
   },
   "dependencies": {
     "electron": "^44.7.0"
@@ -26,7 +27,7 @@
   "build": {
     "appId": "com.blackforestautomotive.tools",
     "productName": "Black Forest Tools",
-    "executableName": "blackforest-tools",
+    "executableName": "BlackForestTools",
     "directories": {
       "output": "dist"
     },
@@ -51,6 +52,37 @@
         "StartupWMClass": "black-forest-tools",
         "Keywords": "shop;automotive;blackforest;"
       }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Black Forest Tools",
+      "uninstallDisplayName": "Black Forest Tools",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     }
   }
 }

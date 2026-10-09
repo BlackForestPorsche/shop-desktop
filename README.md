@@ -65,7 +65,26 @@ git pull
 npm install
 ```
 
-## AppImage
+## Windows
+
+GitHub Actions builds a Windows installer and a portable `.exe` on every push to `main`.
+
+1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
+2. Download **Black Forest Tools-Setup-…exe** (installer) or **Black Forest Tools-Portable-…exe**
+3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+
+Same live shop site as Manjaro. Unlock with your PIN.
+
+To build the Windows apps yourself (on Windows, or with electron-builder):
+
+```bash
+npm install
+npm run dist:win
+```
+
+Outputs land in `dist/`.
+
+## AppImage (Linux)
 
 `npm run dist` builds a Linux AppImage with electron-builder. On Manjaro, an AppImage needs `fuse2`:
 
@@ -73,4 +92,4 @@ npm install
 sudo pacman -S fuse2
 ```
 
-The source install above is the straightforward Manjaro setup.
+The Manjaro source install above is the straightforward Linux setup.

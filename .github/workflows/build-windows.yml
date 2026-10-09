@@ -1,0 +1,53 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Build Windows installer and portable exe
+        run: npm run dist:win
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackforest-tools-windows
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-${{ github.run_number }}
+          name: Black Forest Tools for Windows (${{ github.run_number }})
+          generate_release_notes: false
+          files: dist/*.exe
+          body: |
+            Windows build of **Black Forest Tools** — a desktop window for https://shop.blackforestautomotive.com
+
+            ### Downloads
+            - **Black Forest Tools-Setup-…exe** — installer (Start Menu + desktop shortcut)
+            - **Black Forest Tools-Portable-…exe** — run without installing
+
+            Shop data stays on the live site. Publishing the site updates this window.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
