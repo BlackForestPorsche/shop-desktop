@@ -18,10 +18,8 @@
     "dist": "electron-builder --linux AppImage",
     "dist:win": "electron-builder --win"
   },
-  "dependencies": {
-    "electron": "^44.7.0"
-  },
   "devDependencies": {
+    "electron": "^44.7.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
@@ -45,13 +43,7 @@
       "icon": "assets/icon.png",
       "synopsis": "Live window for the Black Forest shop tools",
       "maintainer": "Black Forest Automotive",
-      "desktop": {
-        "Name": "Black Forest Tools",
-        "Comment": "Live window for shop.blackforestautomotive.com",
-        "Categories": "Office;Utility;",
-        "StartupWMClass": "black-forest-tools",
-        "Keywords": "shop;automotive;blackforest;"
-      }
+      "executableName": "blackforest-tools"
     },
     "win": {
       "target": [
@@ -68,8 +60,7 @@
           ]
         }
       ],
-      "icon": "assets/icon.png",
-      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+      "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": true,
