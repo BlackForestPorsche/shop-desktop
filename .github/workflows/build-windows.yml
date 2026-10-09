@@ -24,6 +24,9 @@ jobs:
         run: npm install
 
       - name: Build Windows installer and portable exe
+        env:
+          # Unsigned shop build — do not look for a code-signing certificate.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:win
 
       - name: Upload build artifacts

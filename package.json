@@ -35,6 +35,7 @@
       "package.json"
     ],
     "asar": true,
+    "forceCodeSigning": false,
     "linux": {
       "target": [
         "AppImage"
@@ -60,7 +61,8 @@
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": true,
