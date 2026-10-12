@@ -2,7 +2,7 @@
 # Put Black Forest Tools in the Manjaro application menu for this user.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LAUNCHER="$ROOT/scripts/blackforest-tools.sh"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APP_DIR="$DATA_HOME/applications"

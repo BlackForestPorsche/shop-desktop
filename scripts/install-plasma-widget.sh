@@ -3,7 +3,7 @@
 # Also arms a 30-minute systemd user timer (like Pro Circuit) so git pulls reinstall the widget.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 PLASMOID_ID="com.blackforestautomotive.shop"
 SRC="$ROOT/plasma/plasmoids/$PLASMOID_ID"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -12,12 +12,17 @@ BIN_DIR="$HOME/.local/bin"
 SESSION_HELPER_SRC="$ROOT/scripts/blackforest-widget-session"
 SESSION_HELPER_DEST="$BIN_DIR/blackforest-widget-session"
 UPDATE_SCRIPT="$ROOT/scripts/update-plasma-widget.sh"
+REFRESH_SCRIPT="$ROOT/scripts/refresh-plasma-widget.sh"
 SESSION_DIR="$DATA_HOME/blackforest-tools"
 SKIP_TIMER=0
+SKIP_DESK=0
 
 for arg in "$@"; do
   if [[ "$arg" == "--skip-timer" ]]; then
     SKIP_TIMER=1
+  fi
+  if [[ "$arg" == "--skip-desk" ]]; then
+    SKIP_DESK=1
   fi
 done
 
@@ -43,7 +48,10 @@ rm -rf "$DEST"
 cp -a "$SRC" "$DEST"
 
 install -m 0755 "$SESSION_HELPER_SRC" "$SESSION_HELPER_DEST"
-chmod +x "$UPDATE_SCRIPT" "$ROOT/scripts/install-plasma-widget.sh"
+chmod +x "$UPDATE_SCRIPT" "$REFRESH_SCRIPT" "$ROOT/scripts/install-plasma-widget.sh"
+if [[ -f "$REFRESH_SCRIPT" ]]; then
+  ln -sfn "$REFRESH_SCRIPT" "$BIN_DIR/blackforest-refresh-widget"
+fi
 
 # Prefer kpackagetool6 when available (matches Pro Circuit).
 if command -v kpackagetool6 >/dev/null 2>&1; then
@@ -99,15 +107,21 @@ EOF
   fi
 fi
 
+if [[ "$SKIP_DESK" -eq 0 && -x "$ROOT/scripts/install-desk-automations.sh" ]]; then
+  bash "$ROOT/scripts/install-desk-automations.sh" || true
+fi
+
 echo "Installed Plasma widget: $PLASMOID_ID"
 echo "  Plasmoid: $DEST"
 echo "  Session helper: $SESSION_HELPER_DEST"
 echo "  Session data dir: $SESSION_DIR (mode 700)"
+echo "  On-demand shell refresh: blackforest-refresh-widget"
 echo
 echo "Add it: right-click the desktop or panel → Add Widgets → search “Black Forest Shop”."
-echo "Unlock once in any instance; every copy shares that session."
+echo "Unlock once in any widget or Black Forest Tools; lot, notes, and the desktop app share that session."
 echo "Configure each copy for lot, book-today, or notes."
 echo "Notes view can leave a note for another desk person (shop beta 0.1.18+)."
+echo "Use the cloud/download button on the widget to pull shop-desktop and reinstall (no extra timer)."
 echo
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   echo "Note: $BIN_DIR is not on PATH. Log out once, or ensure ~/.local/bin is on PATH"

@@ -2,7 +2,7 @@
 # Launch the Black Forest Tools window from a git checkout.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 ELECTRON="$ROOT/node_modules/electron/dist/electron"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/blackforest-tools"
 LOG_FILE="$LOG_DIR/launch.log"

@@ -29,6 +29,8 @@ PlasmoidItem {
     property var viewPayload: null
     property string lastStamp: ""
     property string pendingSessionOp: ""
+    property string sessionFingerprint: ""
+    property bool shellUpdating: false
     property bool sendingNote: false
     property string noteStatusText: ""
     property int noteClearToken: 0
@@ -54,17 +56,35 @@ PlasmoidItem {
         errorText = text || "";
     }
 
+    function fingerprintSession(next) {
+        if (!next || !next.token) {
+            return "";
+        }
+        return String(next.token.length) + ":" + String(next.expiresAt || "") + ":"
+            + String(next.person || "") + ":" + String(next.role || "");
+    }
+
     function clearSessionLocal() {
         session = null;
         viewPayload = null;
         lastStamp = "";
         noteStatusText = "";
+        sessionFingerprint = "";
         pendingSessionOp = "clear";
         executable.exec(sessionHelper() + " clear");
     }
 
     function loadSessionFromDisk() {
         pendingSessionOp = "read";
+        executable.exec(sessionHelper() + " read");
+    }
+
+    function syncSessionFromDisk() {
+        // Lightweight cross-app sync (Electron / other widget instances).
+        if (pendingSessionOp.length > 0 || busy || shellUpdating) {
+            return;
+        }
+        pendingSessionOp = "sync";
         executable.exec(sessionHelper() + " read");
     }
 
@@ -85,6 +105,7 @@ PlasmoidItem {
 
     function applySession(next) {
         session = next;
+        sessionFingerprint = fingerprintSession(next);
         statusLine = next && next.person
             ? i18n("Signed in as %1", next.person)
             : i18n("Locked");
@@ -294,11 +315,24 @@ PlasmoidItem {
                 loginAt: session.loginAt || new Date().toISOString()
             };
             session = next;
+            sessionFingerprint = fingerprintSession(next);
             saveSessionToDisk(next);
             return true;
         }).catch(function () {
             return false;
         });
+    }
+
+    function updateShell() {
+        if (shellUpdating) {
+            return;
+        }
+        shellUpdating = true;
+        setError("");
+        statusLine = i18n("Updating shop widget…");
+        pendingSessionOp = "shell-update";
+        // Installed to ~/.local/bin by install-plasma / install-desk-automations.
+        executable.exec("blackforest-refresh-widget --force");
     }
 
     function refreshView() {
@@ -343,14 +377,42 @@ PlasmoidItem {
             const code = data["exit code"];
             disconnectSource(source);
 
-            if (pendingSessionOp === "read") {
+            if (pendingSessionOp === "read" || pendingSessionOp === "sync") {
+                const wasSync = pendingSessionOp === "sync";
                 pendingSessionOp = "";
                 const parsed = SessionStore.parseSessionJson(out);
                 if (code === 0 && parsed && !SessionStore.isExpired(parsed, 0)) {
+                    const fp = fingerprintSession(parsed);
+                    if (wasSync && fp === sessionFingerprint && !!session) {
+                        return;
+                    }
                     applySession(parsed);
                     return;
                 }
-                session = null;
+                if (wasSync && !session) {
+                    return;
+                }
+                if (session || !wasSync) {
+                    session = null;
+                    viewPayload = null;
+                    lastStamp = "";
+                    sessionFingerprint = "";
+                    statusLine = i18n("Locked");
+                }
+                return;
+            }
+
+            if (pendingSessionOp === "shell-update") {
+                pendingSessionOp = "";
+                shellUpdating = false;
+                if (code === 0) {
+                    statusLine = i18n("Shop widget update finished");
+                } else {
+                    setError(i18n("Couldn't update the shop widget shell."));
+                    statusLine = session && session.person
+                        ? i18n("Signed in as %1", session.person)
+                        : i18n("Black Forest Shop");
+                }
                 return;
             }
 
@@ -375,6 +437,15 @@ PlasmoidItem {
         repeat: true
         running: !!root.session
         onTriggered: root.refreshView()
+    }
+
+    // Cross-surface session watch (Electron / other instances). Light read only — not an API poll.
+    Timer {
+        id: sessionWatchTimer
+        interval: 12000
+        repeat: true
+        running: true
+        onTriggered: root.syncSessionFromDisk()
     }
 
     Component.onCompleted: loadSessionFromDisk()
@@ -422,10 +493,18 @@ PlasmoidItem {
                 }
                 PlasmaComponents.ToolButton {
                     icon.name: "view-refresh"
-                    enabled: !!root.session && !root.busy
+                    enabled: !!root.session && !root.busy && !root.shellUpdating
                     onClicked: root.refreshView()
                     PlasmaComponents.ToolTip {
-                        text: i18n("Refresh")
+                        text: i18n("Refresh view")
+                    }
+                }
+                PlasmaComponents.ToolButton {
+                    icon.name: "folder-sync"
+                    enabled: !root.shellUpdating
+                    onClicked: root.updateShell()
+                    PlasmaComponents.ToolTip {
+                        text: i18n("Update shop widget shell")
                     }
                 }
                 PlasmaComponents.ToolButton {
@@ -468,7 +547,7 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: i18n("Unlock with your shop person and PIN. This session is shared by every Black Forest Shop widget on this computer.")
+                    text: i18n("Unlock with your shop person and PIN. Shared with every shop widget and Black Forest Tools on this computer.")
                 }
 
                 QQC2.ComboBox {
