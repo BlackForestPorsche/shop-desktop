@@ -8,6 +8,8 @@ const {
   isSessionExpired,
   shouldRefreshToken,
   classifyWidgetHttpError,
+  DEFAULT_DESK_PEOPLE,
+  canCreateNotes,
 } = require("../src/widget-helpers");
 
 test("normalizePerson lowercases and trims", () => {
@@ -96,9 +98,35 @@ test("classifyWidgetHttpError covers auth and rate limit cases", () => {
     "pin_change_required",
   );
   assert.equal(classifyWidgetHttpError(403, { error: "nope" }).code, "forbidden");
+  assert.equal(
+    classifyWidgetHttpError(400, { error: "bad_text" }).code,
+    "bad_text",
+  );
+  assert.equal(
+    classifyWidgetHttpError(400, { error: "bad_recipient" }).code,
+    "bad_recipient",
+  );
   assert.deepEqual(classifyWidgetHttpError(429, null, "45"), {
     code: "rate_limited",
     retryAfter: 45,
   });
   assert.equal(classifyWidgetHttpError(404).code, "not_found");
+});
+
+test("DEFAULT_DESK_PEOPLE lists current desk ids", () => {
+  assert.deepEqual(DEFAULT_DESK_PEOPLE, [
+    "logan",
+    "stephen",
+    "steve",
+    "carla",
+    "john",
+  ]);
+});
+
+test("canCreateNotes allows desk and bot only", () => {
+  assert.equal(canCreateNotes("desk"), true);
+  assert.equal(canCreateNotes("bot"), true);
+  assert.equal(canCreateNotes("viewer"), false);
+  assert.equal(canCreateNotes("tech"), false);
+  assert.equal(canCreateNotes(""), false);
 });
