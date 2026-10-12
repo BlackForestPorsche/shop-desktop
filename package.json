@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.3.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
   "main": "src/main.js",
@@ -13,12 +13,15 @@
   "scripts": {
     "postinstall": "node scripts/postinstall-electron.js",
     "start": "electron .",
+    "widget": "electron . -- --widget",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
     "install-plasma": "bash scripts/install-plasma-widget.sh",
+    "install-windows": "powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1",
+    "bootstrap-windows": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap-windows.ps1",
     "ensure-icon": "node scripts/ensure-icon.js",
-    "dist": "npm run ensure-icon && electron-builder --linux AppImage",
-    "dist:win": "npm run ensure-icon && electron-builder --win"
+    "dist": "npm run ensure-icon && electron-builder --linux AppImage --publish never",
+    "dist:win": "npm run ensure-icon && electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -29,7 +32,8 @@
     "productName": "Black Forest Tools",
     "executableName": "BlackForestTools",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "src/**/*",
@@ -38,6 +42,7 @@
     ],
     "asar": true,
     "forceCodeSigning": false,
+    "publish": null,
     "linux": {
       "target": [
         "AppImage"
@@ -50,6 +55,12 @@
     },
     "win": {
       "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "portable",
           "arch": [
@@ -65,8 +76,19 @@
         "sign": "./scripts/skip-windows-sign.js"
       }
     },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Black Forest Tools",
+      "include": "build/installer.nsh",
+      "artifactName": "Black.Forest.Tools-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
     "portable": {
-      "artifactName": "${productName}-Portable-${version}.${ext}"
+      "artifactName": "Black.Forest.Tools-Portable-${version}.${ext}"
     }
   }
 }

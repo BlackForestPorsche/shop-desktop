@@ -6,6 +6,18 @@ The window loads the live site. The book, the lot, notes, parts, crew, invoices,
 
 ## Install on Manjaro
 
+**One-file install script** (stable release asset for the shop Downloads page):
+
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/install-linux-desk.sh
+
+```bash
+curl -fsSL -o /tmp/install-linux-desk.sh \
+  https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/install-linux-desk.sh
+bash /tmp/install-linux-desk.sh
+```
+
+Or step by step:
+
 ```bash
 sudo pacman -S nodejs npm git
 cd ~
@@ -62,35 +74,70 @@ Shop publishes do not require an update of this project — the window reloads t
 
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
-- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates**.
-- **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+- **Git install (Manjaro or Windows):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates** (or **Widget → Check for desktop updates**).
+- **Windows portable:** bootstrap only — the app offers the new `.exe` download when `package.json` version is newer. Prefer a git checkout so shell and widget code keep updating.
 
-Manual update on Manjaro still works:
+Manual update from a git checkout:
 
 ```bash
-cd ~/shop-desktop
+cd ~/shop-desktop   # Windows: %USERPROFILE%\shop-desktop
 git pull
 npm install
 ```
 
 ## Windows
 
-GitHub Actions builds a portable Windows `.exe` on every push to `main`.
+### Setup (recommended)
 
-1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
-2. Download **Black Forest Tools-Portable-…exe**
-3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+One-click install utility for the desk. The shop Downloads page should deep-link this stable URL (not the Releases UI):
 
-Same live shop site as Manjaro. Unlock with your PIN.
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe
 
-To build the Windows app yourself (on Windows):
+`Black.Forest.Tools-Setup.exe` clones `%USERPROFILE%\shop-desktop`, runs `npm install`, creates Start Menu / Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**, registers the 30-minute git auto-update task (`BlackForestShopDesktopUpdate`), and launches Tools. First run may install Git / Node via winget if missing.
+
+Windows may warn about an unknown publisher (unsigned build) — More info → Run anyway.
+
+A versioned NSIS Setup (`Black.Forest.Tools-Setup-…exe`) is also attached on each release for a packaged install without git. Prefer the stable Setup above so shell and widget code keep updating from git.
+
+### Portable (bootstrap only)
+
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe
+
+No git auto-update / no install shortcuts. Prefer Setup. Numbered tags also attach a versioned Portable for in-app update checks.
+
+### Manual git checkout
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts\bootstrap-windows.ps1
+```
+
+Or step by step:
+
+```text
+git clone https://github.com/BlackForestPorsche/shop-desktop.git %USERPROFILE%\shop-desktop
+cd %USERPROFILE%\shop-desktop
+npm install
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
+npm start
+npm run widget
+```
+
+### Shop widgets on Windows (Electron, not Plasma)
+
+Windows does **not** get the KDE Plasma plasmoid. Setup adds **Black Forest Shop Widget**. Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes**. Session file:
+
+`%LOCALAPPDATA%\blackforest-tools\widget-session.json`
+
+(same shape as Linux `~/.local/share/blackforest-tools/widget-session.json`).
+
+To build NSIS Setup + portable yourself (on Windows):
 
 ```bash
 npm install
 npm run dist:win
 ```
 
-Outputs land in `dist/`.
+Outputs land in `dist/`. CI also compiles `scripts/bootstrap-windows.ps1` to the stable `Black.Forest.Tools-Setup.exe`.
 
 ## AppImage (Linux)
 

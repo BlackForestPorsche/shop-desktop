@@ -2,7 +2,9 @@ name: Build Windows
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - cursor/windows-setup-installer-a813
   workflow_dispatch:
 
 permissions:
@@ -30,7 +32,15 @@ jobs:
         shell: bash
         run: node scripts/ensure-icon.js
 
-      - name: Build Windows portable exe
+      - name: Read package version
+        id: meta
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version=$ver"
+
+      - name: Build Windows NSIS Setup + portable
         id: build
         continue-on-error: true
         env:
@@ -68,27 +78,69 @@ jobs:
             });
             core.setFailed('electron-builder failed; see issue for log tail');
 
-      - name: Upload build artifacts
+      # Desk Downloads primary: git bootstrap compiled to a fixed Setup.exe name.
+      # NSIS versioned Setup-*exe stays attached for a packaged install without git.
+      - name: Build git Setup bootstrap exe
         if: steps.build.outcome == 'success'
+        id: setup
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/compile-windows-setup.ps1
+          if (-not (Test-Path "dist/Black.Forest.Tools-Setup.exe")) {
+            throw "Stable Setup exe was not created"
+          }
+
+      - name: Stage stable Portable + Linux install script
+        if: steps.build.outcome == 'success' && steps.setup.outcome == 'success'
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem dist -Filter *.exe |
+            Where-Object { $_.Name -match 'Portable' -and $_.Name -match '\d+\.\d+\.\d+' } |
+            Select-Object -First 1
+          if (-not $portable) { throw "No versioned Portable .exe found in dist/" }
+          Copy-Item -Force $portable.FullName "dist/Black.Forest.Tools-Portable.exe"
+          Write-Host "Staged stable Portable from $($portable.Name)"
+
+          Copy-Item -Force "scripts/install-linux-desk.sh" "dist/install-linux-desk.sh"
+          Write-Host "Staged install-linux-desk.sh"
+
+      - name: Upload build artifacts
+        if: steps.build.outcome == 'success' && steps.setup.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: blackforest-tools-windows
-          path: dist/*.exe
+          path: |
+            dist/Black.Forest.Tools-Setup.exe
+            dist/Black.Forest.Tools-Setup-*.exe
+            dist/*Portable*.exe
+            dist/Black.Forest.Tools-Portable.exe
+            dist/install-linux-desk.sh
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: steps.build.outcome == 'success'
+        if: steps.build.outcome == 'success' && steps.setup.outcome == 'success'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: windows-${{ github.run_number }}
           name: Black Forest Tools for Windows (${{ github.run_number }})
           generate_release_notes: false
-          files: dist/*.exe
+          make_latest: true
+          files: |
+            dist/Black.Forest.Tools-Setup.exe
+            dist/Black.Forest.Tools-Setup-*.exe
+            dist/*Portable*.exe
+            dist/Black.Forest.Tools-Portable.exe
+            dist/install-linux-desk.sh
           body: |
-            Windows build of **Black Forest Tools** — a desktop window for https://shop.blackforestautomotive.com
+            Windows build of **Black Forest Tools** — desk window + shop widgets for https://shop.blackforestautomotive.com
 
-            ### Download
-            - **Black Forest Tools-Portable-…exe** — run without installing
+            ### Download (one-click — use on the shop Downloads page, not the Releases UI)
+            - **Setup (recommended):** [Black.Forest.Tools-Setup.exe](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe)
+              Clones `%USERPROFILE%\shop-desktop`, installs Tools + shop widgets, Start Menu shortcuts, and git auto-update
+            - **Portable:** [Black.Forest.Tools-Portable.exe](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe)
+            - **Linux desk script:** [install-linux-desk.sh](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/install-linux-desk.sh)
+
+            Versioned NSIS Setup (`Black.Forest.Tools-Setup-…exe`) and Portable are also attached. In-app update checks use the versioned Portable.
 
             Shop data stays on the live site. Publishing the site updates this window.
 

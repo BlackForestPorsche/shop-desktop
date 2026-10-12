@@ -48,10 +48,17 @@ function versionFromReleaseAssetName(name) {
 
 function pickPortableAsset(assets) {
   if (!Array.isArray(assets)) return null;
-  const portable = assets.find((asset) =>
-    /portable/i.test(asset.name || "") && /\.exe$/i.test(asset.name || ""),
+  const exes = assets.filter((asset) => /\.exe$/i.test(asset.name || ""));
+  // Prefer a versioned Portable build so update checks can read semver from the
+  // filename. A stable Black.Forest.Tools-Portable.exe may ship alongside it
+  // for the shop Downloads page (/releases/latest/download/…).
+  const versionedPortable = exes.find(
+    (asset) =>
+      /portable/i.test(asset.name || "") && versionFromReleaseAssetName(asset.name),
   );
-  return portable || assets.find((asset) => /\.exe$/i.test(asset.name || "")) || null;
+  if (versionedPortable) return versionedPortable;
+  const portable = exes.find((asset) => /portable/i.test(asset.name || ""));
+  return portable || exes[0] || null;
 }
 
 function runGit(root, args) {
