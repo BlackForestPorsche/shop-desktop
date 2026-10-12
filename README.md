@@ -41,7 +41,8 @@ npm start
 - Shop records come from the site as you use them, including `/_serverFn/`, `/api/google/start`, and `/api/shop-archive`.
 - The first document load skips the HTTP cache, and the window asks to reload when a publish changes the site's scripts.
 - **Shop → Reload and pick up site updates** (Ctrl+Shift+R) forces that immediately.
-- This computer remembers the unlock, theme, and offline write queue for this window. That saved session lives in `~/.config/Black Forest Tools`. A browser on the same machine has its own. After you unlock here, you are on the same shop data.
+- Shop person + PIN unlock is shared with the Plasma widgets via `~/.local/share/blackforest-tools/widget-session.json` (mode `700` / `0600`). **Shop → Lock shop (widgets + this window)** clears both. A browser on the same machine still has its own cookies.
+- Display size and the Chromium profile for this window still live under `~/.config/Black Forest Tools`.
 
 Parts-catalog links open in the normal browser. Google sign-in stays in this window so Connect Google can finish back on the shop server.
 
@@ -104,10 +105,11 @@ The Manjaro source install above is the straightforward Linux setup.
 
 ## KDE Plasma widget (Manjaro)
 
-Live shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance on that computer shares the session.
+Live shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance **and Black Forest Tools** on that computer share the session file.
 
 - **On the Lot** and **Book — today** stay read-only.
 - **My open notes** lists notes (`GET /api/widget/views/notes`) and, for desk/bot unlocks, can leave a note for a desk person (`POST /api/widget/notes`, shop beta 0.1.18+). Author comes from the session; pick a recipient, write the text, send.
+- Use the **folder-sync** tool button on the widget to pull `shop-desktop` and reinstall the plasmoid on demand (same path as the update script). No extra background timer.
 
 Requires **Plasma 6** (Manjaro KDE current).
 
@@ -120,9 +122,10 @@ npm run install-plasma
 That installs:
 
 - the plasmoid to `~/.local/share/plasma/plasmoids/com.blackforestautomotive.shop`
-- `blackforest-widget-session` to `~/.local/bin` (keeps the token file mode `0600`)
+- `blackforest-widget-session` / `blackforest-refresh-widget` to `~/.local/bin`
 - `~/.local/share/blackforest-tools` at mode `700`
-- a **30-minute** user systemd timer (`blackforest-shop-widget-update.timer`) that fast-forwards this git checkout and reinstalls the plasmoid when `main` moves — same idea as Pro Circuit. Lot and notes copies pick up new QML after that reinstall (plasmashell restarts when HEAD changed).
+- a **30-minute** user systemd timer (`blackforest-shop-widget-update.timer`) that fast-forwards this git checkout and reinstalls the plasmoid when `main` moves — same idea as Pro Circuit
+- login oneshots: `blackforest-desk-wake.service` (agent worker / widget helper / Pro Circuit timer check) and `blackforest-morning-glance.service` (one notify-send of book · lot · notes)
 
 Then:
 
@@ -131,13 +134,21 @@ Then:
 3. Open the widget, unlock with your shop person and PIN
 4. Configure each copy: right-click the widget → **Configure…** → pick **On the Lot**, **Book — today**, or **My open notes**, and the refresh interval
 
-Lock from any instance clears the shared session for all copies. PIN and token are not logged. Notes creates use the same Bearer session; viewers can read notes but cannot create.
+Lock from any widget instance or **Shop → Lock shop** in the desktop app clears the shared session for all copies. PIN and token are not logged. Notes creates use the same Bearer session; viewers can read notes but cannot create.
 
 If the widget does not show up after install, log out of Plasma once, or run `plasmashell --replace &`. `~/.local/bin` must be on `PATH` so the widget can call the session helper.
 
-Manual widget refresh (same as the timer):
+Manual / on-demand widget shell refresh:
 
 ```bash
 cd ~/shop-desktop
-bash scripts/update-plasma-widget.sh
+npm run refresh-plasma
+# or: blackforest-refresh-widget --force
+```
+
+Test login oneshots without logging out:
+
+```bash
+systemctl --user start blackforest-desk-wake.service
+systemctl --user start blackforest-morning-glance.service
 ```
