@@ -1,5 +1,11 @@
 "use strict";
 
+// Packaged Setup / Start Menu launch widgets with the same binary + --widget.
+if (process.argv.includes("--widget")) {
+  require("./widget-main");
+  return;
+}
+
 const { app, BrowserWindow, Menu, MenuItem, clipboard, dialog, session, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -211,7 +217,7 @@ async function checkForShellUpdate({ interactive }) {
           message: "This desktop app is up to date.",
           detail:
             info.mode === "git"
-              ? "Your Manjaro install already matches the latest shop-desktop on GitHub."
+              ? "Your shop-desktop git folder already matches the latest on GitHub."
               : `You are on version ${app.getVersion()}.`,
         });
       }
@@ -259,7 +265,9 @@ async function checkForShellUpdate({ interactive }) {
             error instanceof Error ? error.message : "The update failed.",
             "",
             "You can update by hand:",
-            "cd ~/shop-desktop",
+            process.platform === "win32"
+              ? "cd %USERPROFILE%\\shop-desktop"
+              : "cd ~/shop-desktop",
             "git pull",
             "npm install",
           ].join("\n"),
@@ -281,7 +289,8 @@ async function checkForShellUpdate({ interactive }) {
       message: `Version ${info.remoteVersion} is available.`,
       detail: [
         `You are on ${info.currentVersion}.`,
-        "This is the Windows desktop window, not the shop site.",
+        "This is the portable desktop window, not the shop site.",
+        "For git pull + restart on Windows, use a shop-desktop git clone instead of portable-only.",
         info.assetName ? `File: ${info.assetName}` : "",
       ]
         .filter(Boolean)
@@ -458,11 +467,34 @@ function shopMenu() {
                 "Publishing the site updates this window. Shop data is not a separate copy.",
                 "",
                 "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
-                "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
+                "From a git checkout (Linux or Windows), the app can pull those and restart.",
+                "Windows portable-only installs offer the new .exe download instead.",
                 "",
                 "This computer keeps its own unlock and display settings, the same way another browser would.",
               ].join("\n"),
             });
+          },
+        },
+        {
+          label: "Open shop widget window",
+          click: () => {
+            const { spawn } = require("node:child_process");
+            if (app.isPackaged) {
+              spawn(process.execPath, ["--widget"], {
+                detached: true,
+                stdio: "ignore",
+                env: process.env,
+              }).unref();
+              return;
+            }
+            const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+            spawn(npm, ["run", "widget"], {
+              cwd: APP_ROOT,
+              detached: true,
+              stdio: "ignore",
+              shell: process.platform === "win32",
+              env: process.env,
+            }).unref();
           },
         },
       ],
