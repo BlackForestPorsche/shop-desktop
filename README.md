@@ -77,9 +77,14 @@ npm install
 
 GitHub Actions builds a portable Windows `.exe` on every push to `main`.
 
-1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
-2. Download **Black Forest Tools-Portable-…exe**
-3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+**Stable download (always the current portable):**
+
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe
+
+Numbered tags (`windows-24`, `windows-25`, …) still get a versioned `Black.Forest.Tools-Portable-…exe` for the in-app “download update” check. The shop Downloads page should use the stable URL above so it does not need a rewrite on every CI run.
+
+1. Download the portable `.exe` (stable link or the matching release asset)
+2. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
 
 Same live shop site as Manjaro. Unlock with your PIN.
 
