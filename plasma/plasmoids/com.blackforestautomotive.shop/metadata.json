@@ -13,7 +13,7 @@
         "Id": "com.blackforestautomotive.shop",
         "License": "LicenseRef-Proprietary",
         "Name": "Black Forest Shop",
-        "Version": "1.4.0",
+        "Version": "1.5.0",
         "Website": "https://shop.blackforestautomotive.com"
     },
     "X-Plasma-API-Minimum-Version": "6.0"
