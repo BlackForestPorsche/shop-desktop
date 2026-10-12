@@ -29,12 +29,21 @@ PlasmoidItem {
     property var viewPayload: null
     property string lastStamp: ""
     property string pendingSessionOp: ""
+    property bool sendingNote: false
+    property string noteStatusText: ""
+    property int noteClearToken: 0
+    property var deskPeople: ["logan", "stephen", "steve", "carla", "john"]
 
     readonly property string viewId: plasmoid.configuration.viewId || "lot"
     readonly property int pollMs: Math.max(30, plasmoid.configuration.pollSeconds || 60) * 1000
     readonly property var people: [
         "logan", "stephen", "steve", "carla", "john", "dwight", "viewer"
     ]
+    readonly property bool isNotesView: viewId === "notes"
+    readonly property bool canCreateNotes: {
+        const role = session && session.role ? String(session.role).toLowerCase() : "";
+        return role === "desk" || role === "bot";
+    }
 
     function sessionHelper() {
         // Installed to ~/.local/bin by scripts/install-plasma-widget.sh
@@ -49,6 +58,7 @@ PlasmoidItem {
         session = null;
         viewPayload = null;
         lastStamp = "";
+        noteStatusText = "";
         pendingSessionOp = "clear";
         executable.exec(sessionHelper() + " clear");
     }
@@ -79,6 +89,7 @@ PlasmoidItem {
             ? i18n("Signed in as %1", next.person)
             : i18n("Locked");
         if (next) {
+            loadDeskPeople();
             refreshView();
         }
     }
@@ -111,6 +122,110 @@ PlasmoidItem {
             return;
         }
         setError(i18n("Shop answered %1.", String(res.status)));
+    }
+
+    function noteErrorMessage(res) {
+        if (!res) {
+            return i18n("Couldn't reach the shop.");
+        }
+        const code = res.body && res.body.error ? res.body.error : "";
+        if (res.status === 401) {
+            return i18n("Session expired. Unlock again.");
+        }
+        if (res.status === 403 && code === "pin_change_required") {
+            return i18n("This person must set a PIN on the shop site first.");
+        }
+        if (res.status === 403) {
+            return i18n("Your role can't leave notes.");
+        }
+        if (res.status === 400 && code === "bad_text") {
+            return i18n("Note text is empty or too long (max 2000 characters).");
+        }
+        if (res.status === 400 && code === "bad_recipient") {
+            return i18n("Pick a desk person to leave the note for.");
+        }
+        if (res.status === 429) {
+            const wait = res.retryAfter || "60";
+            return i18n("Too many notes. Try again in %1 seconds.", wait);
+        }
+        return i18n("Couldn't send the note (%1).", String(res.status));
+    }
+
+    function loadDeskPeople() {
+        if (!session || !session.token) {
+            return;
+        }
+        Api.listPeople(session.token).then(function (res) {
+            if (res.status !== 200 || !res.body) {
+                return;
+            }
+            var list = null;
+            if (Array.isArray(res.body)) {
+                list = res.body;
+            } else if (Array.isArray(res.body.people)) {
+                list = res.body.people;
+            } else if (Array.isArray(res.body.items)) {
+                list = res.body.items;
+            }
+            if (!list || !list.length) {
+                return;
+            }
+            var ids = [];
+            for (var i = 0; i < list.length; i++) {
+                var row = list[i];
+                var id = typeof row === "string" ? row : (row && (row.id || row.person || row.name));
+                id = Api.normalizePerson(id);
+                if (id && ids.indexOf(id) < 0) {
+                    ids.push(id);
+                }
+            }
+            if (ids.length) {
+                deskPeople = ids;
+            }
+        }).catch(function () {
+            // Keep DEFAULT_DESK_PEOPLE fallback.
+        });
+    }
+
+    function sendNote(recipient, text) {
+        if (!session || !session.token || sendingNote) {
+            return;
+        }
+        const trimmed = String(text || "").trim();
+        if (!trimmed) {
+            setError(i18n("Write a short note first."));
+            return;
+        }
+        if (!canCreateNotes) {
+            setError(i18n("Your role can't leave notes."));
+            return;
+        }
+        sendingNote = true;
+        noteStatusText = "";
+        setError("");
+        maybeRefreshToken().then(function () {
+            if (!session || !session.token) {
+                sendingNote = false;
+                return;
+            }
+            return Api.createNote(session.token, recipient, trimmed).then(function (res) {
+                sendingNote = false;
+                if (res.status !== 200 && res.status !== 201) {
+                    if (res.status === 401) {
+                        clearSessionLocal();
+                    }
+                    setError(noteErrorMessage(res));
+                    return;
+                }
+                noteClearToken += 1;
+                const who = res.body && res.body.recipient ? res.body.recipient : recipient;
+                noteStatusText = i18n("Left a note for %1.", who);
+                refreshView();
+            });
+        }).catch(function (err) {
+            sendingNote = false;
+            setError(err.message || i18n("Couldn't send the note."));
+        });
     }
 
     function login(person, pin) {
@@ -265,7 +380,11 @@ PlasmoidItem {
     Component.onCompleted: loadSessionFromDisk()
 
     onViewIdChanged: {
+        noteStatusText = "";
         if (session) {
+            if (isNotesView) {
+                loadDeskPeople();
+            }
             refreshView();
         }
     }
@@ -386,6 +505,76 @@ PlasmoidItem {
                 visible: !!root.session && !!root.viewPayload && !!root.viewPayload.summary
                 text: root.viewPayload ? (root.viewPayload.summary || "") : ""
                 font.bold: true
+            }
+
+            ColumnLayout {
+                id: notesCompose
+                Layout.fillWidth: true
+                visible: !!root.session && root.isNotesView
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    Layout.fillWidth: true
+                    visible: !root.canCreateNotes
+                    wrapMode: Text.WordWrap
+                    text: i18n("This unlock can read notes. Desk or bot can leave a note for someone.")
+                    opacity: 0.8
+                }
+
+                PlasmaComponents.Label {
+                    Layout.fillWidth: true
+                    visible: root.canCreateNotes
+                    text: i18n("Leave a note for")
+                }
+
+                QQC2.ComboBox {
+                    id: recipientBox
+                    Layout.fillWidth: true
+                    visible: root.canCreateNotes
+                    model: root.deskPeople
+                    enabled: !root.sendingNote
+                    Component.onCompleted: {
+                        const me = root.session && root.session.person
+                            ? String(root.session.person).toLowerCase()
+                            : "";
+                        const idx = model.indexOf(me);
+                        currentIndex = idx >= 0 ? idx : 0;
+                    }
+                }
+
+                QQC2.TextArea {
+                    id: noteField
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+                    visible: root.canCreateNotes
+                    wrapMode: TextEdit.Wrap
+                    placeholderText: i18n("Keys are on the bench…")
+                    enabled: !root.sendingNote
+
+                    Connections {
+                        target: root
+                        function onNoteClearTokenChanged() {
+                            noteField.text = "";
+                        }
+                    }
+                }
+
+                PlasmaComponents.Button {
+                    id: sendNoteButton
+                    Layout.fillWidth: true
+                    visible: root.canCreateNotes
+                    text: root.sendingNote ? i18n("Sending…") : i18n("Send note")
+                    enabled: !root.sendingNote && !root.busy && noteField.text.trim().length > 0
+                    onClicked: root.sendNote(recipientBox.currentText, noteField.text)
+                }
+
+                PlasmaComponents.Label {
+                    Layout.fillWidth: true
+                    visible: root.noteStatusText.length > 0
+                    text: root.noteStatusText
+                    wrapMode: Text.WordWrap
+                    color: Kirigami.Theme.positiveTextColor
+                }
             }
 
             ListView {
