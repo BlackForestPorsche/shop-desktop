@@ -50,13 +50,18 @@ code="$(
   exit 4
 }
 
-if [[ "$code" == "404" || "$code" == "405" || "$code" == "406" ]]; then
-  echo "Firefox handoff is not on the site yet (HTTP $code). Paste docs/grok-shared-login-bridge.md into Grok Build, then retry." >&2
+if [[ "$code" == "401" || "$code" == "403" ]]; then
+  echo "Shared widget session was rejected (HTTP $code). Unlock again, then retry." >&2
+  exit 5
+fi
+
+if [[ "$code" == "429" ]]; then
+  echo "Handoff rate-limited (10/min). Wait a minute and try again." >&2
   exit 5
 fi
 
 if [[ "$code" != "200" ]]; then
-  echo "Handoff failed (HTTP $code)." >&2
+  echo "Handoff failed (HTTP $code). Shop beta 0.1.25+ required for POST /api/widget/session/handoff." >&2
   exit 6
 fi
 
