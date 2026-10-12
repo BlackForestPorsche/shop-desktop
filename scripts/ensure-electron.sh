@@ -3,7 +3,7 @@
 # without running electron's download script.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 ELECTRON_DIR="$ROOT/node_modules/electron"
 ELECTRON_BIN="$ELECTRON_DIR/dist/electron"
 INSTALL_JS="$ELECTRON_DIR/install.js"
