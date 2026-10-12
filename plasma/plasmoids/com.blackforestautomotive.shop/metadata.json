@@ -8,12 +8,12 @@
             }
         ],
         "Category": "Utilities",
-        "Description": "Live shop views for Black Forest Tools (lot, book, notes). Unlock once with your shop PIN.",
+        "Description": "Live shop views for Black Forest Tools (lot, book, notes). Leave notes for desk people. Unlock once with your shop PIN.",
         "Icon": "view-calendar-agenda",
         "Id": "com.blackforestautomotive.shop",
         "License": "LicenseRef-Proprietary",
         "Name": "Black Forest Shop",
-        "Version": "1.0.0",
+        "Version": "1.3.0",
         "Website": "https://shop.blackforestautomotive.com"
     },
     "X-Plasma-API-Minimum-Version": "6.0"
