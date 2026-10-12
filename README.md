@@ -41,7 +41,8 @@ npm start
 - Shop records come from the site as you use them, including `/_serverFn/`, `/api/google/start`, and `/api/shop-archive`.
 - The first document load skips the HTTP cache, and the window asks to reload when a publish changes the site's scripts.
 - **Shop → Reload and pick up site updates** (Ctrl+Shift+R) forces that immediately.
-- Shop person + PIN unlock is shared with the Plasma widgets via `~/.local/share/blackforest-tools/widget-session.json` (mode `700` / `0600`). **Shop → Lock shop (widgets + this window)** clears both. A browser on the same machine still has its own cookies.
+- Shop person + PIN unlock is shared with the Plasma widgets via `~/.local/share/blackforest-tools/widget-session.json` (mode `700` / `0600`). **Shop → Lock shop (widgets + this window)** clears both.
+- When the site ships exchange/handoff, Black Forest Tools calls `POST /api/widget/session/exchange` so the Electron window gets `bf_shop_gate`, and **Shop → Open in Firefox signed in** (or `npm run firefox-signed-in` / menu entry **Shop in Firefox (signed in)**) opens a one-time handoff URL in Firefox. Until those routes exist, both paths fail quietly (404) without weakening PIN unlock.
 - Display size and the Chromium profile for this window still live under `~/.config/Black Forest Tools`.
 
 Parts-catalog links open in the normal browser. Google sign-in stays in this window so Connect Google can finish back on the shop server.
