@@ -14,6 +14,9 @@ const {
   sessionFingerprint,
   extractPersonPin,
   ensureSessionDir,
+  exchangeWidgetSession,
+  requestFirefoxHandoff,
+  SHOP_BASE,
 } = require("../src/shared-session");
 
 function tempEnv() {
@@ -79,4 +82,81 @@ test("readSession treats expired sessions as missing", () => {
   );
   assert.equal(readSession(env), null);
   fs.rmSync(env.root, { recursive: true, force: true });
+});
+
+test("exchangeWidgetSession posts Bearer and maps missing routes to not_shipped", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return {
+      status: 406,
+      async json() {
+        return { error: "Only HTML requests are supported here" };
+      },
+    };
+  };
+  await assert.rejects(
+    () => exchangeWidgetSession("tok", fetchImpl),
+    (err) => err && err.code === "not_shipped" && err.status === 406,
+  );
+  assert.equal(calls[0].url, `${SHOP_BASE}/api/widget/session/exchange`);
+  assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+
+  await assert.rejects(
+    () =>
+      exchangeWidgetSession("tok", async () => ({
+        status: 404,
+        async json() {
+          return {};
+        },
+      })),
+    (err) => err && err.code === "not_shipped" && err.status === 404,
+  );
+
+  const okFetch = async () => ({
+    status: 200,
+    async json() {
+      return {
+        ok: true,
+        person: "logan",
+        role: "desk",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      };
+    },
+  });
+  const got = await exchangeWidgetSession("tok", okFetch);
+  assert.equal(got.ok, true);
+  assert.equal(got.person, "logan");
+});
+
+test("requestFirefoxHandoff returns shop URL and rejects off-host urls", async () => {
+  const good = await requestFirefoxHandoff("tok", async () => ({
+    status: 200,
+    async json() {
+      return { url: `${SHOP_BASE}/api/widget/session/handoff/abc` };
+    },
+  }));
+  assert.equal(good.url, `${SHOP_BASE}/api/widget/session/handoff/abc`);
+
+  await assert.rejects(
+    () =>
+      requestFirefoxHandoff("tok", async () => ({
+        status: 200,
+        async json() {
+          return { url: "https://evil.example/steal" };
+        },
+      })),
+    (err) => err && err.code === "handoff_bad_url",
+  );
+
+  await assert.rejects(
+    () =>
+      requestFirefoxHandoff("tok", async () => ({
+        status: 404,
+        async json() {
+          return {};
+        },
+      })),
+    (err) => err && err.code === "not_shipped",
+  );
 });
