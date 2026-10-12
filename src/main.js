@@ -1,1 +1,1 @@
-@file:/home/logan/shop-desktop/src/main.js
+file:///home/logan/shop-desktop/src/main.js
