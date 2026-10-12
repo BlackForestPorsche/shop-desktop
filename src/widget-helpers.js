@@ -72,6 +72,15 @@ function classifyWidgetHttpError(status, body, retryAfter) {
   if (status === 403) {
     return { code: "forbidden", retryAfter: null };
   }
+  if (status === 400 && body && body.error === "bad_text") {
+    return { code: "bad_text", retryAfter: null };
+  }
+  if (status === 400 && body && body.error === "bad_recipient") {
+    return { code: "bad_recipient", retryAfter: null };
+  }
+  if (status === 400) {
+    return { code: "bad_request", retryAfter: null };
+  }
   if (status === 429) {
     const wait = retryAfter != null && String(retryAfter).length
       ? Number(retryAfter)
@@ -87,10 +96,20 @@ function classifyWidgetHttpError(status, body, retryAfter) {
   return { code: "http_error", status, retryAfter: null };
 }
 
+/** Desk people for note recipients when /api/widget/people is unavailable. */
+const DEFAULT_DESK_PEOPLE = ["logan", "stephen", "steve", "carla", "john"];
+
+function canCreateNotes(role) {
+  const r = String(role || "").trim().toLowerCase();
+  return r === "desk" || r === "bot";
+}
+
 module.exports = {
   normalizePerson,
   parseSessionJson,
   isSessionExpired,
   shouldRefreshToken,
   classifyWidgetHttpError,
+  DEFAULT_DESK_PEOPLE,
+  canCreateNotes,
 };
