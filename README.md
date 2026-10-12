@@ -6,6 +6,18 @@ The window loads the live site. The book, the lot, notes, parts, crew, invoices,
 
 ## Install on Manjaro
 
+**One-file install script** (stable release asset for the shop Downloads page):
+
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/install-linux-desk.sh
+
+```bash
+curl -fsSL -o /tmp/install-linux-desk.sh \
+  https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/install-linux-desk.sh
+bash /tmp/install-linux-desk.sh
+```
+
+Or step by step:
+
 ```bash
 sudo pacman -S nodejs npm git
 cd ~
@@ -75,67 +87,57 @@ npm install
 
 ## Windows
 
-### Setup (preferred install utility)
+### Setup (recommended)
 
-GitHub Actions builds **Setup** + portable on every push to `main`. Prefer the Setup so desk users do not browse Releases.
-
-**Stable Setup (after CI publishes it on `latest`):**
+One-click install utility for the desk. The shop Downloads page should deep-link this stable URL (not the Releases UI):
 
 https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe
 
-Installs **Black Forest Tools** and a **Black Forest Shop Widget** shortcut (same binary with `--widget`). Until that stable name exists on a release, use the current versioned portable:
+`Black.Forest.Tools-Setup.exe` clones `%USERPROFILE%\shop-desktop`, runs `npm install`, creates Start Menu / Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**, registers the 30-minute git auto-update task (`BlackForestShopDesktopUpdate`), and launches Tools. First run may install Git / Node via winget if missing.
 
-https://github.com/BlackForestPorsche/shop-desktop/releases/download/windows-24/Black.Forest.Tools-Portable-1.3.0.exe
+Windows may warn about an unknown publisher (unsigned build) — More info → Run anyway.
 
-Windows may warn about an unknown publisher — More info → Run anyway. Unlock with your PIN. Packaged Setup/portable do **not** git-pull shell code by themselves.
+A versioned NSIS Setup (`Black.Forest.Tools-Setup-…exe`) is also attached on each release for a packaged install without git. Prefer the stable Setup above so shell and widget code keep updating from git.
 
-### Git checkout (auto-update + widgets)
+### Portable (bootstrap only)
 
-One-shot install utility (needs Git + Node on PATH):
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe
+
+No git auto-update / no install shortcuts. Prefer Setup. Numbered tags also attach a versioned Portable for in-app update checks.
+
+### Manual git checkout
 
 ```text
 powershell -ExecutionPolicy Bypass -File scripts\bootstrap-windows.ps1
 ```
 
-Or manually:
+Or step by step:
 
 ```text
 git clone https://github.com/BlackForestPorsche/shop-desktop.git %USERPROFILE%\shop-desktop
 cd %USERPROFILE%\shop-desktop
 npm install
 powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
-```
-
-That adds Start Menu / Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**, and a 30-minute scheduled task (`BlackForestShopDesktopUpdate`) that fast-forwards this checkout and runs `npm install` when `main` moves.
-
-```text
 npm start
 npm run widget
 ```
 
 ### Shop widgets on Windows (Electron, not Plasma)
 
-Windows does **not** get the KDE Plasma plasmoid. From Setup, open **Black Forest Shop Widget**. From a git checkout:
-
-```text
-cd %USERPROFILE%\shop-desktop
-npm run widget
-```
-
-Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes** (same widget API as Plasma). Always-on-top is on by default. Unlock once with person + PIN; session file:
+Windows does **not** get the KDE Plasma plasmoid. Setup adds **Black Forest Shop Widget**. Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes**. Session file:
 
 `%LOCALAPPDATA%\blackforest-tools\widget-session.json`
 
 (same shape as Linux `~/.local/share/blackforest-tools/widget-session.json`).
 
-To build Setup + portable yourself (on Windows):
+To build NSIS Setup + portable yourself (on Windows):
 
 ```bash
 npm install
 npm run dist:win
 ```
 
-Outputs land in `dist/` (`Black.Forest.Tools-Setup-…exe` and `Black.Forest.Tools-Portable-…exe`).
+Outputs land in `dist/`. CI also compiles `scripts/bootstrap-windows.ps1` to the stable `Black.Forest.Tools-Setup.exe`.
 
 ## AppImage (Linux)
 
