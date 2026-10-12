@@ -12,7 +12,8 @@ BIN_DIR="$HOME/.local/bin"
 chmod +x \
   "$LAUNCHER" \
   "$ROOT/scripts/install-manjaro.sh" \
-  "$ROOT/scripts/ensure-electron.sh"
+  "$ROOT/scripts/ensure-electron.sh" \
+  "$ROOT/scripts/open-firefox-signed-in.sh"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Install Node first: sudo pacman -S nodejs npm" >&2
@@ -36,6 +37,7 @@ if [[ ! -f "$ICON_SRC" ]]; then
 fi
 cp "$ICON_SRC" "$ICON_DIR/blackforest-tools.png"
 ln -sfn "$LAUNCHER" "$BIN_DIR/blackforest-tools"
+ln -sfn "$ROOT/scripts/open-firefox-signed-in.sh" "$BIN_DIR/blackforest-firefox-signed-in"
 
 cat > "$APP_DIR/blackforest-tools.desktop" <<EOF
 [Desktop Entry]
@@ -53,7 +55,22 @@ Keywords=shop;automotive;blackforest;
 StartupNotify=true
 EOF
 
-chmod +x "$APP_DIR/blackforest-tools.desktop"
+cat > "$APP_DIR/blackforest-firefox-signed-in.desktop" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Shop in Firefox (signed in)
+GenericName=Shop Firefox handoff
+Comment=Open shop.blackforestautomotive.com in Firefox using the shared widget session
+Exec=$ROOT/scripts/open-firefox-signed-in.sh
+Icon=blackforest-tools
+Terminal=false
+Categories=Network;Office;Utility;
+Keywords=shop;firefox;blackforest;
+StartupNotify=true
+EOF
+
+chmod +x "$APP_DIR/blackforest-tools.desktop" "$APP_DIR/blackforest-firefox-signed-in.desktop"
 update-desktop-database "$APP_DIR" 2>/dev/null || true
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t "$DATA_HOME/icons/hicolor" 2>/dev/null || true

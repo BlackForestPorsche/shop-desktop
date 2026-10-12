@@ -181,6 +181,105 @@ async function revokeWidgetSession(token, fetchImpl = fetch) {
   clearSession();
 }
 
+function apiError(code, status, message) {
+  const err = new Error(message || code);
+  err.code = code;
+  err.status = status;
+  return err;
+}
+
+async function readJsonBody(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Exchange a widget Bearer token for the SPA bf_shop_gate cookie.
+ * Caller should use Electron session.fetch so Set-Cookie lands in the jar.
+ * 404 → endpoint not shipped yet (graceful).
+ */
+async function exchangeWidgetSession(token, fetchImpl = fetch) {
+  if (!token) {
+    throw apiError("no_token", 0, "no widget token");
+  }
+  let res;
+  try {
+    res = await fetchImpl(`${SHOP_BASE}/api/widget/session/exchange`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (error) {
+    const err = apiError("network", 0, error instanceof Error ? error.message : "network");
+    err.cause = error;
+    throw err;
+  }
+  const body = await readJsonBody(res);
+  // Live shop returns 406 ("Only HTML requests…") for unknown /api routes until Grok ships them.
+  if (res.status === 404 || res.status === 406 || res.status === 405) {
+    throw apiError("not_shipped", res.status, "exchange endpoint not shipped");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw apiError("unauthorized", res.status, "widget token rejected");
+  }
+  if (res.status !== 200 || !body || body.ok !== true) {
+    throw apiError("exchange_failed", res.status, "exchange failed");
+  }
+  return {
+    ok: true,
+    person: body.person || "",
+    role: body.role || "",
+    expiresAt: body.expiresAt || "",
+  };
+}
+
+/**
+ * Mint a one-time Firefox handoff URL from a widget Bearer token.
+ * 404 → endpoint not shipped yet (graceful).
+ */
+async function requestFirefoxHandoff(token, fetchImpl = fetch) {
+  if (!token) {
+    throw apiError("no_token", 0, "no widget token");
+  }
+  let res;
+  try {
+    res = await fetchImpl(`${SHOP_BASE}/api/widget/session/handoff`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (error) {
+    const err = apiError("network", 0, error instanceof Error ? error.message : "network");
+    err.cause = error;
+    throw err;
+  }
+  const body = await readJsonBody(res);
+  if (res.status === 404 || res.status === 406 || res.status === 405) {
+    throw apiError("not_shipped", res.status, "handoff endpoint not shipped");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw apiError("unauthorized", res.status, "widget token rejected");
+  }
+  if (res.status !== 200 || !body || typeof body.url !== "string" || !body.url) {
+    throw apiError("handoff_failed", res.status, "handoff failed");
+  }
+  if (!body.url.startsWith(`${SHOP_BASE}/`)) {
+    throw apiError("handoff_bad_url", res.status, "handoff url not on shop host");
+  }
+  return { url: body.url };
+}
+
 module.exports = {
   DIR_NAME,
   FILE_NAME,
@@ -196,4 +295,6 @@ module.exports = {
   extractPersonPin,
   mintWidgetSession,
   revokeWidgetSession,
+  exchangeWidgetSession,
+  requestFirefoxHandoff,
 };
