@@ -42,3 +42,17 @@ test("pickPortableAsset prefers a portable exe over other assets", () => {
   ]);
   assert.equal(asset.browser_download_url, "https://example/portable");
 });
+
+test("pickPortableAsset prefers versioned Portable over stable unversioned name", () => {
+  const asset = pickPortableAsset([
+    {
+      name: "Black.Forest.Tools-Portable.exe",
+      browser_download_url: "https://example/stable",
+    },
+    {
+      name: "Black.Forest.Tools-Portable-1.3.0.exe",
+      browser_download_url: "https://example/versioned",
+    },
+  ]);
+  assert.equal(asset.browser_download_url, "https://example/versioned");
+});

@@ -68,12 +68,30 @@ jobs:
             });
             core.setFailed('electron-builder failed; see issue for log tail');
 
+      # Keep a fixed asset name so the shop Downloads page can link
+      # …/releases/latest/download/Black.Forest.Tools-Portable.exe
+      # without rewriting the URL on every windows-N tag.
+      - name: Stage stable portable filename
+        if: steps.build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem dist -Filter *.exe |
+            Where-Object { $_.Name -match 'Portable' -and $_.Name -match '\d+\.\d+\.\d+' } |
+            Select-Object -First 1
+          if (-not $portable) {
+            throw "No versioned Portable .exe found in dist/"
+          }
+          Copy-Item -Force $portable.FullName "dist/Black.Forest.Tools-Portable.exe"
+          Write-Host "Staged stable asset from $($portable.Name)"
+
       - name: Upload build artifacts
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: blackforest-tools-windows
-          path: dist/*.exe
+          path: |
+            dist/*Portable*.exe
+            dist/Black.Forest.Tools-Portable.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -83,12 +101,16 @@ jobs:
           tag_name: windows-${{ github.run_number }}
           name: Black Forest Tools for Windows (${{ github.run_number }})
           generate_release_notes: false
-          files: dist/*.exe
+          make_latest: true
+          files: |
+            dist/*Portable*.exe
+            dist/Black.Forest.Tools-Portable.exe
           body: |
             Windows build of **Black Forest Tools** — a desktop window for https://shop.blackforestautomotive.com
 
             ### Download
-            - **Black Forest Tools-Portable-…exe** — run without installing
+            - **Stable (always current):** [Black.Forest.Tools-Portable.exe](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe)
+            - Versioned copy also attached on this release (`Black.Forest.Tools-Portable-…exe`) for in-app update checks
 
             Shop data stays on the live site. Publishing the site updates this window.
 
