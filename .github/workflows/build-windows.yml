@@ -85,26 +85,10 @@ jobs:
         id: setup
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name ps2exe -Force -Scope CurrentUser -AllowClobber
-          Import-Module ps2exe
-          $ver = "${{ steps.meta.outputs.version }}"
-          Invoke-ps2exe `
-            -inputFile "scripts/bootstrap-windows.ps1" `
-            -outputFile "dist/Black.Forest.Tools-Setup.exe" `
-            -title "Black Forest Tools Setup" `
-            -description "Install Black Forest Tools, shop widgets, and git auto-update" `
-            -company "Black Forest Automotive" `
-            -product "Black Forest Tools Setup" `
-            -version $ver `
-            -noConsole:$false `
-            -requireAdmin:$false
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/compile-windows-setup.ps1
           if (-not (Test-Path "dist/Black.Forest.Tools-Setup.exe")) {
             throw "Stable Setup exe was not created"
           }
-          Write-Host "Built stable git Setup: dist/Black.Forest.Tools-Setup.exe"
 
       - name: Stage stable Portable + Linux install script
         if: steps.build.outcome == 'success' && steps.setup.outcome == 'success'
