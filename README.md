@@ -104,7 +104,10 @@ The Manjaro source install above is the straightforward Linux setup.
 
 ## KDE Plasma widget (Manjaro)
 
-Live read-only shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance on that computer shares the session.
+Live shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance on that computer shares the session.
+
+- **On the Lot** and **Book — today** stay read-only.
+- **My open notes** lists notes (`GET /api/widget/views/notes`) and, for desk/bot unlocks, can leave a note for a desk person (`POST /api/widget/notes`, shop beta 0.1.18+). Author comes from the session; pick a recipient, write the text, send.
 
 Requires **Plasma 6** (Manjaro KDE current).
 
@@ -119,6 +122,7 @@ That installs:
 - the plasmoid to `~/.local/share/plasma/plasmoids/com.blackforestautomotive.shop`
 - `blackforest-widget-session` to `~/.local/bin` (keeps the token file mode `0600`)
 - `~/.local/share/blackforest-tools` at mode `700`
+- a **30-minute** user systemd timer (`blackforest-shop-widget-update.timer`) that fast-forwards this git checkout and reinstalls the plasmoid when `main` moves — same idea as Pro Circuit. Lot and notes copies pick up new QML after that reinstall (plasmashell restarts when HEAD changed).
 
 Then:
 
@@ -127,6 +131,13 @@ Then:
 3. Open the widget, unlock with your shop person and PIN
 4. Configure each copy: right-click the widget → **Configure…** → pick **On the Lot**, **Book — today**, or **My open notes**, and the refresh interval
 
-Lock from any instance clears the shared session for all copies. The widget never writes shop data; PIN and token are not logged.
+Lock from any instance clears the shared session for all copies. PIN and token are not logged. Notes creates use the same Bearer session; viewers can read notes but cannot create.
 
 If the widget does not show up after install, log out of Plasma once, or run `plasmashell --replace &`. `~/.local/bin` must be on `PATH` so the widget can call the session helper.
+
+Manual widget refresh (same as the timer):
+
+```bash
+cd ~/shop-desktop
+bash scripts/update-plasma-widget.sh
+```
