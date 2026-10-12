@@ -1,6 +1,9 @@
 # Install Black Forest Tools + Shop Widget shortcuts for this Windows user.
 # Run from a git checkout so Shop → Check for desktop app updates can git pull.
 #   powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
+#
+# First-time desk install without browsing GitHub: scripts\bootstrap-windows.ps1
+# Packaged Setup.exe (CI) also installs Tools + a Shop Widget Start Menu shortcut.
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
