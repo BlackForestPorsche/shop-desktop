@@ -16,6 +16,7 @@ const {
   ensureSessionDir,
   exchangeWidgetSession,
   requestFirefoxHandoff,
+  extractUnlockWidgetSession,
   SHOP_BASE,
 } = require("../src/shared-session");
 
@@ -84,49 +85,64 @@ test("readSession treats expired sessions as missing", () => {
   fs.rmSync(env.root, { recursive: true, force: true });
 });
 
-test("exchangeWidgetSession posts Bearer and maps missing routes to not_shipped", async () => {
+test("extractUnlockWidgetSession reads desk unlock widgetToken fields", () => {
+  const got = extractUnlockWidgetSession(
+    JSON.stringify({
+      ok: true,
+      person: "Logan",
+      role: "desk",
+      widgetToken: "wt-1",
+      widgetExpiresAt: "2099-01-01T00:00:00.000Z",
+    }),
+  );
+  assert.equal(got.token, "wt-1");
+  assert.equal(got.expiresAt, "2099-01-01T00:00:00.000Z");
+  assert.equal(got.person, "logan");
+  assert.equal(got.role, "desk");
+  assert.ok(got.loginAt);
+  // Viewers / Dwight: no widgetToken
+  assert.equal(
+    extractUnlockWidgetSession(JSON.stringify({ ok: true, person: "dwight", role: "viewer" })),
+    null,
+  );
+  assert.equal(
+    extractUnlockWidgetSession(JSON.stringify({ token: "not-enough", expiresAt: "2099-01-01T00:00:00.000Z" })),
+    null,
+  );
+});
+
+test("exchangeWidgetSession posts Bearer and maps contract statuses", async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url, init });
     return {
-      status: 406,
+      status: 200,
       async json() {
-        return { error: "Only HTML requests are supported here" };
+        return {
+          ok: true,
+          person: "logan",
+          role: "desk",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        };
       },
     };
   };
-  await assert.rejects(
-    () => exchangeWidgetSession("tok", fetchImpl),
-    (err) => err && err.code === "not_shipped" && err.status === 406,
-  );
+  const got = await exchangeWidgetSession("tok", fetchImpl);
   assert.equal(calls[0].url, `${SHOP_BASE}/api/widget/session/exchange`);
   assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+  assert.equal(got.ok, true);
+  assert.equal(got.person, "logan");
 
   await assert.rejects(
     () =>
       exchangeWidgetSession("tok", async () => ({
-        status: 404,
+        status: 401,
         async json() {
-          return {};
+          return { error: "unauthorized" };
         },
       })),
-    (err) => err && err.code === "not_shipped" && err.status === 404,
+    (err) => err && err.code === "unauthorized" && err.status === 401,
   );
-
-  const okFetch = async () => ({
-    status: 200,
-    async json() {
-      return {
-        ok: true,
-        person: "logan",
-        role: "desk",
-        expiresAt: "2099-01-01T00:00:00.000Z",
-      };
-    },
-  });
-  const got = await exchangeWidgetSession("tok", okFetch);
-  assert.equal(got.ok, true);
-  assert.equal(got.person, "logan");
 });
 
 test("requestFirefoxHandoff returns shop URL and rejects off-host urls", async () => {
@@ -152,11 +168,11 @@ test("requestFirefoxHandoff returns shop URL and rejects off-host urls", async (
   await assert.rejects(
     () =>
       requestFirefoxHandoff("tok", async () => ({
-        status: 404,
+        status: 429,
         async json() {
-          return {};
+          return { error: "rate_limited" };
         },
       })),
-    (err) => err && err.code === "not_shipped",
+    (err) => err && err.code === "rate_limited",
   );
 });

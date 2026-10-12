@@ -91,9 +91,16 @@ function sessionFingerprint(session) {
   return `${session.token.length}:${session.expiresAt}:${session.person || ""}:${session.role || ""}`;
 }
 
-function extractPersonPin(raw) {
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function parseJsonPayload(raw) {
   if (!raw) {
     return null;
+  }
+  if (asObject(raw)) {
+    return raw;
   }
   let text = "";
   if (Buffer.isBuffer(raw)) {
@@ -108,27 +115,61 @@ function extractPersonPin(raw) {
     return null;
   }
   try {
-    const data = JSON.parse(text);
-    const person =
-      data.person ||
-      (data.data && data.data.person) ||
-      (data.payload && data.payload.person);
-    const pin =
-      data.pin ||
-      (data.data && data.data.pin) ||
-      (data.payload && data.payload.pin);
-    if (person == null || pin == null) {
-      return null;
-    }
-    const personText = String(person).trim().toLowerCase();
-    const pinText = String(pin);
-    if (!personText || !pinText) {
-      return null;
-    }
-    return { person: personText, pin: pinText };
+    return JSON.parse(text);
   } catch {
     return null;
   }
+}
+
+function extractPersonPin(raw) {
+  const data = parseJsonPayload(raw);
+  if (!data) {
+    return null;
+  }
+  const person =
+    data.person ||
+    (data.data && data.data.person) ||
+    (data.payload && data.payload.person);
+  const pin =
+    data.pin ||
+    (data.data && data.data.pin) ||
+    (data.payload && data.payload.pin);
+  if (person == null || pin == null) {
+    return null;
+  }
+  const personText = String(person).trim().toLowerCase();
+  const pinText = String(pin);
+  if (!personText || !pinText) {
+    return null;
+  }
+  return { person: personText, pin: pinText };
+}
+
+/**
+ * Desk unlock JSON (shop beta 0.1.25+) may include widgetToken + widgetExpiresAt.
+ * Viewers/Dwight omit these. Prefer writing the shared file from this over PIN mint.
+ */
+function extractUnlockWidgetSession(raw) {
+  const data = parseJsonPayload(raw);
+  if (!data) {
+    return null;
+  }
+  const candidates = [data, asObject(data.data), asObject(data.payload), asObject(data.result)].filter(
+    Boolean,
+  );
+  for (const obj of candidates) {
+    if (!obj.widgetToken || !obj.widgetExpiresAt) {
+      continue;
+    }
+    return {
+      token: String(obj.widgetToken),
+      expiresAt: String(obj.widgetExpiresAt),
+      person: obj.person ? String(obj.person).trim().toLowerCase() : "",
+      role: obj.role ? String(obj.role) : "",
+      loginAt: new Date().toISOString(),
+    };
+  }
+  return null;
 }
 
 async function mintWidgetSession(person, pin, fetchImpl = fetch) {
@@ -197,9 +238,10 @@ async function readJsonBody(res) {
 }
 
 /**
- * Exchange a widget Bearer token for the SPA bf_shop_gate cookie.
+ * Exchange a widget Bearer token for the SPA bf_shop_gate cookie (shop beta 0.1.25+).
  * Caller should use Electron session.fetch so Set-Cookie lands in the jar.
- * 404 → endpoint not shipped yet (graceful).
+ * Cookie: Path=/, HttpOnly, Secure on HTTPS, SameSite=None on HTTPS.
+ * TTL = earlier of normal shop lock and widget token remaining life.
  */
 async function exchangeWidgetSession(token, fetchImpl = fetch) {
   if (!token) {
@@ -222,15 +264,14 @@ async function exchangeWidgetSession(token, fetchImpl = fetch) {
     throw err;
   }
   const body = await readJsonBody(res);
-  // Live shop returns 406 ("Only HTML requests…") for unknown /api routes until Grok ships them.
-  if (res.status === 404 || res.status === 406 || res.status === 405) {
-    throw apiError("not_shipped", res.status, "exchange endpoint not shipped");
-  }
   if (res.status === 401 || res.status === 403) {
     throw apiError("unauthorized", res.status, "widget token rejected");
   }
+  if (res.status === 429) {
+    throw apiError("rate_limited", res.status, "exchange rate limited");
+  }
   if (res.status !== 200 || !body || body.ok !== true) {
-    throw apiError("exchange_failed", res.status, "exchange failed");
+    throw apiError("exchange_failed", res.status, `exchange failed (HTTP ${res.status})`);
   }
   return {
     ok: true,
@@ -241,8 +282,8 @@ async function exchangeWidgetSession(token, fetchImpl = fetch) {
 }
 
 /**
- * Mint a one-time Firefox handoff URL from a widget Bearer token.
- * 404 → endpoint not shipped yet (graceful).
+ * Mint a one-time Firefox handoff URL (shop beta 0.1.25+).
+ * Ticket TTL 60s, single use. Rate limit 10/min/token → 429.
  */
 async function requestFirefoxHandoff(token, fetchImpl = fetch) {
   if (!token) {
@@ -265,14 +306,14 @@ async function requestFirefoxHandoff(token, fetchImpl = fetch) {
     throw err;
   }
   const body = await readJsonBody(res);
-  if (res.status === 404 || res.status === 406 || res.status === 405) {
-    throw apiError("not_shipped", res.status, "handoff endpoint not shipped");
-  }
   if (res.status === 401 || res.status === 403) {
     throw apiError("unauthorized", res.status, "widget token rejected");
   }
+  if (res.status === 429) {
+    throw apiError("rate_limited", res.status, "handoff rate limited (10/min)");
+  }
   if (res.status !== 200 || !body || typeof body.url !== "string" || !body.url) {
-    throw apiError("handoff_failed", res.status, "handoff failed");
+    throw apiError("handoff_failed", res.status, `handoff failed (HTTP ${res.status})`);
   }
   if (!body.url.startsWith(`${SHOP_BASE}/`)) {
     throw apiError("handoff_bad_url", res.status, "handoff url not on shop host");
@@ -293,6 +334,7 @@ module.exports = {
   clearSession,
   sessionFingerprint,
   extractPersonPin,
+  extractUnlockWidgetSession,
   mintWidgetSession,
   revokeWidgetSession,
   exchangeWidgetSession,
