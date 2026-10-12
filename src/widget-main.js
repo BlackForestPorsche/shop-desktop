@@ -1,1 +1,1 @@
-PLACEHOLDER_WILL_FAIL_CHECKSUM
+/workspace/.upload-staging/widget-main.raw
