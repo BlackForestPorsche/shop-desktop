@@ -120,7 +120,7 @@ function fetchJson(url) {
 async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
   runGit(root, ["fetch", "--quiet", remote, branch]);
   const current = runGit(root, ["rev-parse", "HEAD"]);
-  const upstream = runGit(root, [`${remote}/${branch}`].length ? ["rev-parse", `${remote}/${branch}`] : ["rev-parse", `${remote}/${branch}`]);
+  const upstream = runGit(root, ["rev-parse", `${remote}/${branch}`]);
   if (current === upstream) {
     return {
       mode: "git",
