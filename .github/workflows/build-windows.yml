@@ -2,7 +2,9 @@ name: Build Windows
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - cursor/windows-setup-installer-a813
   workflow_dispatch:
 
 permissions:
