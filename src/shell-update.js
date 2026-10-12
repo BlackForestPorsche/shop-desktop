@@ -20,6 +20,34 @@ function isGitInstall(root) {
   }
 }
 
+/** Prefer the branch this checkout tracks (feature branch until main catches up). */
+function resolveGitBranch(root, { remote = "origin", branch } = {}) {
+  if (typeof branch === "string" && branch.trim() && branch !== DEFAULT_BRANCH) {
+    return branch.trim();
+  }
+  try {
+    const upstream = runGit(root, [
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{u}",
+    ]);
+    const prefix = `${remote}/`;
+    if (upstream.startsWith(prefix)) {
+      return upstream.slice(prefix.length);
+    }
+  } catch {
+    // no upstream configured
+  }
+  try {
+    const head = runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    if (head && head !== "HEAD") return head;
+  } catch {
+    // detached HEAD
+  }
+  return DEFAULT_BRANCH;
+}
+
 function parseSemver(text) {
   if (typeof text !== "string") return null;
   const match = text.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -110,21 +138,27 @@ function fetchJson(url) {
   });
 }
 
-async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
-  runGit(root, ["fetch", "--quiet", remote, branch]);
+async function checkGitUpdate(root, { remote = "origin", branch } = {}) {
+  const targetBranch = resolveGitBranch(root, { remote, branch });
+  runGit(root, ["fetch", "--quiet", remote, targetBranch]);
   const current = runGit(root, ["rev-parse", "HEAD"]);
-  const upstream = runGit(root, ["rev-parse", `${remote}/${branch}`]);
+  const upstream = runGit(root, ["rev-parse", `${remote}/${targetBranch}`]);
   if (current === upstream) {
     return {
       mode: "git",
       available: false,
       current,
       upstream,
+      branch: targetBranch,
     };
   }
 
   let summary = "";
+  let aheadCount = 0;
   try {
+    aheadCount = Number(
+      runGit(root, ["rev-list", "--count", `${current}..${upstream}`]) || "0",
+    );
     summary = runGit(root, [
       "log",
       "--oneline",
@@ -133,13 +167,17 @@ async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH
     ]);
   } catch {
     summary = "";
+    aheadCount = 0;
   }
 
+  // Only offer an update when the remote tip has commits we do not have
+  // (avoids false prompts when this PC is ahead of origin/main on a feature branch).
   return {
     mode: "git",
-    available: true,
+    available: aheadCount > 0,
     current,
     upstream,
+    branch: targetBranch,
     summary,
     shortCurrent: current.slice(0, 7),
     shortUpstream: upstream.slice(0, 7),
@@ -181,7 +219,7 @@ async function checkShellUpdate({
   currentVersion,
   packaged = false,
   repo = DEFAULT_REPO,
-  branch = DEFAULT_BRANCH,
+  branch,
 } = {}) {
   if (!packaged && isGitInstall(root)) {
     return checkGitUpdate(root, { branch });
@@ -189,8 +227,9 @@ async function checkShellUpdate({
   return checkReleaseUpdate(currentVersion, { repo });
 }
 
-function applyGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
-  runGit(root, ["pull", "--ff-only", remote, branch]);
+function applyGitUpdate(root, { remote = "origin", branch } = {}) {
+  const targetBranch = resolveGitBranch(root, { remote, branch });
+  runGit(root, ["pull", "--ff-only", remote, targetBranch]);
 
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const install = spawnSync(npm, ["install"], {
@@ -216,6 +255,7 @@ module.exports = {
   DEFAULT_BRANCH,
   appRootFromMain,
   isGitInstall,
+  resolveGitBranch,
   parseSemver,
   compareSemver,
   versionFromReleaseAssetName,
