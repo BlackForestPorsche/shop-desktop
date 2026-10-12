@@ -11,6 +11,15 @@ const {
   checkShellUpdate,
 } = require("./shell-update");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
+const {
+  sessionFilePath,
+  readSession,
+  clearSession,
+  sessionFingerprint,
+  extractPersonPin,
+  mintWidgetSession,
+  revokeWidgetSession,
+} = require("./shared-session");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -20,6 +29,7 @@ const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
+const GATE_COOKIE = "bf_shop_gate";
 
 app.setName("Black Forest Tools");
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
@@ -44,6 +54,12 @@ let shellChecking = false;
 let shellPromptOpen = false;
 let snoozedShellKey = "";
 let shellSnoozeUntil = 0;
+let pendingUnlockCreds = null;
+let pendingUnlockUntil = 0;
+let sharedSessionWatcher = null;
+let lastSharedFingerprint = "";
+let applyingRemoteLock = false;
+let mintingWidgetSession = false;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -407,6 +423,15 @@ function shopMenu() {
           click: () => checkForShellUpdate({ interactive: true }),
         },
         { type: "separator" },
+        {
+          label: "Lock shop (widgets + this window)",
+          click: () => {
+            lockSharedSurfaces({ revokeRemote: true }).catch((error) => {
+              console.error(error);
+            });
+          },
+        },
+        { type: "separator" },
         { label: "Quit", accelerator: "CmdOrCtrl+Q", role: "quit" },
       ],
     },
@@ -460,7 +485,8 @@ function shopMenu() {
                 "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
                 "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
                 "",
-                "This computer keeps its own unlock and display settings, the same way another browser would.",
+                "Unlock is shared with the Plasma shop widgets via ~/.local/share/blackforest-tools.",
+                "Lock from the widget or Shop → Lock shop clears both.",
               ].join("\n"),
             });
           },
@@ -532,9 +558,150 @@ function createWindow(startUrl) {
   return win;
 }
 
+function shopPartition() {
+  return session.fromPartition("persist:shop");
+}
+
+function rememberUnlockAttempt(details) {
+  if (!details || !details.uploadData || !details.uploadData.length) {
+    return;
+  }
+  for (const part of details.uploadData) {
+    if (!part || !part.bytes) {
+      continue;
+    }
+    const creds = extractPersonPin(Buffer.from(part.bytes));
+    if (creds) {
+      pendingUnlockCreds = creds;
+      pendingUnlockUntil = Date.now() + 30_000;
+      return;
+    }
+  }
+}
+
+async function mintSharedSessionFromPending() {
+  if (mintingWidgetSession) {
+    return;
+  }
+  if (!pendingUnlockCreds || Date.now() > pendingUnlockUntil) {
+    return;
+  }
+  const creds = pendingUnlockCreds;
+  pendingUnlockCreds = null;
+  pendingUnlockUntil = 0;
+  mintingWidgetSession = true;
+  try {
+    const next = await mintWidgetSession(creds.person, creds.pin);
+    lastSharedFingerprint = sessionFingerprint(next);
+  } catch (error) {
+    console.error("Could not mint shared widget session from desktop unlock.");
+  } finally {
+    mintingWidgetSession = false;
+  }
+}
+
+async function clearShopGateCookies() {
+  const shopSession = shopPartition();
+  try {
+    const cookies = await shopSession.cookies.get({
+      domain: "shop.blackforestautomotive.com",
+    });
+    await Promise.all(
+      cookies
+        .filter((cookie) => cookie.name === GATE_COOKIE || cookie.name.startsWith(`${GATE_COOKIE}`))
+        .map((cookie) =>
+          shopSession.cookies.remove(
+            `https://shop.blackforestautomotive.com${cookie.path || "/"}`,
+            cookie.name,
+          ),
+        ),
+    );
+  } catch (error) {
+    console.error("Could not clear shop gate cookies:", error);
+  }
+}
+
+async function lockSharedSurfaces({ revokeRemote = true } = {}) {
+  if (applyingRemoteLock) {
+    return;
+  }
+  applyingRemoteLock = true;
+  try {
+    const existing = readSession();
+    if (revokeRemote && existing && existing.token) {
+      await revokeWidgetSession(existing.token);
+    } else {
+      clearSession();
+    }
+    lastSharedFingerprint = "";
+    await clearShopGateCookies();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const current = mainWindow.webContents.getURL();
+      if (!current.includes("/unlock")) {
+        await mainWindow.loadURL("https://shop.blackforestautomotive.com/unlock");
+      }
+    }
+  } finally {
+    applyingRemoteLock = false;
+  }
+}
+
+function watchSharedSessionFile() {
+  const file = sessionFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  lastSharedFingerprint = sessionFingerprint(readSession());
+
+  const onChange = () => {
+    if (applyingRemoteLock || mintingWidgetSession) {
+      return;
+    }
+    const next = readSession();
+    const fp = sessionFingerprint(next);
+    if (fp === lastSharedFingerprint) {
+      return;
+    }
+    const had = Boolean(lastSharedFingerprint);
+    lastSharedFingerprint = fp;
+    if (!fp && had) {
+      // Widget (or another surface) signed out — clear Electron without a Plasma restart.
+      lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
+        console.error(error);
+      });
+    }
+  };
+
+  try {
+    if (sharedSessionWatcher) {
+      sharedSessionWatcher.close();
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    sharedSessionWatcher = fs.watch(path.dirname(file), { persistent: false }, (_event, filename) => {
+      if (filename && filename !== path.basename(file) && filename !== `${path.basename(file)}.tmp`) {
+        return;
+      }
+      onChange();
+    });
+  } catch (error) {
+    console.error("Could not watch shared session file:", error);
+  }
+}
+
 function configureSession() {
-  const shopSession = session.fromPartition("persist:shop");
+  const shopSession = shopPartition();
   shopSession.setUserAgent(browserUserAgent());
+  shopSession.webRequest.onBeforeRequest(
+    { urls: ["https://shop.blackforestautomotive.com/*"] },
+    (details, callback) => {
+      if (details.method === "POST") {
+        rememberUnlockAttempt(details);
+      }
+      callback({});
+    },
+  );
   shopSession.webRequest.onBeforeSendHeaders(
     { urls: ["https://shop.blackforestautomotive.com/*"] },
     (details, callback) => {
@@ -546,6 +713,24 @@ function configureSession() {
       callback({ requestHeaders });
     },
   );
+  shopSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
+    if (!cookie || cookie.name !== GATE_COOKIE) {
+      return;
+    }
+    if (removed) {
+      const existing = readSession();
+      if (existing && !applyingRemoteLock) {
+        revokeWidgetSession(existing.token).catch(() => {
+          clearSession();
+        });
+        lastSharedFingerprint = "";
+      }
+      return;
+    }
+    mintSharedSessionFromPending().catch((error) => {
+      console.error(error);
+    });
+  });
   shopSession.setPermissionRequestHandler((_contents, permission, callback) => {
     const allowed = new Set([
       "notifications",
@@ -574,6 +759,7 @@ if (gotLock) {
       app.setAppUserModelId("com.blackforestautomotive.tools");
     }
     configureSession();
+    watchSharedSessionFile();
     Menu.setApplicationMenu(shopMenu());
     createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
     updateTimer = setInterval(() => {
@@ -590,6 +776,11 @@ if (gotLock) {
   app.on("window-all-closed", () => {
     if (updateTimer) clearInterval(updateTimer);
     if (shellUpdateTimer) clearInterval(shellUpdateTimer);
+    try {
+      if (sharedSessionWatcher) sharedSessionWatcher.close();
+    } catch {
+      // ignore
+    }
     app.quit();
   });
 }
