@@ -62,35 +62,80 @@ Shop publishes do not require an update of this project — the window reloads t
 
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
-- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates**.
-- **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+- **Git install (Manjaro or Windows):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates** (or **Widget → Check for desktop updates**).
+- **Windows portable:** bootstrap only — the app offers the new `.exe` download when `package.json` version is newer. Prefer a git checkout so shell and widget code keep updating.
 
-Manual update on Manjaro still works:
+Manual update from a git checkout:
 
 ```bash
-cd ~/shop-desktop
+cd ~/shop-desktop   # Windows: %USERPROFILE%\shop-desktop
 git pull
 npm install
 ```
 
 ## Windows
 
-GitHub Actions builds a portable Windows `.exe` on every push to `main`.
+### Setup (preferred install utility)
 
-1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
-2. Download **Black Forest Tools-Portable-…exe**
-3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+GitHub Actions builds **Setup** + portable on every push to `main`. Prefer the Setup so desk users do not browse Releases.
 
-Same live shop site as Manjaro. Unlock with your PIN.
+**Stable Setup (after CI publishes it on `latest`):**
 
-To build the Windows app yourself (on Windows):
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe
+
+Installs **Black Forest Tools** and a **Black Forest Shop Widget** shortcut (same binary with `--widget`). Until that stable name exists on a release, use the current versioned portable:
+
+https://github.com/BlackForestPorsche/shop-desktop/releases/download/windows-24/Black.Forest.Tools-Portable-1.3.0.exe
+
+Windows may warn about an unknown publisher — More info → Run anyway. Unlock with your PIN. Packaged Setup/portable do **not** git-pull shell code by themselves.
+
+### Git checkout (auto-update + widgets)
+
+One-shot install utility (needs Git + Node on PATH):
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts\bootstrap-windows.ps1
+```
+
+Or manually:
+
+```text
+git clone https://github.com/BlackForestPorsche/shop-desktop.git %USERPROFILE%\shop-desktop
+cd %USERPROFILE%\shop-desktop
+npm install
+powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
+```
+
+That adds Start Menu / Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**, and a 30-minute scheduled task (`BlackForestShopDesktopUpdate`) that fast-forwards this checkout and runs `npm install` when `main` moves.
+
+```text
+npm start
+npm run widget
+```
+
+### Shop widgets on Windows (Electron, not Plasma)
+
+Windows does **not** get the KDE Plasma plasmoid. From Setup, open **Black Forest Shop Widget**. From a git checkout:
+
+```text
+cd %USERPROFILE%\shop-desktop
+npm run widget
+```
+
+Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes** (same widget API as Plasma). Always-on-top is on by default. Unlock once with person + PIN; session file:
+
+`%LOCALAPPDATA%\blackforest-tools\widget-session.json`
+
+(same shape as Linux `~/.local/share/blackforest-tools/widget-session.json`).
+
+To build Setup + portable yourself (on Windows):
 
 ```bash
 npm install
 npm run dist:win
 ```
 
-Outputs land in `dist/`.
+Outputs land in `dist/` (`Black.Forest.Tools-Setup-…exe` and `Black.Forest.Tools-Portable-…exe`).
 
 ## AppImage (Linux)
 

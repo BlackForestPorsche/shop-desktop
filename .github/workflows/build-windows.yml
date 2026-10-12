@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: node scripts/ensure-icon.js
 
-      - name: Build Windows portable exe
+      - name: Build Windows Setup + portable
         id: build
         continue-on-error: true
         env:
@@ -68,12 +68,35 @@ jobs:
             });
             core.setFailed('electron-builder failed; see issue for log tail');
 
+      # Fixed asset names so Downloads can link …/latest/download/… without
+      # rewriting every windows-N tag. Versioned copies stay for in-app semver.
+      - name: Stage stable Setup + portable filenames
+        if: steps.build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem dist -Filter *.exe |
+            Where-Object { $_.Name -match 'Portable' -and $_.Name -match '\d+\.\d+\.\d+' } |
+            Select-Object -First 1
+          $setup = Get-ChildItem dist -Filter *.exe |
+            Where-Object { $_.Name -match 'Setup' -and $_.Name -match '\d+\.\d+\.\d+' } |
+            Select-Object -First 1
+          if (-not $portable) { throw "No versioned Portable .exe found in dist/" }
+          if (-not $setup) { throw "No versioned Setup .exe found in dist/" }
+          Copy-Item -Force $portable.FullName "dist/Black.Forest.Tools-Portable.exe"
+          Copy-Item -Force $setup.FullName "dist/Black.Forest.Tools-Setup.exe"
+          Write-Host "Staged stable Portable from $($portable.Name)"
+          Write-Host "Staged stable Setup from $($setup.Name)"
+
       - name: Upload build artifacts
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: blackforest-tools-windows
-          path: dist/*.exe
+          path: |
+            dist/*Portable*.exe
+            dist/*Setup*.exe
+            dist/Black.Forest.Tools-Portable.exe
+            dist/Black.Forest.Tools-Setup.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -83,14 +106,24 @@ jobs:
           tag_name: windows-${{ github.run_number }}
           name: Black Forest Tools for Windows (${{ github.run_number }})
           generate_release_notes: false
-          files: dist/*.exe
+          make_latest: true
+          files: |
+            dist/*Portable*.exe
+            dist/*Setup*.exe
+            dist/Black.Forest.Tools-Portable.exe
+            dist/Black.Forest.Tools-Setup.exe
           body: |
-            Windows build of **Black Forest Tools** — a desktop window for https://shop.blackforestautomotive.com
+            Windows build of **Black Forest Tools** — desk window + shop widgets for https://shop.blackforestautomotive.com
 
-            ### Download
-            - **Black Forest Tools-Portable-…exe** — run without installing
+            ### Install (preferred)
+            - **Setup (always current):** [Black.Forest.Tools-Setup.exe](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe)
+              Installs Tools and a **Black Forest Shop Widget** shortcut (lot / book-today / notes).
 
-            Shop data stays on the live site. Publishing the site updates this window.
+            ### Portable
+            - **Stable:** [Black.Forest.Tools-Portable.exe](https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe)
+            - Versioned Portable/Setup assets on this release for in-app update checks
+
+            Shop data stays on the live site. For git auto-update of the shell/widgets, use a `%USERPROFILE%\shop-desktop` checkout (`scripts\bootstrap-windows.ps1`).
 
             Windows may warn about an unknown publisher (unsigned build). Choose More info → Run anyway.
         env:
