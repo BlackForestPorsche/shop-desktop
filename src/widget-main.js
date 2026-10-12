@@ -1,1 +1,1 @@
-PLACEHOLDER_REPLACE_FROM_DISK
+@file:///workspace/.upload-staging/widget-main.raw
