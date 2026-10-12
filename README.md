@@ -75,22 +75,29 @@ npm install
 
 ## Windows
 
-### Portable bootstrap
+### Setup (preferred install utility)
 
-GitHub Actions builds a portable Windows `.exe` on every push to `main`.
+GitHub Actions builds **Setup** + portable on every push to `main`. Prefer the Setup so desk users do not browse Releases.
 
-**Stable download (always the current portable):**
+**Stable Setup (after CI publishes it on `latest`):**
 
-https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Portable.exe
+https://github.com/BlackForestPorsche/shop-desktop/releases/latest/download/Black.Forest.Tools-Setup.exe
 
-Numbered tags still get a versioned `Black.Forest.Tools-Portable-…exe` for the in-app update check.
+Installs **Black Forest Tools** and a **Black Forest Shop Widget** shortcut (same binary with `--widget`). Until that stable name exists on a release, use the current versioned portable:
 
-1. Download the portable `.exe` (stable link or the matching release asset)
-2. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+https://github.com/BlackForestPorsche/shop-desktop/releases/download/windows-24/Black.Forest.Tools-Portable-1.3.0.exe
 
-Same live shop site as Manjaro. Unlock with your PIN. Portable alone does **not** get git auto-update.
+Windows may warn about an unknown publisher — More info → Run anyway. Unlock with your PIN. Packaged Setup/portable do **not** git-pull shell code by themselves.
 
-### Git checkout (recommended for auto-update + widgets)
+### Git checkout (auto-update + widgets)
+
+One-shot install utility (needs Git + Node on PATH):
+
+```text
+powershell -ExecutionPolicy Bypass -File scripts\bootstrap-windows.ps1
+```
+
+Or manually:
 
 ```text
 git clone https://github.com/BlackForestPorsche/shop-desktop.git %USERPROFILE%\shop-desktop
@@ -108,27 +115,27 @@ npm run widget
 
 ### Shop widgets on Windows (Electron, not Plasma)
 
-Windows does **not** get the KDE Plasma plasmoid. Use Electron widget windows from the same git checkout:
+Windows does **not** get the KDE Plasma plasmoid. From Setup, open **Black Forest Shop Widget**. From a git checkout:
 
 ```text
 cd %USERPROFILE%\shop-desktop
 npm run widget
 ```
 
-Or open **Black Forest Shop Widget** from the shortcuts. Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes** (same widget API as Plasma). Always-on-top is on by default. Unlock once with person + PIN; session file:
+Run it again for another window. Each window has a view picker: **lot** / **book-today** / **notes** (same widget API as Plasma). Always-on-top is on by default. Unlock once with person + PIN; session file:
 
 `%LOCALAPPDATA%\blackforest-tools\widget-session.json`
 
 (same shape as Linux `~/.local/share/blackforest-tools/widget-session.json`).
 
-To build the portable yourself (on Windows):
+To build Setup + portable yourself (on Windows):
 
 ```bash
 npm install
 npm run dist:win
 ```
 
-Outputs land in `dist/`.
+Outputs land in `dist/` (`Black.Forest.Tools-Setup-…exe` and `Black.Forest.Tools-Portable-…exe`).
 
 ## AppImage (Linux)
 
