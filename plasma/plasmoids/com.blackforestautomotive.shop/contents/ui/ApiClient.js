@@ -74,3 +74,19 @@ function listViews(token) {
 function fetchView(token, viewId) {
     return request("GET", "/api/widget/views/" + encodeURIComponent(viewId), { token: token });
 }
+
+/** Optional desk/people list. Missing route returns non-200; caller falls back to defaults. */
+function listPeople(token) {
+    return request("GET", "/api/widget/people", { token: token });
+}
+
+/** Create a note for a shop person. Author is set server-side from the token. */
+function createNote(token, recipient, text) {
+    return request("POST", "/api/widget/notes", {
+        token: token,
+        body: {
+            recipient: normalizePerson(recipient),
+            text: String(text || "")
+        }
+    });
+}

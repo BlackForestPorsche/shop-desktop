@@ -38,7 +38,7 @@ KCM.SimpleKCM {
         QQC2.Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: i18n("Add this widget more than once and pick a different view on each copy. Unlock is shared across all copies.")
+            text: i18n("Add this widget more than once and pick a different view on each copy. Unlock is shared across all copies. The notes view can leave a note for a desk person.")
         }
     }
 }
