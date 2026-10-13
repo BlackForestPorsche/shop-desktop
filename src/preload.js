@@ -9,10 +9,8 @@ contextBridge.exposeInMainWorld("blackForestTools", {
 });
 
 function boot() {
-  mountShellChrome({
-    checkForUpdates: () => ipcRenderer.invoke("shell:check-updates"),
-    showAbout: () => ipcRenderer.invoke("shell:about"),
-  });
+  // Idle overlay only — Check for updates lives in the native Settings menu.
+  mountShellChrome();
 }
 
 if (document.readyState === "loading") {
