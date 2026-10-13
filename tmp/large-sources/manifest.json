@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/main.js",
+    "prefix": "src__main.js.gz.b64",
+    "chunks": 1,
+    "sha256": "9d56df3f0c318a4388bcdc576b3a6c0942f334e37d9287a45d324a6811f4429f",
+    "bytes": 30407,
+    "blob": "9cb07c1ea91c880a0889f52ebbd44645dd71e020"
+  }
+]
