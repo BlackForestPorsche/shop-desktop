@@ -65,7 +65,7 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 The window keeps a normal Electron menu bar: **Shop**, **Settings**, **Edit**, **View**, **Help**.
 
 - **Shop** — home, back/forward, **Open in Firefox signed in**, reload, site-update check, **Lock shop**, quit
-- **Settings → Check for updates** — custom desktop app updater (git pull on Manjaro; portable download on Windows)
+- **Settings → Check for updates** — desktop app updater (git pull on Manjaro; portable download on Windows)
 - **Settings → Open in Firefox signed in** — same handoff as Shop
 - **Help → Open this page in Firefox signed in** — handoff URL (not a plain unsigned open)
 - **Help → About** — version info; About dialog also offers **Check for updates**
