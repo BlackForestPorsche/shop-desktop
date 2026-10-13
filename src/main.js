@@ -434,6 +434,20 @@ function shopMenu() {
       ],
     },
     {
+      label: "Settings",
+      submenu: [
+        {
+          label: "Check for updates",
+          click: () => checkForShellUpdate({ interactive: true }),
+        },
+        { type: "separator" },
+        {
+          label: "About Black Forest Tools",
+          click: () => showAboutDialog(),
+        },
+      ],
+    },
+    {
       label: "Help",
       submenu: [
         {
@@ -472,7 +486,7 @@ async function showAboutDialog() {
       "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
       "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
       "",
-      "Use Settings → Check for updates (top-right), Help → About, or Shop → Check for desktop app updates.",
+      "Use Settings → Check for updates, Help → About, or Shop → Check for desktop app updates.",
       "",
       "This computer keeps its own unlock and display settings, the same way another browser would.",
     ].join("\n"),
@@ -498,10 +512,12 @@ function createWindow(startUrl) {
     show: false,
     title: "Black Forest Tools",
     backgroundColor: "#efe9dc",
-    autoHideMenuBar: true,
+    // Keep the native menu bar visible so Settings → Check for updates is obvious
+    // (no injected header button crowding the shop site chrome).
+    autoHideMenuBar: false,
     icon: ICON_PATH,
     webPreferences: {
-      // sandbox off so preload can require local shell modules (chrome + idle fleet).
+      // sandbox off so preload can require local shell modules (idle fleet chrome).
       // contextIsolation stays on; page JS still cannot reach Node.
       preload: PRELOAD_PATH,
       partition: "persist:shop",
