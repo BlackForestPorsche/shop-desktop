@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Put Black Forest Tools in the Manjaro application menu for this user.
+# Also enables start-at-login (systemd --user + XDG). Opt out with --no-autostart.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,11 +9,21 @@ DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 APP_DIR="$DATA_HOME/applications"
 ICON_DIR="$DATA_HOME/icons/hicolor/512x512/apps"
 BIN_DIR="$HOME/.local/bin"
+ENABLE_AUTOSTART=1
+
+for arg in "$@"; do
+  case "$arg" in
+    --no-autostart) ENABLE_AUTOSTART=0 ;;
+    --autostart) ENABLE_AUTOSTART=1 ;;
+  esac
+done
 
 chmod +x \
   "$LAUNCHER" \
   "$ROOT/scripts/install-manjaro.sh" \
-  "$ROOT/scripts/ensure-electron.sh"
+  "$ROOT/scripts/ensure-electron.sh" \
+  "$ROOT/scripts/enable-tools-autostart.sh" \
+  "$ROOT/scripts/disable-tools-autostart.sh"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Install Node first: sudo pacman -S nodejs npm" >&2
@@ -62,6 +73,16 @@ fi
 echo "Black Forest Tools is in the application menu."
 echo "Command: blackforest-tools"
 echo "If the command is not found, log out once, or open it from the menu."
+
+if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
+  echo
+  bash "$ROOT/scripts/enable-tools-autostart.sh"
+else
+  echo
+  echo "Login autostart skipped (--no-autostart)."
+  echo "Enable later: bash \"$ROOT/scripts/enable-tools-autostart.sh\""
+fi
+
 echo
 echo "If the window closes right away, run this in a terminal and send the output:"
 echo "  cd ~/shop-desktop && npm start"
