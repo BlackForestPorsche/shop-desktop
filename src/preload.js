@@ -5,11 +5,13 @@ const { mountShellChrome } = require("./shell-chrome");
 
 contextBridge.exposeInMainWorld("blackForestTools", {
   checkForDesktopUpdates: () => ipcRenderer.invoke("shell:check-updates"),
+  showAbout: () => ipcRenderer.invoke("shell:about"),
 });
 
 function boot() {
   mountShellChrome({
     checkForUpdates: () => ipcRenderer.invoke("shell:check-updates"),
+    showAbout: () => ipcRenderer.invoke("shell:about"),
   });
 }
 
