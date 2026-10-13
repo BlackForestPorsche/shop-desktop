@@ -1,0 +1,45 @@
+name: apply-settings-menu-large-sources
+on:
+  push:
+    paths:
+      - "tmp/large-sources/**"
+      - ".github/workflows/apply-settings-menu-large-sources.yml"
+  workflow_dispatch:
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode large JS and commit
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, gzip, pathlib
+          root = pathlib.Path("tmp/large-sources")
+          mapping = {
+              "src__main.js.b64gz": "src/main.js",
+              "src__shell-chrome.js.b64gz": "src/shell-chrome.js",
+          }
+          for encoded_name, dest in mapping.items():
+              payload = (root / encoded_name).read_text().strip()
+              data = gzip.decompress(base64.b64decode(payload))
+              path = pathlib.Path(dest)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+              print(f"wrote {dest} {len(data)} bytes")
+          PY
+          git config user.name "BlackForestPorsche"
+          git config user.email "service@blackforestautomotive.com"
+          git add src/main.js src/shell-chrome.js
+          # Drop the one-shot payload + workflow after apply
+          git rm -f tmp/large-sources/src__main.js.b64gz \
+            tmp/large-sources/src__shell-chrome.js.b64gz \
+            .github/workflows/apply-settings-menu-large-sources.yml || true
+          if git diff --cached --quiet; then
+            echo "no commit needed"
+            exit 0
+          fi
+          git commit -m "Apply Settings menu shell sources (main + chrome)"
+          git push
