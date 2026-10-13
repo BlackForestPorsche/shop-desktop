@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/shell-chrome.js",
+    "prefix": "src__shell-chrome.js.gz.b64",
+    "chunks": 1
+  },
+  {
+    "path": "src/main.js",
+    "prefix": "src__main.js.gz.b64",
+    "chunks": 1
+  }
+]
