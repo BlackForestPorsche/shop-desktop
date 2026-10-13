@@ -56,7 +56,7 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 | Alt+Left / Alt+Right | Back / forward |
 | Alt+Home | Shop home |
 | Ctrl+Q | Quit |
-| (menu bar) | Shop / Edit / View / Settings / Help |
+| (menu bar) | Shop / Edit / View / Settings / Help |}
 
 ## Update the window itself
 
