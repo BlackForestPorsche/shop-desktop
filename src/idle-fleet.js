@@ -3,6 +3,9 @@
 /** Idle between ship spawns (also time until the first ship). */
 const IDLE_INTERVAL_MS = 5 * 60 * 1000;
 
+/** Floor for BF_IDLE_MS / overrides (keeps QA usable without a hot loop). */
+const MIN_IDLE_INTERVAL_MS = 1000;
+
 /** Keep the fight fun without burning CPU. */
 const MAX_SHIPS = 7;
 
@@ -15,6 +18,19 @@ const SHIP_STYLES = Object.freeze([
 ]);
 
 const BRAND_BLUE = "#0582ff";
+
+/**
+ * Resolve idle interval from an env/option value. Production default stays 5 minutes.
+ * QA: set env `BF_IDLE_MS=10000` (ms) before launching Electron.
+ * @param {unknown} [raw]
+ * @param {number} [fallback]
+ */
+function resolveIdleIntervalMs(raw, fallback = IDLE_INTERVAL_MS) {
+  if (raw == null || raw === "") return fallback;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < MIN_IDLE_INTERVAL_MS) return fallback;
+  return Math.floor(n);
+}
 
 /**
  * @param {() => number} [rng] returns [0, 1)
@@ -54,9 +70,11 @@ function growFleet(fleet, targetCount, rng = Math.random) {
 
 module.exports = {
   IDLE_INTERVAL_MS,
+  MIN_IDLE_INTERVAL_MS,
   MAX_SHIPS,
   SHIP_STYLES,
   BRAND_BLUE,
+  resolveIdleIntervalMs,
   pickShipStyle,
   shipsForIdleMs,
   growFleet,

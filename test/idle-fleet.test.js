@@ -4,8 +4,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   IDLE_INTERVAL_MS,
+  MIN_IDLE_INTERVAL_MS,
   MAX_SHIPS,
   SHIP_STYLES,
+  resolveIdleIntervalMs,
   pickShipStyle,
   shipsForIdleMs,
   growFleet,
@@ -55,4 +57,14 @@ test("growFleet lottery-appends until the target size", () => {
 test("growFleet never exceeds MAX_SHIPS", () => {
   const fleet = growFleet([], 99, () => 0);
   assert.equal(fleet.length, MAX_SHIPS);
+});
+
+test("resolveIdleIntervalMs keeps the 5-minute default unless BF_IDLE_MS is valid", () => {
+  assert.equal(resolveIdleIntervalMs(undefined), IDLE_INTERVAL_MS);
+  assert.equal(resolveIdleIntervalMs(""), IDLE_INTERVAL_MS);
+  assert.equal(resolveIdleIntervalMs("nope"), IDLE_INTERVAL_MS);
+  assert.equal(resolveIdleIntervalMs(500), IDLE_INTERVAL_MS);
+  assert.equal(resolveIdleIntervalMs(MIN_IDLE_INTERVAL_MS - 1), IDLE_INTERVAL_MS);
+  assert.equal(resolveIdleIntervalMs("10000"), 10000);
+  assert.equal(resolveIdleIntervalMs(10000), 10000);
 });
