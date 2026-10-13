@@ -43,7 +43,9 @@ npm start
 - Shop records come from the site as you use them, including `/_serverFn/`, `/api/google/start`, and `/api/shop-archive`.
 - The first document load skips the HTTP cache, and the window asks to reload when a publish changes the site's scripts.
 - **Shop → Reload and pick up site updates** (Ctrl+Shift+R) forces that immediately.
-- This computer remembers the unlock, theme, and offline write queue for this window. That saved session lives in `~/.config/Black Forest Tools`. A browser on the same machine has its own. After you unlock here, you are on the same shop data.
+- This computer remembers the unlock, theme, and offline write queue for this window. That saved session lives in `~/.config/Black Forest Tools`.
+- Shop person + PIN unlock is shared with Plasma widgets via `~/.local/share/blackforest-tools/widget-session.json` (mode `700` / `0600`). Desk unlock JSON (shop beta 0.1.25+) may include `widgetToken` / `widgetExpiresAt`; Electron writes those into the shared file. **Shop → Lock shop** clears the file, Electron `bf_shop_gate`, and revokes the widget Bearer.
+- Firefox does **not** share Electron's cookie jar. Use **Shop → Open in Firefox signed in** (Ctrl+Shift+F), **Settings → Open in Firefox signed in**, `npm run firefox-signed-in`, or the **Shop in Firefox (signed in)** menu entry. That calls `POST /api/widget/session/handoff` and opens the one-time URL in Firefox so `bf_shop_gate` is set. Opening the shop site in Firefox by itself stays locked.
 
 Parts-catalog links open in the normal browser. Google sign-in stays in this window so Connect Google can finish back on the shop server.
 
@@ -53,6 +55,7 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 | --- | --- |
 | Ctrl+R | Reload |
 | Ctrl+Shift+R | Reload and pick up site updates |
+| Ctrl+Shift+F | Open in Firefox signed in |
 | Alt+Left / Alt+Right | Back / forward |
 | Alt+Home | Shop home |
 | Ctrl+Q | Quit |
@@ -61,8 +64,10 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 
 The window keeps a normal Electron menu bar: **Shop**, **Settings**, **Edit**, **View**, **Help**.
 
-- **Shop** — home, back/forward, reload, site-update check, quit
-- **Settings → Check for updates** — desktop app updater (git pull on Manjaro; portable download on Windows)
+- **Shop** — home, back/forward, **Open in Firefox signed in**, reload, site-update check, **Lock shop**, quit
+- **Settings → Check for updates** — custom desktop app updater (git pull on Manjaro; portable download on Windows)
+- **Settings → Open in Firefox signed in** — same handoff as Shop
+- **Help → Open this page in Firefox signed in** — handoff URL (not a plain unsigned open)
 - **Help → About** — version info; About dialog also offers **Check for updates**
 
 There is no in-page **Check for updates** button next to the avatar/header.
