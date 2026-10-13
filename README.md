@@ -15,6 +15,8 @@ npm install
 npm run install-menu
 ```
 
+`install-menu` also arms **start at login** (systemd --user + XDG). Shop desks want that on. Skip with `npm run install-menu -- --no-autostart`. Turn it off later with `npm run disable-autostart` (or `bash scripts/disable-tools-autostart.sh`).
+
 If zsh asks `correct 'npm' to 'nm'?`, answer `n`. After `pacman` finishes, open a new terminal so `npm` is on your PATH.
 
 Open **Black Forest Tools** from the application menu, or run `blackforest-tools`.
@@ -80,13 +82,15 @@ npm install
 
 ## Windows
 
-GitHub Actions builds a portable Windows `.exe` on every push to `main`.
+**Setup (preferred on shop desks):** run `scripts/bootstrap-windows.ps1` (or the compiled Setup.exe from Releases when published). That clones `%USERPROFILE%\shop-desktop`, installs shortcuts, arms the 30-minute git update task, **starts Tools at login** (Startup folder + Run key), and launches Tools. Opt out of login start: `install-windows.ps1 -NoAutostart`, or later `scripts/disable-tools-autostart.ps1`.
+
+GitHub Actions also builds a portable Windows `.exe` on every push to `main`.
 
 1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
 2. Download **Black Forest Tools-Portable-…exe**
 3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
 
-Same live shop site as Manjaro. Unlock with your PIN.
+Same live shop site as Manjaro. Unlock with your PIN. Portable builds do not register login autostart; use Setup / `install-windows.ps1` for that.
 
 To build the Windows app yourself (on Windows):
 
