@@ -8,9 +8,8 @@ contextBridge.exposeInMainWorld("blackForestTools", {
 });
 
 function boot() {
-  mountShellChrome({
-    checkForUpdates: () => ipcRenderer.invoke("shell:check-updates"),
-  });
+  // Idle fleet only — Check for updates lives in Settings → Check for updates.
+  mountShellChrome();
 }
 
 if (document.readyState === "loading") {

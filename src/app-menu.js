@@ -1,1 +1,93 @@
-PLACEHOLDER
+"use strict";
+
+/**
+ * Native application menu template for Black Forest Tools.
+ * Shop / Settings / Help are the product menus; Edit + View stay for standard roles.
+ *
+ * @param {{
+ *   onShopHome: () => void,
+ *   onBack: () => void,
+ *   onForward: () => void,
+ *   onReload: () => void,
+ *   onHardReload: () => void,
+ *   onCheckSiteUpdates: () => void,
+ *   onCheckAppUpdates: () => void,
+ *   onOpenInBrowser: () => void,
+ *   onAbout: () => void,
+ * }} handlers
+ */
+function buildAppMenuTemplate(handlers) {
+  return [
+    {
+      label: "Shop",
+      submenu: [
+        { label: "Shop home", accelerator: "Alt+Home", click: handlers.onShopHome },
+        { label: "Back", accelerator: "Alt+Left", click: handlers.onBack },
+        { label: "Forward", accelerator: "Alt+Right", click: handlers.onForward },
+        { type: "separator" },
+        { label: "Reload", accelerator: "CmdOrCtrl+R", click: handlers.onReload },
+        {
+          label: "Reload and pick up site updates",
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: handlers.onHardReload,
+        },
+        { type: "separator" },
+        { label: "Check for site updates", click: handlers.onCheckSiteUpdates },
+        { type: "separator" },
+        { label: "Quit", accelerator: "CmdOrCtrl+Q", role: "quit" },
+      ],
+    },
+    {
+      label: "Settings",
+      submenu: [
+        {
+          label: "Check for updates",
+          click: handlers.onCheckAppUpdates,
+        },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "Open this page in the browser",
+          click: handlers.onOpenInBrowser,
+        },
+        {
+          label: "About Black Forest Tools",
+          click: handlers.onAbout,
+        },
+      ],
+    },
+  ];
+}
+
+/** Top-level menu labels in display order (for tests / docs). */
+const APP_MENU_LABELS = ["Shop", "Settings", "Edit", "View", "Help"];
+
+module.exports = {
+  buildAppMenuTemplate,
+  APP_MENU_LABELS,
+};
