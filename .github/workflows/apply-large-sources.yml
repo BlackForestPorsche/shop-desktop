@@ -15,24 +15,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: cursor/pirate-idle-fix-7c1a
-      - name: Decode shell-chrome.js
+      - name: Apply shell-chrome idle focus patch
         shell: bash
         run: |
-          python3 <<'PY'
-          import pathlib, gzip, base64, hashlib, json
-          root = pathlib.Path("tmp/large-sources")
-          manifest = json.loads((root / "manifest.json").read_text())
-          for item in manifest:
-              parts = []
-              for i in range(item["chunks"]):
-                  parts.append((root / f"{item['prefix']}.{i:02d}").read_text().strip())
-              b64 = "".join(parts)
-              data = gzip.decompress(base64.b64decode(b64))
-              text = data.decode("utf-8")
-              assert text.startswith('"use strict"'), item["path"]
-              assert "windowFocused" not in text, "idle focus gate must be removed"
-              pathlib.Path(item["path"]).write_bytes(data)
-              print(item["path"], len(data), hashlib.sha256(data).hexdigest()[:16])
+          set -euo pipefail
+          patch -p1 < tmp/large-sources/shell-chrome.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("src/shell-chrome.js").read_text()
+          assert "windowFocused" not in text
+          assert "Do not require window focus" in text
+          print("ok", len(text))
           PY
       - name: Commit if changed
         shell: bash
@@ -43,7 +36,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: pirate idle — restore shell-chrome.js (no focus freeze)"
+            git commit -m "fix: pirate idle - restore shell-chrome.js (no focus freeze)"
             git push origin HEAD:cursor/pirate-idle-fix-7c1a
           fi
       - name: Remove temporary large-source restore artifacts
@@ -52,10 +45,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f --ignore-unmatch \
+          git rm -rf --ignore-unmatch \
             .github/workflows/apply-large-sources.yml \
-            tmp/large-sources/manifest.json \
-            tmp/large-sources/src__shell-chrome.js.gz.b64.00 || true
+            tmp/large-sources || true
           if git diff --staged --quiet; then
             echo "Nothing to clean"
           else
