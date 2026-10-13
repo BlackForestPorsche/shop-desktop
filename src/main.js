@@ -10,6 +10,7 @@ const {
   applyGitUpdate,
   checkShellUpdate,
 } = require("./shell-update");
+const { buildAppMenuTemplate } = require("./app-menu");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
@@ -387,96 +388,49 @@ function shopMenu() {
     if (channel === "forward" && win.webContents.canGoForward()) win.webContents.goForward();
   };
 
-  return Menu.buildFromTemplate([
-    {
-      label: "Shop",
-      submenu: [
-        { label: "Shop home", accelerator: "Alt+Home", click: () => send("home") },
-        { label: "Back", accelerator: "Alt+Left", click: () => send("back") },
-        { label: "Forward", accelerator: "Alt+Right", click: () => send("forward") },
-        { type: "separator" },
-        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => send("reload") },
-        {
-          label: "Reload and pick up site updates",
-          accelerator: "CmdOrCtrl+Shift+R",
-          click: () => send("hard"),
-        },
-        { type: "separator" },
-        { label: "Check for site updates", click: () => checkForSiteUpdate({ interactive: true }) },
-        {
-          label: "Check for desktop app updates",
-          click: () => checkForShellUpdate({ interactive: true }),
-        },
-        { type: "separator" },
-        { label: "Quit", accelerator: "CmdOrCtrl+Q", role: "quit" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    {
-      label: "Help",
-      submenu: [
-        {
-          label: "Open this page in the browser",
-          click: () => {
-            const current = mainWindow?.webContents.getURL();
-            const decision = classifyUrl(current || "");
-            openOutside(decision.kind === "shop" ? decision.href : SHOP_HOME);
-          },
-        },
-        {
-          label: "About Black Forest Tools",
-          click: async () => {
-            const choice = await dialog.showMessageBox(mainWindow, {
-              type: "info",
-              buttons: ["OK", "Check for updates"],
-              defaultId: 0,
-              cancelId: 0,
-              title: "About Black Forest Tools",
-              message: "Black Forest Tools",
-              detail: [
-                `Version ${app.getVersion()}`,
-                "",
-                "This is a window onto shop.blackforestautomotive.com.",
-                "The book, the lot, notes, parts, crew, and Google calendar are the live shop site.",
-                "Publishing the site updates this window. Shop data is not a separate copy.",
-                "",
-                "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
-                "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
-                "",
-                "Use the Check for updates button (top-right) or Shop → Check for desktop app updates.",
-                "",
-                "This computer keeps its own unlock and display settings, the same way another browser would.",
-              ].join("\n"),
-            });
-            if (choice.response === 1) {
-              checkForShellUpdate({ interactive: true });
-            }
-          },
-        },
-      ],
-    },
-  ]);
+  return Menu.buildFromTemplate(
+    buildAppMenuTemplate({
+      onShopHome: () => send("home"),
+      onBack: () => send("back"),
+      onForward: () => send("forward"),
+      onReload: () => send("reload"),
+      onHardReload: () => send("hard"),
+      onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
+      onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      onOpenInBrowser: () => {
+        const current = mainWindow?.webContents.getURL();
+        const decision = classifyUrl(current || "");
+        openOutside(decision.kind === "shop" ? decision.href : SHOP_HOME);
+      },
+      onAbout: async () => {
+        const choice = await dialog.showMessageBox(mainWindow, {
+          type: "info",
+          buttons: ["OK", "Check for updates"],
+          defaultId: 0,
+          cancelId: 0,
+          title: "About Black Forest Tools",
+          message: "Black Forest Tools",
+          detail: [
+            `Version ${app.getVersion()}`,
+            "",
+            "This is a window onto shop.blackforestautomotive.com.",
+            "The book, the lot, notes, parts, crew, and Google calendar are the live shop site.",
+            "Publishing the site updates this window. Shop data is not a separate copy.",
+            "",
+            "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
+            "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
+            "",
+            "Check for desktop updates from Settings → Check for updates.",
+            "",
+            "This computer keeps its own unlock and display settings, the same way another browser would.",
+          ].join("\n"),
+        });
+        if (choice.response === 1) {
+          checkForShellUpdate({ interactive: true });
+        }
+      },
+    }),
+  );
 }
 
 function createWindow(startUrl) {
@@ -495,7 +449,8 @@ function createWindow(startUrl) {
     show: false,
     title: "Black Forest Tools",
     backgroundColor: "#efe9dc",
-    autoHideMenuBar: true,
+    // Keep the native Shop / Settings / Help menu bar visible (not Alt-only).
+    autoHideMenuBar: false,
     icon: ICON_PATH,
     webPreferences: {
       // sandbox off so preload can require local shell modules (chrome + idle fleet).

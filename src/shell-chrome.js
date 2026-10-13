@@ -2,8 +2,8 @@
 
 /**
  * Electron-shell chrome injected into the BrowserWindow (not the hosted shop site).
- * - Obvious "Check for updates" button → same shell updater path as the Shop menu
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
+ * Desktop updates live in the native Settings menu (not an in-page header button).
  */
 
 const {
@@ -18,14 +18,12 @@ const ROOT_ID = "bf-tools-shell-root";
 
 /**
  * @param {{
- *   checkForUpdates: () => Promise<unknown>,
  *   idleIntervalMs?: number,
  *   maxShips?: number,
  *   now?: () => number,
- * }} options
+ * }} [options]
  */
-function mountShellChrome(options) {
-  const checkForUpdates = options.checkForUpdates;
+function mountShellChrome(options = {}) {
   const idleIntervalMs = options.idleIntervalMs ?? IDLE_INTERVAL_MS;
   const maxShips = options.maxShips ?? MAX_SHIPS;
   const now = options.now ?? Date.now;
@@ -56,36 +54,6 @@ function mountShellChrome(options) {
     <style>
       :host { all: initial; }
       * { box-sizing: border-box; }
-      .bar {
-        position: fixed;
-        top: 10px;
-        right: 12px;
-        z-index: 2147483646;
-        pointer-events: auto;
-        display: flex;
-        gap: 8px;
-        font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-      }
-      .btn {
-        appearance: none;
-        border: 1px solid rgba(5, 130, 255, 0.55);
-        background: rgba(12, 18, 28, 0.88);
-        color: #f4f7fb;
-        font: 650 12px/1 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-        letter-spacing: 0.04em;
-        padding: 8px 12px;
-        border-radius: 6px;
-        cursor: pointer;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
-        backdrop-filter: blur(6px);
-      }
-      .btn:hover { background: ${BRAND_BLUE}; border-color: ${BRAND_BLUE}; }
-      .btn:active { transform: translateY(1px); }
-      .btn:disabled { opacity: 0.65; cursor: wait; }
-      .btn:focus-visible {
-        outline: 2px solid ${BRAND_BLUE};
-        outline-offset: 2px;
-      }
       .overlay {
         position: fixed;
         inset: 0;
@@ -119,18 +87,12 @@ function mountShellChrome(options) {
         white-space: nowrap;
       }
     </style>
-    <div class="bar">
-      <button type="button" class="btn" part="updates" title="Check for desktop app updates">
-        Check for updates
-      </button>
-    </div>
     <div class="overlay" aria-hidden="true">
       <canvas></canvas>
       <p class="hint">Move the mouse or press a key to return to the shop</p>
     </div>
   `;
 
-  const updateBtn = shadow.querySelector(".btn");
   const overlay = shadow.querySelector(".overlay");
   const canvas = shadow.querySelector("canvas");
   const ctx = canvas.getContext("2d", { alpha: true });
@@ -149,7 +111,6 @@ function mountShellChrome(options) {
   let lastFrame = 0;
   let fireCooldown = 0;
   let disposed = false;
-  let checkingUpdates = false;
 
   /**
    * @typedef {{
@@ -633,20 +594,6 @@ function mountShellChrome(options) {
     stopLoop();
   }
 
-  async function onUpdateClick(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (checkingUpdates) return;
-    checkingUpdates = true;
-    updateBtn.disabled = true;
-    try {
-      await checkForUpdates();
-    } finally {
-      checkingUpdates = false;
-      updateBtn.disabled = false;
-    }
-  }
-
   const activityEvents = [
     "mousemove",
     "mousedown",
@@ -668,20 +615,8 @@ function mountShellChrome(options) {
   window.addEventListener("focus", onFocus);
   window.addEventListener("blur", onBlur);
   window.addEventListener("resize", resize);
-  updateBtn.addEventListener("click", onUpdateClick);
   // Clicks on the overlay also count as activity (dismiss).
   overlay.addEventListener("pointerdown", onActivity, { capture: true });
-
-  // Button clicks should not count as "idle dismiss only" before invoke — but they
-  // are real user input, so resetting idle is correct.
-  updateBtn.addEventListener(
-    "pointerdown",
-    (event) => {
-      event.stopPropagation();
-      resetIdle(true);
-    },
-    true,
-  );
 
   const parent = document.documentElement || document.body;
   parent.appendChild(host);
@@ -714,7 +649,6 @@ function mountShellChrome(options) {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", resize);
-      updateBtn.removeEventListener("click", onUpdateClick);
       host.remove();
     },
     /** @internal test helpers */
