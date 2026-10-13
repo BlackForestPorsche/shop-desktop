@@ -120,6 +120,17 @@ sudo pacman -S fuse2
 
 The Manjaro source install above is the straightforward Linux setup.
 
+## Shared login (Tools ↔ Plasma ↔ Firefox ↔ Desk)
+
+One desk unlock covers Plasma widgets, Black Forest Tools, Firefox on the shop site, and the Black Forest Desk extension.
+
+1. Unlock **Black Forest Tools** or a Plasma shop widget (person + PIN).
+2. Tools writes `~/.local/share/blackforest-tools/widget-session.json` and, while running, serves the Bearer on loopback `http://127.0.0.1:8788/v1/widget-session` for Desk.
+3. **Shop → Open in Firefox signed in** (or `npm run firefox-signed-in` / `blackforest-firefox-signed-in`) mints a one-time shop handoff URL and opens it in your **default** Firefox profile (`firefox --new-tab` — never a new profile).
+4. Desk popup **Use Tools session** (or auto-import on open) pulls that Bearer — no PIN retype when Tools is already unlocked.
+
+Requires shop site beta **0.1.25+** for `/api/widget/session/exchange` and `/api/widget/session/handoff`.
+
 ## KDE Plasma widget (Manjaro)
 
 Live shop views on the desktop or a panel. Uses the shop widget API (`/api/widget/…`, beta). Unlock once with your person + PIN; every widget instance on that computer shares the session.
