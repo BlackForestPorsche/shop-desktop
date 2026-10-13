@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, Menu, MenuItem, clipboard, dialog, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, MenuItem, clipboard, dialog, ipcMain, session, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 const { SHOP_HOME, classifyUrl } = require("./policy");
@@ -14,6 +14,7 @@ const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } 
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
+const PRELOAD_PATH = path.join(__dirname, "preload.js");
 const STATE_NAME = "window-state.json";
 const UPDATE_EVERY_MS = 3 * 60 * 1000;
 const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
@@ -445,9 +446,12 @@ function shopMenu() {
         },
         {
           label: "About Black Forest Tools",
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
+          click: async () => {
+            const choice = await dialog.showMessageBox(mainWindow, {
               type: "info",
+              buttons: ["OK", "Check for updates"],
+              defaultId: 0,
+              cancelId: 0,
               title: "About Black Forest Tools",
               message: "Black Forest Tools",
               detail: [
@@ -460,9 +464,14 @@ function shopMenu() {
                 "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
                 "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
                 "",
+                "Use the Check for updates button (top-right) or Shop → Check for desktop app updates.",
+                "",
                 "This computer keeps its own unlock and display settings, the same way another browser would.",
               ].join("\n"),
             });
+            if (choice.response === 1) {
+              checkForShellUpdate({ interactive: true });
+            }
           },
         },
       ],
@@ -489,10 +498,13 @@ function createWindow(startUrl) {
     autoHideMenuBar: true,
     icon: ICON_PATH,
     webPreferences: {
+      // sandbox off so preload can require local shell modules (chrome + idle fleet).
+      // contextIsolation stays on; page JS still cannot reach Node.
+      preload: PRELOAD_PATH,
       partition: "persist:shop",
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       spellcheck: true,
       backgroundThrottling: false,
     },
@@ -567,6 +579,11 @@ if (gotLock) {
     const url = shopUrlFromArgv(argv);
     if (url && mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(url);
     showWindow();
+  });
+
+  ipcMain.handle("shell:check-updates", async () => {
+    await checkForShellUpdate({ interactive: true });
+    return { ok: true };
   });
 
   app.whenReady().then(() => {

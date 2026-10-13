@@ -62,8 +62,13 @@ Shop publishes do not require an update of this project — the window reloads t
 
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
-- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`). You can also use **Shop → Check for desktop app updates**.
+- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
+- **Check for updates:** use the **Check for updates** button (top-right of the window), **Help → About → Check for updates**, or **Shop → Check for desktop app updates**. Same updater path in all three places.
 - **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+
+## Pirate idle overlay
+
+After **5 minutes** with no mouse, keyboard, scroll, or touch activity in this window, a small pirate fleet starts sailing over the shop UI (Electron shell only — the hosted site is unchanged). Every additional 5 minutes of idle adds one more ship (capped). Each new ship lottery-picks one of four looks (pixel arcade, desk silhouette with brand blue, ink cartoon, night harbor neon). When two or more ships are out they trade cannon fire. Any input dismisses the overlay and resets the idle clock. The fight pauses when the window is hidden or unfocused.
 
 Manual update on Manjaro still works:
 
