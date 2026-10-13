@@ -43,7 +43,7 @@ code="$(
     -X POST "$SHOP_BASE/api/widget/session/handoff" \
     -H "Accept: application/json" \
     -H "Authorization: Bearer ${token}" \
-    -H "Content-Type": "application/json" \
+    -H "Content-Type: application/json" \
     -d '{}'
 )" || {
   echo "Could not reach the shop handoff endpoint." >&2
