@@ -65,7 +65,7 @@ Shop publishes do not require an update of this project — the window reloads t
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
 - **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
-- **Check for updates:** use the **Check for updates** button (top-right of the window), **Help → About → Check for updates**, or **Shop → Check for desktop app updates**. Same updater path in all three places.
+- **Check for updates:** use **Settings → Check for updates** (compact control, top-right of the window), **Help → About → Check for updates**, or **Shop → Check for desktop app updates**. Same updater path in all three places.
 - **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
 
 ## Pirate idle overlay
