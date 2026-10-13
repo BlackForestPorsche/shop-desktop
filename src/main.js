@@ -1,1 +1,1 @@
-file:///tmp/gh-main-content.js
+@/tmp/upload-main.js
