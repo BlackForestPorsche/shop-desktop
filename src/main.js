@@ -1,1 +1,1 @@
-@/tmp/upload-main.js
+${file:/tmp/exact-main.js}
