@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.4.0",
+  "version": "1.4.2",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
   "main": "src/main.js",
@@ -16,6 +16,10 @@
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
     "install-plasma": "bash scripts/install-plasma-widget.sh",
+    "install-windows": "powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1",
+    "bootstrap-windows": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap-windows.ps1",
+    "enable-autostart": "bash scripts/enable-tools-autostart.sh",
+    "disable-autostart": "bash scripts/disable-tools-autostart.sh",
     "ensure-icon": "node scripts/ensure-icon.js",
     "dist": "npm run ensure-icon && electron-builder --linux AppImage",
     "dist:win": "npm run ensure-icon && electron-builder --win"
