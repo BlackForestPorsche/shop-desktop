@@ -1,1 +1,1 @@
-PLACEHOLDER_SHELL
+LOAD_FROM_FILE:/tmp/shop-desktop/src/shell-chrome.js
