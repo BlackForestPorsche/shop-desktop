@@ -1,6 +1,7 @@
 "use strict";
 
 const { app, BrowserWindow, Menu, MenuItem, clipboard, dialog, ipcMain, session, shell } = require("electron");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { SHOP_HOME, classifyUrl } = require("./policy");
@@ -12,6 +13,19 @@ const {
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
+const {
+  sessionFilePath,
+  readSession,
+  writeSession,
+  clearSession,
+  sessionFingerprint,
+  extractPersonPin,
+  extractUnlockWidgetSession,
+  mintWidgetSession,
+  revokeWidgetSession,
+  exchangeWidgetSession,
+  requestFirefoxHandoff,
+} = require("./shared-session");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -22,6 +36,7 @@ const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
+const GATE_COOKIE = "bf_shop_gate";
 
 app.setName("Black Forest Tools");
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
@@ -46,6 +61,13 @@ let shellChecking = false;
 let shellPromptOpen = false;
 let snoozedShellKey = "";
 let shellSnoozeUntil = 0;
+let pendingUnlockCreds = null;
+let pendingUnlockUntil = 0;
+let sharedSessionWatcher = null;
+let lastSharedFingerprint = "";
+let applyingRemoteLock = false;
+let mintingWidgetSession = false;
+let exchangingGate = false;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -377,6 +399,288 @@ async function checkForSiteUpdate({ interactive }) {
   }
 }
 
+function shopPartition() {
+  return session.fromPartition("persist:shop");
+}
+
+function rememberUnlockAttempt(details) {
+  if (!details || !details.uploadData || !details.uploadData.length) {
+    return;
+  }
+  for (const part of details.uploadData) {
+    if (!part || !part.bytes) {
+      continue;
+    }
+    const creds = extractPersonPin(Buffer.from(part.bytes));
+    if (creds) {
+      pendingUnlockCreds = creds;
+      pendingUnlockUntil = Date.now() + 30_000;
+      return;
+    }
+  }
+}
+
+function applyUnlockWidgetSession(raw) {
+  const next = extractUnlockWidgetSession(raw);
+  if (!next) {
+    return null;
+  }
+  writeSession(next);
+  lastSharedFingerprint = sessionFingerprint(next);
+  pendingUnlockCreds = null;
+  pendingUnlockUntil = 0;
+  return next;
+}
+
+async function mintSharedSessionFromPending() {
+  if (mintingWidgetSession) {
+    return;
+  }
+  // Desk unlock JSON may already have written widgetToken via preload.
+  if (readSession()) {
+    pendingUnlockCreds = null;
+    pendingUnlockUntil = 0;
+    return;
+  }
+  if (!pendingUnlockCreds || Date.now() > pendingUnlockUntil) {
+    return;
+  }
+  const creds = pendingUnlockCreds;
+  pendingUnlockCreds = null;
+  pendingUnlockUntil = 0;
+  mintingWidgetSession = true;
+  try {
+    const next = await mintWidgetSession(creds.person, creds.pin);
+    lastSharedFingerprint = sessionFingerprint(next);
+  } catch (error) {
+    console.error("Could not mint shared widget session from desktop unlock.");
+  } finally {
+    mintingWidgetSession = false;
+  }
+}
+
+async function shopGateCookiesPresent() {
+  try {
+    const cookies = await shopPartition().cookies.get({
+      domain: "shop.blackforestautomotive.com",
+      name: GATE_COOKIE,
+    });
+    return cookies.some((cookie) => cookie && cookie.value);
+  } catch {
+    return false;
+  }
+}
+
+function partitionFetch(url, init) {
+  const shopSession = shopPartition();
+  if (typeof shopSession.fetch === "function") {
+    return shopSession.fetch(url, init);
+  }
+  return fetch(url, init);
+}
+
+/**
+ * When a widget session file exists, mint bf_shop_gate into the Electron cookie jar
+ * via POST /api/widget/session/exchange (shop beta 0.1.25+). Reload when still on /unlock.
+ */
+async function exchangeSharedSessionToGate({ force = false, reload = true } = {}) {
+  if (exchangingGate || applyingRemoteLock) {
+    return { ok: false, reason: "busy" };
+  }
+  const existing = readSession();
+  if (!existing || !existing.token) {
+    return { ok: false, reason: "no_session" };
+  }
+  if (!force && (await shopGateCookiesPresent())) {
+    return { ok: true, reason: "already" };
+  }
+  exchangingGate = true;
+  try {
+    const result = await exchangeWidgetSession(existing.token, partitionFetch);
+    if (reload && mainWindow && !mainWindow.isDestroyed()) {
+      const current = mainWindow.webContents.getURL();
+      if (!current || current.includes("/unlock") || classifyUrl(current).kind !== "shop") {
+        await mainWindow.loadURL(SHOP_HOME);
+      } else {
+        mainWindow.webContents.reload();
+      }
+    }
+    return { ok: true, reason: "exchanged", ...result };
+  } catch (error) {
+    if (error && error.code === "unauthorized") {
+      console.error("Shared widget session rejected during exchange; clearing local file.");
+      clearSession();
+      lastSharedFingerprint = "";
+      return { ok: false, reason: "unauthorized" };
+    }
+    console.error("Could not exchange widget session for shop gate cookie:", error);
+    return { ok: false, reason: "failed", status: error && error.status };
+  } finally {
+    exchangingGate = false;
+  }
+}
+
+function launchFirefox(url) {
+  return new Promise((resolve, reject) => {
+    const tryOpen = (cmd, args) => {
+      const child = spawn(cmd, args, {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.on("error", (error) => {
+        if (cmd === "firefox" && error && error.code === "ENOENT") {
+          tryOpen("xdg-open", [url]);
+          return;
+        }
+        reject(error);
+      });
+      child.on("spawn", () => {
+        child.unref();
+        resolve(cmd);
+      });
+    };
+    // Prefer Firefox itself so the handoff cookie lands in Logan's real profile,
+    // not whatever xdg-open might pick as the default browser.
+    tryOpen("firefox", ["--new-tab", url]);
+  });
+}
+
+async function openFirefoxSignedIn({ interactive = true } = {}) {
+  const existing = readSession();
+  if (!existing || !existing.token) {
+    if (interactive && mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Open in Firefox",
+        message: "Unlock the shop first.",
+        detail:
+          "Sign in with a Plasma widget or this window so ~/.local/share/blackforest-tools/widget-session.json exists, then try Shop → Open in Firefox signed in again.",
+      });
+    }
+    return { ok: false, reason: "no_session" };
+  }
+
+  try {
+    const { url } = await requestFirefoxHandoff(existing.token, fetch);
+    await launchFirefox(url);
+    return { ok: true, url };
+  } catch (error) {
+    if (interactive && mainWindow && !mainWindow.isDestroyed()) {
+      const detail =
+        error && error.code === "rate_limited"
+          ? "Handoff is rate-limited (10/min). Wait a minute and try again."
+          : error instanceof Error
+            ? error.message
+            : "Handoff failed.";
+      await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        title: "Open in Firefox",
+        message: "Could not open Firefox signed in.",
+        detail,
+      });
+    }
+    console.error("Firefox handoff failed:", error);
+    return { ok: false, reason: error && error.code ? error.code : "failed" };
+  }
+}
+
+async function clearShopGateCookies() {
+  const shopSession = shopPartition();
+  try {
+    const cookies = await shopSession.cookies.get({
+      domain: "shop.blackforestautomotive.com",
+    });
+    await Promise.all(
+      cookies
+        .filter((cookie) => cookie.name === GATE_COOKIE || cookie.name.startsWith(`${GATE_COOKIE}`))
+        .map((cookie) =>
+          shopSession.cookies.remove(
+            `https://shop.blackforestautomotive.com${cookie.path || "/"}`,
+            cookie.name,
+          ),
+        ),
+    );
+  } catch (error) {
+    console.error("Could not clear shop gate cookies:", error);
+  }
+}
+
+async function lockSharedSurfaces({ revokeRemote = true } = {}) {
+  if (applyingRemoteLock) {
+    return;
+  }
+  applyingRemoteLock = true;
+  try {
+    const existing = readSession();
+    if (revokeRemote && existing && existing.token) {
+      await revokeWidgetSession(existing.token);
+    } else {
+      clearSession();
+    }
+    lastSharedFingerprint = "";
+    await clearShopGateCookies();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const current = mainWindow.webContents.getURL();
+      if (!current.includes("/unlock")) {
+        await mainWindow.loadURL("https://shop.blackforestautomotive.com/unlock");
+      }
+    }
+  } finally {
+    applyingRemoteLock = false;
+  }
+}
+
+function watchSharedSessionFile() {
+  const file = sessionFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  lastSharedFingerprint = sessionFingerprint(readSession());
+
+  const onChange = () => {
+    if (applyingRemoteLock || mintingWidgetSession || exchangingGate) {
+      return;
+    }
+    const next = readSession();
+    const fp = sessionFingerprint(next);
+    if (fp === lastSharedFingerprint) {
+      return;
+    }
+    const had = Boolean(lastSharedFingerprint);
+    lastSharedFingerprint = fp;
+    if (!fp && had) {
+      // Widget (or another surface) signed out — clear Electron without a Plasma restart.
+      lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
+        console.error(error);
+      });
+      return;
+    }
+    if (fp && !had) {
+      // Widget unlocked — mint SPA cookie in this window when exchange is live.
+      exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
+        console.error(error);
+      });
+    }
+  };
+
+  try {
+    if (sharedSessionWatcher) {
+      sharedSessionWatcher.close();
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    sharedSessionWatcher = fs.watch(path.dirname(file), { persistent: false }, (_event, filename) => {
+      if (filename && filename !== path.basename(file) && filename !== `${path.basename(file)}.tmp`) {
+        return;
+      }
+      onChange();
+    });
+  } catch (error) {
+    console.error("Could not watch shared session file:", error);
+  }
+}
+
 function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
@@ -397,10 +701,21 @@ function shopMenu() {
       onHardReload: () => send("hard"),
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      onOpenFirefoxSignedIn: () => {
+        openFirefoxSignedIn({ interactive: true }).catch((error) => {
+          console.error(error);
+        });
+      },
+      onLockShop: () => {
+        lockSharedSurfaces({ revokeRemote: true }).catch((error) => {
+          console.error(error);
+        });
+      },
       onOpenInBrowser: () => {
-        const current = mainWindow?.webContents.getURL();
-        const decision = classifyUrl(current || "");
-        openOutside(decision.kind === "shop" ? decision.href : SHOP_HOME);
+        // Same handoff path as Shop → Open in Firefox signed in (cookie must be minted; plain openExternal stays locked).
+        openFirefoxSignedIn({ interactive: true }).catch((error) => {
+          console.error(error);
+        });
       },
       onAbout: async () => {
         const choice = await dialog.showMessageBox(mainWindow, {
@@ -420,9 +735,12 @@ function shopMenu() {
             "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
             "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
             "",
-            "Check for desktop updates from Settings → Check for updates.",
+            "Unlock is shared with Plasma widgets via ~/.local/share/blackforest-tools/widget-session.json.",
+            "Shop → Open in Firefox signed in (or Ctrl+Shift+F) mints a one-time handoff URL so Firefox gets bf_shop_gate.",
+            "Opening the shop site in Firefox by itself does not share Electron's cookie jar.",
+            "Lock from the widget or Shop → Lock shop clears the shared file + Electron cookies (Firefox locks separately).",
             "",
-            "This computer keeps its own unlock and display settings, the same way another browser would.",
+            "Check for desktop updates from Settings → Check for updates.",
           ].join("\n"),
         });
         if (choice.response === 1) {
@@ -500,8 +818,17 @@ function createWindow(startUrl) {
 }
 
 function configureSession() {
-  const shopSession = session.fromPartition("persist:shop");
+  const shopSession = shopPartition();
   shopSession.setUserAgent(browserUserAgent());
+  shopSession.webRequest.onBeforeRequest(
+    { urls: ["https://shop.blackforestautomotive.com/*"] },
+    (details, callback) => {
+      if (details.method === "POST") {
+        rememberUnlockAttempt(details);
+      }
+      callback({});
+    },
+  );
   shopSession.webRequest.onBeforeSendHeaders(
     { urls: ["https://shop.blackforestautomotive.com/*"] },
     (details, callback) => {
@@ -513,6 +840,30 @@ function configureSession() {
       callback({ requestHeaders });
     },
   );
+  shopSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
+    if (!cookie || cookie.name !== GATE_COOKIE) {
+      return;
+    }
+    if (removed) {
+      // Site lock clears bf_shop_gate only — do not revoke the widget Bearer.
+      return;
+    }
+    mintSharedSessionFromPending().catch((error) => {
+      console.error(error);
+    });
+  });
+  ipcMain.on("shop-unlock-json", (_event, text) => {
+    try {
+      if (applyUnlockWidgetSession(text)) {
+        // Cookie may already be set by unlock; exchange fills the jar when it is not.
+        exchangeSharedSessionToGate({ force: false, reload: true }).catch((error) => {
+          console.error(error);
+        });
+      }
+    } catch (error) {
+      console.error("Could not apply unlock widgetToken:", error);
+    }
+  });
   shopSession.setPermissionRequestHandler((_contents, permission, callback) => {
     const allowed = new Set([
       "notifications",
@@ -541,12 +892,15 @@ if (gotLock) {
     return { ok: true };
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (process.platform === "win32") {
       app.setAppUserModelId("com.blackforestautomotive.tools");
     }
     configureSession();
+    watchSharedSessionFile();
     Menu.setApplicationMenu(shopMenu());
+    // If Plasma (or a prior unlock) already left a widget session, set the SPA cookie first.
+    await exchangeSharedSessionToGate({ force: false, reload: false });
     createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
     updateTimer = setInterval(() => {
       checkForSiteUpdate({ interactive: false });
@@ -557,11 +911,21 @@ if (gotLock) {
     setTimeout(() => {
       checkForShellUpdate({ interactive: false });
     }, 20_000);
+    setTimeout(() => {
+      exchangeSharedSessionToGate({ force: false, reload: true }).catch((error) => {
+        console.error(error);
+      });
+    }, 2_500);
   });
 
   app.on("window-all-closed", () => {
     if (updateTimer) clearInterval(updateTimer);
     if (shellUpdateTimer) clearInterval(shellUpdateTimer);
+    try {
+      if (sharedSessionWatcher) sharedSessionWatcher.close();
+    } catch {
+      // ignore
+    }
     app.quit();
   });
 }
