@@ -23,7 +23,9 @@ chmod +x \
   "$ROOT/scripts/install-manjaro.sh" \
   "$ROOT/scripts/ensure-electron.sh" \
   "$ROOT/scripts/enable-tools-autostart.sh" \
-  "$ROOT/scripts/disable-tools-autostart.sh"
+  "$ROOT/scripts/disable-tools-autostart.sh" \
+  "$ROOT/scripts/open-firefox-signed-in.sh" \
+  "$ROOT/scripts/blackforest-widget-session"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "Install Node first: sudo pacman -S nodejs npm" >&2
@@ -47,6 +49,7 @@ if [[ ! -f "$ICON_SRC" ]]; then
 fi
 cp "$ICON_SRC" "$ICON_DIR/blackforest-tools.png"
 ln -sfn "$LAUNCHER" "$BIN_DIR/blackforest-tools"
+ln -sfn "$ROOT/scripts/open-firefox-signed-in.sh" "$BIN_DIR/blackforest-firefox-signed-in"
 
 cat > "$APP_DIR/blackforest-tools.desktop" <<EOF
 [Desktop Entry]
