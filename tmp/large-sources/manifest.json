@@ -1,5 +1,7 @@
-{
-  "path": "src/shell-chrome.js",
-  "prefix": "src__shell-chrome.js.gz.b64",
-  "chunks": 1
-}
+[
+  {
+    "path": "src/shell-chrome.js",
+    "prefix": "src__shell-chrome.js.gz.b64",
+    "chunks": 1
+  }
+]
