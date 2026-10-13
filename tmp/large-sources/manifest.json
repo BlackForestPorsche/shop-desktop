@@ -1,0 +1,9 @@
+[
+  {
+    "path": "src/main.js",
+    "prefix": "src__main.js.gz.b64",
+    "chunks": 1,
+    "sha256": "1bbca0d83d0edecd108567730cacd4a46855fb267abd46f7e68ebd27a8c2d149",
+    "bytes": 29971
+  }
+]

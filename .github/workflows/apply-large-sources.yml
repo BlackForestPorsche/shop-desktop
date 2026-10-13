@@ -1,0 +1,49 @@
+name: Apply large desktop sources
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/shared-login-firefox-fix-6e06]
+    paths:
+      - .github/workflows/apply-large-sources.yml
+      - tmp/large-sources/**
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/shared-login-firefox-fix-6e06
+      - name: Decode main.js from large-sources
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import pathlib, gzip, base64, hashlib, json
+          root = pathlib.Path("tmp/large-sources")
+          manifest = json.loads((root / "manifest.json").read_text())
+          for item in manifest:
+              parts = []
+              for i in range(item["chunks"]):
+                  parts.append((root / f"{item['prefix']}.{i:02d}").read_text().strip())
+              b64 = "".join(parts)
+              data = gzip.decompress(base64.b64decode(b64))
+              text = data.decode("utf-8")
+              assert text.startswith('"use strict"'), item["path"]
+              if "sha256" in item:
+                  assert hashlib.sha256(data).hexdigest() == item["sha256"], item["path"]
+              pathlib.Path(item["path"]).write_bytes(data)
+              print(item["path"], len(data), hashlib.sha256(data).hexdigest()[:16])
+          PY
+      - name: Commit if changed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.js
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Wire Electron main process to shared-session exchange and Firefox handoff"
+            git push origin HEAD:cursor/shared-login-firefox-fix-6e06
+          fi
