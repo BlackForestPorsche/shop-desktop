@@ -44,6 +44,27 @@ test("Settings menu exposes Check for updates and wires the app updater", () => 
   assert.equal(called, 1);
 });
 
+test("Shop and Settings expose Open in Firefox signed in", () => {
+  let shopCalls = 0;
+  let settingsCalls = 0;
+  const h = handlers();
+  h.onOpenFirefoxSignedIn = () => {
+    shopCalls += 1;
+    settingsCalls += 1;
+  };
+  const template = buildAppMenuTemplate(h);
+  const shop = template.find((item) => item.label === "Shop");
+  const settings = template.find((item) => item.label === "Settings");
+  const shopItem = shop.submenu.find((item) => item.label === "Open in Firefox signed in");
+  const settingsItem = settings.submenu.find((item) => item.label === "Open in Firefox signed in");
+  assert.ok(shopItem);
+  assert.ok(settingsItem);
+  assert.equal(shopItem.accelerator, "CmdOrCtrl+Shift+F");
+  shopItem.click();
+  settingsItem.click();
+  assert.equal(shopCalls, 2);
+});
+
 test("Shop menu keeps navigation and site updates, not the desktop updater label", () => {
   const template = buildAppMenuTemplate(handlers());
   const shop = template.find((item) => item.label === "Shop");
@@ -58,7 +79,7 @@ test("Shop menu keeps navigation and site updates, not the desktop updater label
   assert.ok(!labels.includes("Check for desktop app updates"));
 });
 
-test("Help menu keeps About Black Forest Tools", () => {
+test("Help menu opens Firefox signed in and keeps About", () => {
   const template = buildAppMenuTemplate(handlers());
   const help = template.find((item) => item.label === "Help");
   const labels = help.submenu.map((item) => item.label);

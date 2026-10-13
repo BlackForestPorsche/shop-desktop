@@ -67,7 +67,22 @@ Keywords=shop;automotive;blackforest;
 StartupNotify=true
 EOF
 
-chmod +x "$APP_DIR/blackforest-tools.desktop"
+cat > "$APP_DIR/blackforest-firefox-signed-in.desktop" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Shop in Firefox (signed in)
+GenericName=Shop Firefox handoff
+Comment=Open shop.blackforestautomotive.com in Firefox using the shared widget session
+Exec=$ROOT/scripts/open-firefox-signed-in.sh
+Icon=blackforest-tools
+Terminal=false
+Categories=Network;Office;Utility;
+Keywords=shop;firefox;blackforest;
+StartupNotify=true
+EOF
+
+chmod +x "$APP_DIR/blackforest-tools.desktop" "$APP_DIR/blackforest-firefox-signed-in.desktop"
 update-desktop-database "$APP_DIR" 2>/dev/null || true
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t "$DATA_HOME/icons/hicolor" 2>/dev/null || true
@@ -75,6 +90,7 @@ fi
 
 echo "Black Forest Tools is in the application menu."
 echo "Command: blackforest-tools"
+echo "Firefox signed-in: blackforest-firefox-signed-in (or Shop → Open in Firefox signed in)"
 echo "If the command is not found, log out once, or open it from the menu."
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
