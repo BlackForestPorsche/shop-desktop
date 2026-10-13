@@ -12,6 +12,8 @@
  *   onHardReload: () => void,
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
+ *   onOpenFirefoxSignedIn: () => void,
+ *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
  * }} handlers
@@ -25,6 +27,12 @@ function buildAppMenuTemplate(handlers) {
         { label: "Back", accelerator: "Alt+Left", click: handlers.onBack },
         { label: "Forward", accelerator: "Alt+Right", click: handlers.onForward },
         { type: "separator" },
+        {
+          label: "Open in Firefox signed in",
+          accelerator: "CmdOrCtrl+Shift+F",
+          click: handlers.onOpenFirefoxSignedIn,
+        },
+        { type: "separator" },
         { label: "Reload", accelerator: "CmdOrCtrl+R", click: handlers.onReload },
         {
           label: "Reload and pick up site updates",
@@ -33,6 +41,11 @@ function buildAppMenuTemplate(handlers) {
         },
         { type: "separator" },
         { label: "Check for site updates", click: handlers.onCheckSiteUpdates },
+        { type: "separator" },
+        {
+          label: "Lock shop (widgets + this window)",
+          click: handlers.onLockShop,
+        },
         { type: "separator" },
         { label: "Quit", accelerator: "CmdOrCtrl+Q", role: "quit" },
       ],
@@ -43,6 +56,15 @@ function buildAppMenuTemplate(handlers) {
         {
           label: "Check for updates",
           click: handlers.onCheckAppUpdates,
+        },
+        { type: "separator" },
+        {
+          label: "Open in Firefox signed in",
+          click: handlers.onOpenFirefoxSignedIn,
+        },
+        {
+          label: "Lock shop (widgets + this window)",
+          click: handlers.onLockShop,
         },
       ],
     },
@@ -72,7 +94,7 @@ function buildAppMenuTemplate(handlers) {
       label: "Help",
       submenu: [
         {
-          label: "Open this page in the browser",
+          label: "Open this page in Firefox signed in",
           click: handlers.onOpenInBrowser,
         },
         {
