@@ -1,1 +1,1 @@
-file:///tmp/shop-desktop/src/shell-chrome.js
+PLACEHOLDER
