@@ -1,0 +1,49 @@
+name: apply-large-sources
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tmp/large-sources/**"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/pirate-idle-overlay-f530
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Decode gzip+base64 sources into place
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import base64, gzip, pathlib, hashlib
+          mapping = {
+            "tmp/large-sources/shell-chrome.js.gz.b64": "src/shell-chrome.js",
+            "tmp/large-sources/main.js.gz.b64": "src/main.js",
+          }
+          for src, dest in mapping.items():
+            b64 = pathlib.Path(src).read_text().strip()
+            raw = gzip.decompress(base64.b64decode(b64))
+            pathlib.Path(dest).parent.mkdir(parents=True, exist_ok=True)
+            pathlib.Path(dest).write_bytes(raw)
+            print(dest, len(raw), hashlib.sha256(raw).hexdigest()[:16])
+          PY
+      - name: Commit restored sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/shell-chrome.js src/main.js
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Wire idle overlay chrome and updates button into Electron shell"
+          git push origin HEAD:cursor/pirate-idle-overlay-f530
