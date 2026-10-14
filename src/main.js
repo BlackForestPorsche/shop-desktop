@@ -758,6 +758,11 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
   if (!force && Date.now() < localLockUntil) {
     return { ok: false, reason: "local_lock" };
   }
+  // Tools SPA on /unlock means intentional lock — Desk probes / onSessionMiss must
+  // not from-gate remint a leftover jar cookie (locked-site refresh remint).
+  if (!force && spaIsOnUnlock()) {
+    return { ok: false, reason: "spa_on_unlock" };
+  }
   if (!force && readSession()) {
     return { ok: true, reason: "already" };
   }
@@ -835,9 +840,35 @@ function partitionFetch(url, init) {
   return fetch(url, init);
 }
 
-/** Inject bf_shop_gate when session.fetch hid Set-Cookie from the jar. */
+/**
+ * Inject bf_shop_gate into Electron persist:shop.
+ * Prefer exchange JSON gateToken (shop beta 0.1.36+) — Set-Cookie is often
+ * invisible to session.fetch / extensions. Fall back to parsed Set-Cookie headers.
+ */
 async function injectGateCookieFromExchange(result) {
   const shopSession = shopPartition();
+  const gateToken = result && result.gateToken ? String(result.gateToken) : "";
+  if (gateToken) {
+    const details = {
+      url: `${SHOP_BASE}/`,
+      name: GATE_COOKIE,
+      value: gateToken,
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+    };
+    const parsed = result.expiresAt ? Date.parse(result.expiresAt) : NaN;
+    if (Number.isFinite(parsed)) {
+      details.expirationDate = Math.floor(parsed / 1000);
+    }
+    try {
+      await shopSession.cookies.set(details);
+      return true;
+    } catch (error) {
+      console.error("Could not inject shop gate cookie from gateToken:", error);
+    }
+  }
   const headers = Array.isArray(result && result.setCookie) ? result.setCookie : [];
   for (const header of headers) {
     const details = parseGateSetCookie(header, GATE_COOKIE);
@@ -851,25 +882,7 @@ async function injectGateCookieFromExchange(result) {
       console.error("Could not inject shop gate cookie from Set-Cookie:", error);
     }
   }
-  const gateToken = result && result.gateToken ? String(result.gateToken) : "";
-  if (!gateToken) {
-    return false;
-  }
-  try {
-    await shopSession.cookies.set({
-      url: `${SHOP_BASE}/`,
-      name: GATE_COOKIE,
-      value: gateToken,
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      sameSite: "lax",
-    });
-    return true;
-  } catch (error) {
-    console.error("Could not inject shop gate cookie from gateToken:", error);
-    return false;
-  }
+  return false;
 }
 
 async function reloadSpaAfterGateExchange() {
@@ -939,17 +952,22 @@ async function exchangeSharedSessionToGate({
   exchangingGate = true;
   try {
     const result = await exchangeWidgetSession(existing.token, partitionFetch);
-    if (!(await shopGateCookiesPresent())) {
+    // Always apply gateToken when present — do not assume Set-Cookie landed in the jar.
+    if (result && result.gateToken) {
+      await injectGateCookieFromExchange(result);
+    } else if (!(await shopGateCookiesPresent())) {
       await injectGateCookieFromExchange(result);
     }
     if (!(await shopGateCookiesPresent())) {
-      console.error("Exchange succeeded but bf_shop_gate is still missing from the Electron jar.");
+      console.error(
+        "Exchange succeeded but bf_shop_gate is still missing from the Electron jar (no usable gateToken/Set-Cookie).",
+      );
       return { ok: false, reason: "cookie_missing", ...result };
     }
     lastGateExchangeAt = Date.now();
     exchangedGateThisSession = true;
     let nav = { navigated: false, reason: "skipped" };
-    // Only leave /unlock. Cookie is already in the jar for an unlocked shop page.
+    // Leave /unlock once the jar has bf_shop_gate (gateToken path or Set-Cookie).
     if (reload && (onUnlock || spaIsOnUnlock())) {
       nav = await reloadSpaAfterGateExchange();
     }
@@ -1382,8 +1400,12 @@ if (gotLock) {
           });
         },
         // Desk probe while SPA unlocked + expired file → refresh Bearer before 404.
-        // Must NOT remint during localLockUntil (website lock → Tools lock).
+        // Must NOT remint during localLockUntil or while SPA shows /unlock
+        // (locked-site refresh must not auto-log-in Tools).
         onSessionMiss: async () => {
+          if (spaIsOnUnlock()) {
+            return { ok: false, reason: "spa_on_unlock" };
+          }
           await ensureSharedSessionFromGate();
         },
         // DELETE /v1/widget-session or POST /v1/lock from Desk (Firefox website lock).
