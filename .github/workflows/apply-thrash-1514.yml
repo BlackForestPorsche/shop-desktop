@@ -1,47 +1,8 @@
-name: Apply thrash 1.5.14 large sources
+name: MUTED — apply-thrash-1514
 on:
-  push:
-    branches: [cursor/tools-to-site-thrash-39db]
-    paths:
-      - tmp/thrash-1514/**
-      - .github/workflows/apply-thrash-1514.yml
   workflow_dispatch:
-permissions:
-  contents: write
 jobs:
-  apply:
+  muted:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: cursor/tools-to-site-thrash-39db
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Decode thrash-1514 chunks into sources
-        run: |
-          python3 <<'PY'
-          import gzip, base64, hashlib, json, pathlib, subprocess
-          root = pathlib.Path("tmp/thrash-1514")
-          man = json.loads((root / "manifest.json").read_text())
-          for item in man:
-              prefix = item["prefix"]
-              chunks = []
-              for i in range(item["chunks"]):
-                  chunks.append((root / f"{prefix}.{i:02d}").read_text().strip())
-              raw = gzip.decompress(base64.b64decode("".join(chunks)))
-              digest = hashlib.sha256(raw).hexdigest()
-              assert digest == item["sha256"], (item["path"], digest, item["sha256"])
-              path = pathlib.Path(item["path"])
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_bytes(raw)
-              print("wrote", path, len(raw))
-          subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
-          subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
-          subprocess.check_call(["git", "add", "src/main.js", "src/desk-session-bridge.js", "test/desk-session-bridge.test.js"])
-          # only commit if changed
-          st = subprocess.call(["git", "diff", "--cached", "--quiet"])
-          if st != 0:
-              subprocess.check_call(["git", "commit", "-m", "fix(tools): apply thrash 1.5.14 large sources (sticky lock + prefs)"])
-              subprocess.check_call(["git", "push"])
-          else:
-              print("no changes")
-          PY
+      - run: echo "Muted. Use soft-skip apply-large-sources on main (dispatch only)."
