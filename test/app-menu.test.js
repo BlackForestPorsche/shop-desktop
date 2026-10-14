@@ -13,6 +13,8 @@ function handlers() {
     onHardReload() {},
     onCheckSiteUpdates() {},
     onCheckAppUpdates() {},
+    onLabelsStatus() {},
+    onRestartLabels() {},
     onOpenFirefoxSignedIn() {},
     onLockShop() {},
     onOpenInBrowser() {},
@@ -20,7 +22,7 @@ function handlers() {
   };
 }
 
-test("application menu top-level labels are Shop / Settings / Edit / View / Help", () => {
+test("application menu top-level labels are Shop / Labels / Settings / Edit / View / Help", () => {
   const template = buildAppMenuTemplate(handlers());
   assert.deepEqual(
     template.map((item) => item.label),
@@ -65,11 +67,37 @@ test("Shop and Settings expose Open in Firefox signed in", () => {
   assert.equal(shopCalls, 2);
 });
 
+test("Labels menu is status/restart only — no full Labels app chrome", () => {
+  let statusCalls = 0;
+  let restartCalls = 0;
+  const h = handlers();
+  h.onLabelsStatus = () => {
+    statusCalls += 1;
+  };
+  h.onRestartLabels = () => {
+    restartCalls += 1;
+  };
+  const template = buildAppMenuTemplate(h);
+  const labelsMenu = template.find((item) => item.label === "Labels");
+  const settings = template.find((item) => item.label === "Settings");
+  assert.ok(labelsMenu);
+  const labelsLabels = labelsMenu.submenu.map((item) => item.label).filter(Boolean);
+  assert.deepEqual(labelsLabels, ["Labels service status…", "Restart Labels service"]);
+  assert.ok(!labelsLabels.some((label) => /open labels|bench/i.test(label)));
+  labelsMenu.submenu.find((item) => item.label === "Labels service status…").click();
+  labelsMenu.submenu.find((item) => item.label === "Restart Labels service").click();
+  settings.submenu.find((item) => item.label === "Labels service status…").click();
+  settings.submenu.find((item) => item.label === "Restart Labels service").click();
+  assert.equal(statusCalls, 2);
+  assert.equal(restartCalls, 2);
+});
+
 test("Shop menu keeps navigation and site updates, not the desktop updater label", () => {
   const template = buildAppMenuTemplate(handlers());
   const shop = template.find((item) => item.label === "Shop");
   const labels = shop.submenu.map((item) => item.label).filter(Boolean);
   assert.ok(labels.includes("Shop home"));
+  assert.ok(!labels.includes("Open Labels"));
   assert.ok(labels.includes("Open in Firefox signed in"));
   assert.ok(labels.includes("Lock shop (widgets + this window)"));
   assert.ok(labels.includes("Reload and pick up site updates"));
