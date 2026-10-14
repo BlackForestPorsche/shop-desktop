@@ -8,6 +8,7 @@ const {
   startDeskSessionBridge,
   DEFAULT_PORT,
   PATH_SESSION,
+  PATH_LOCK,
 } = require("../src/desk-session-bridge");
 
 test("bridgeHost refuses non-loopback binds", () => {
@@ -163,6 +164,118 @@ test("POST /v1/widget-session publishes token into shared store", async () => {
     const got = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`);
     assert.equal(got.status, 200);
     assert.equal((await got.json()).token, "from-desk");
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("DELETE /v1/widget-session calls onLock with live session", async () => {
+  let written = {
+    token: "live",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    person: "logan",
+  };
+  let lockCalls = 0;
+  let seenToken = "";
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => written,
+    clearSession: () => {
+      written = null;
+    },
+    onLock: async ({ source, session }) => {
+      lockCalls += 1;
+      assert.equal(source, "delete-session");
+      seenToken = session && session.token ? session.token : "";
+      written = null;
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`, {
+      method: "DELETE",
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.locked, true);
+    assert.equal(body.hadSession, true);
+    assert.equal(lockCalls, 1);
+    assert.equal(seenToken, "live");
+    assert.equal(written, null);
+
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    assert.equal(health.hasSession, false);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("POST /v1/lock locks Tools session via alias", async () => {
+  let written = {
+    token: "live",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    person: "logan",
+  };
+  let lockSource = "";
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => written,
+    clearSession: () => {
+      written = null;
+    },
+    onLock: async ({ source }) => {
+      lockSource = source;
+      written = null;
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_LOCK}`, {
+      method: "POST",
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.locked, true);
+    assert.equal(lockSource, "v1-lock");
+    assert.equal(written, null);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("DELETE without onLock still clears shared file", async () => {
+  let written = {
+    token: "live",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    person: "logan",
+  };
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => written,
+    clearSession: () => {
+      written = null;
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`, {
+      method: "DELETE",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(written, null);
   } finally {
     await bridge.close();
   }
