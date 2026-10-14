@@ -2,23 +2,16 @@
   {
     "path": "labels/package-lock.json",
     "prefix": "labels__package-lock.json.gz.b64",
-    "chunks": 1,
+    "chunks": 2,
     "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
     "bytes": 13254
   },
   {
-    "path": "labels/server.mjs",
-    "prefix": "labels__server.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "36c8c2f96daba888ec27385bd5e12abe54e7b3c2bcff81d9c3b5d6f64d251fda",
-    "bytes": 7841
-  },
-  {
-    "path": "labels/public/app.css",
-    "prefix": "labels__public__app.css.gz.b64",
-    "chunks": 1,
-    "sha256": "47d67c9acd85b3d47941ca710c2c69f2a7caef98288251beb57c04273a3d12e4",
-    "bytes": 7111
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
+    "chunks": 2,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
   },
   {
     "path": "labels/public/app.js",
@@ -26,54 +19,5 @@
     "chunks": 2,
     "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
     "bytes": 26767
-  },
-  {
-    "path": "labels/shared/detect.mjs",
-    "prefix": "labels__shared__detect.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "c3cb72e97d0ed8ebdb9bcf1314a3e7951e2f63e27d7af15172f11e9e655ccc3b",
-    "bytes": 5775
-  },
-  {
-    "path": "labels/shared/media.mjs",
-    "prefix": "labels__shared__media.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
-    "bytes": 6717
-  },
-  {
-    "path": "labels/shared/print.mjs",
-    "prefix": "labels__shared__print.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "5e8c489bb1b9c77c6981e90df1ef7785ada2dbe4443506b4ff1436d652da923d",
-    "bytes": 4150
-  },
-  {
-    "path": "labels/shared/ro-label.mjs",
-    "prefix": "labels__shared__ro-label.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
-    "bytes": 10171
-  },
-  {
-    "path": "scripts/install-manjaro.sh",
-    "prefix": "scripts__install-manjaro.sh.gz.b64",
-    "chunks": 1,
-    "sha256": "34a5176dd33307ea14b3ef0a5cbbb2f94d08f7adb04d8bd0ebd2271c1d5df954",
-    "bytes": 3807
-  },
-  {
-    "path": "scripts/install-windows.ps1",
-    "prefix": "scripts__install-windows.ps1.gz.b64",
-    "chunks": 1,
-    "sha256": "60d0c10bce971c41b4ade6a656457019bfe118887d8cd374cf6ac5b7ddce80f7",
-    "bytes": 5767
-  },
-  {
-    "path": "src/main.js",
-    "prefix": "src__main.js.gz.b64",
-    "chunks": 3,
-    "sha256": "5a84329e01f0be96d43ef4cb3b9be12081ef66c65b2d1c2d0e3998af663a3c02",
-    "bytes": 45288
   }
 ]
