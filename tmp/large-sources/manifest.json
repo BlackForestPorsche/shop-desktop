@@ -1,16 +1,20 @@
 [
   {
-    "path": "src/main.js",
-    "prefix": "src__main.js.gz.b64",
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
     "chunks": 2,
-    "sha256": "3323b03243dd64626d2395c0d62401713142bc74204f84940a5dcfbb6ca7dbd6",
-    "bytes": 43881
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63"
   },
   {
-    "path": "package.json",
-    "prefix": "package.json.gz.b64",
+    "path": "labels/public/app.css",
+    "prefix": "labels__public__app.css.gz.b64",
     "chunks": 1,
-    "sha256": "57515b43129110ed95ad32e2aff61e6ff4504c2f438893704894b20108f8151d",
-    "bytes": 2333
+    "sha256": "47d67c9acd85b3d47941ca710c2c69f2a7caef98288251beb57c04273a3d12e4"
+  },
+  {
+    "path": "labels/public/app.js",
+    "prefix": "labels__public__app.js.gz.b64",
+    "chunks": 3,
+    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84"
   }
 ]

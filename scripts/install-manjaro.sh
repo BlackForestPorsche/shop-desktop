@@ -22,6 +22,8 @@ chmod +x \
   "$LAUNCHER" \
   "$ROOT/scripts/install-manjaro.sh" \
   "$ROOT/scripts/ensure-electron.sh" \
+  "$ROOT/scripts/ensure-labels.sh" \
+  "$ROOT/scripts/sync-labels-vendor.sh" \
   "$ROOT/scripts/enable-tools-autostart.sh" \
   "$ROOT/scripts/disable-tools-autostart.sh" \
   "$ROOT/scripts/open-firefox-signed-in.sh" \
@@ -36,6 +38,9 @@ if [[ ! -d "$ROOT/node_modules/electron" ]]; then
   echo "Installing packages..."
   (cd "$ROOT" && npm install)
 fi
+
+echo "Installing Labels server dependencies..."
+bash "$ROOT/scripts/ensure-labels.sh"
 
 echo "Installing the window runtime..."
 bash "$ROOT/scripts/ensure-electron.sh"
@@ -91,6 +96,7 @@ fi
 echo "Black Forest Tools is in the application menu."
 echo "Command: blackforest-tools"
 echo "Firefox signed-in: blackforest-firefox-signed-in (or Shop → Open in Firefox signed in)"
+echo "Labels service: starts with Tools on :8080 (adopts existing labels.service) — Labels → status / restart"
 echo "If the command is not found, log out once, or open it from the menu."
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then

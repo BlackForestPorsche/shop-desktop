@@ -3,6 +3,7 @@
 /**
  * Native application menu template for Black Forest Tools.
  * Shop / Settings / Help are the product menus; Edit + View stay for standard roles.
+ * Labels is a thin service menu (status / restart) — print UX lives on the shop site.
  *
  * @param {{
  *   onShopHome: () => void,
@@ -13,6 +14,8 @@
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
  *   onOpenFirefoxSignedIn: () => void,
+ *   onLabelsStatus: () => void,
+ *   onRestartLabels: () => void,
  *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
@@ -51,11 +54,33 @@ function buildAppMenuTemplate(handlers) {
       ],
     },
     {
+      label: "Labels",
+      submenu: [
+        {
+          label: "Labels service status…",
+          click: handlers.onLabelsStatus,
+        },
+        {
+          label: "Restart Labels service",
+          click: handlers.onRestartLabels,
+        },
+      ],
+    },
+    {
       label: "Settings",
       submenu: [
         {
           label: "Check for updates",
           click: handlers.onCheckAppUpdates,
+        },
+        { type: "separator" },
+        {
+          label: "Labels service status…",
+          click: handlers.onLabelsStatus,
+        },
+        {
+          label: "Restart Labels service",
+          click: handlers.onRestartLabels,
         },
         { type: "separator" },
         {
@@ -107,7 +132,7 @@ function buildAppMenuTemplate(handlers) {
 }
 
 /** Top-level menu labels in display order (for tests / docs). */
-const APP_MENU_LABELS = ["Shop", "Settings", "Edit", "View", "Help"];
+const APP_MENU_LABELS = ["Shop", "Labels", "Settings", "Edit", "View", "Help"];
 
 module.exports = {
   buildAppMenuTemplate,
