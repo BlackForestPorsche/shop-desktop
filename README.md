@@ -59,13 +59,30 @@ Parts-catalog links open in the normal browser. Google sign-in stays in this win
 
 ## Menus
 
-The window keeps a normal Electron menu bar: **Shop**, **Settings**, **Edit**, **View**, **Help**.
+The window keeps a normal Electron menu bar: **Shop**, **Labels**, **Settings**, **Edit**, **View**, **Help**.
 
 - **Shop** — home, back/forward, reload, site-update check, quit
+- **Labels** — thin service controls only: **Labels service status…** / **Restart Labels service** (also under Settings). Not a second Labels app; print buttons live on the shop site.
 - **Settings → Check for updates** — desktop app updater (git pull on Manjaro; portable download on Windows)
 - **Help → About** — version info; About dialog also offers **Check for updates**
 
 There is no in-page **Check for updates** button next to the avatar/header.
+
+## Labels service (LabelWriter 550)
+
+From **1.5.5**, Black Forest Tools **owns the Labels print service** (no day-to-day separate Labels desktop app):
+
+- Vendored under [`labels/`](labels/) (synced from [label-connect](https://github.com/BlackForestPorsche/label-connect)).
+- On Tools start: probe `127.0.0.1:8080`; if empty, spawn `node labels/server.mjs` (system Node, CUPS / Windows PrintTo unchanged).
+- Desk extension keeps `POST /api/print-ro` to localhost — unchanged API.
+- Print / settings **buttons** belong on the shop site — Tools does not embed Labels UI chrome.
+- Legacy `labels.service` / start-labels can stay during transition; Tools **adopts** an already-running `:8080` instead of double-binding.
+- Not mixed into the pirate idle overlay.
+
+```bash
+npm run ensure-labels          # install labels/ deps
+npm run sync-labels -- ~/label-connect   # refresh vendor copy after Labels print fixes
+```
 
 ## Update the window itself
 
