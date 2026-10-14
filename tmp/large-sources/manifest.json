@@ -1,12 +1,5 @@
 [
   {
-    "path": "README.md",
-    "prefix": "README.md.gz.b64",
-    "chunks": 2,
-    "sha256": "b11f259f0c3f990882c75211f08ac656677254e2c00572c3067c731b651878e7",
-    "bytes": 10117
-  },
-  {
     "path": "labels/package-lock.json",
     "prefix": "labels__package-lock.json.gz.b64",
     "chunks": 1,
@@ -19,13 +12,6 @@
     "chunks": 1,
     "sha256": "36c8c2f96daba888ec27385bd5e12abe54e7b3c2bcff81d9c3b5d6f64d251fda",
     "bytes": 7841
-  },
-  {
-    "path": "labels/public/index.html",
-    "prefix": "labels__public__index.html.gz.b64",
-    "chunks": 1,
-    "sha256": "cbd3dac49c5c20b18c5c7ef45f239795cd0f531723e930840cccbcc76d7018ad",
-    "bytes": 2685
   },
   {
     "path": "labels/public/app.css",
@@ -68,20 +54,6 @@
     "chunks": 1,
     "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
     "bytes": 10171
-  },
-  {
-    "path": "labels/shared/text-fit.mjs",
-    "prefix": "labels__shared__text-fit.mjs.gz.b64",
-    "chunks": 1,
-    "sha256": "5594cfa47399057108d26e69b71bb45ac0f49c0ffacc209f1abc4b9da1febcd3",
-    "bytes": 3172
-  },
-  {
-    "path": "scripts/sync-labels-vendor.sh",
-    "prefix": "scripts__sync-labels-vendor.sh.gz.b64",
-    "chunks": 1,
-    "sha256": "36f2a8099da30a7daddac8649be0178e9246ed0a4802d4cadcf97bf19953ad96",
-    "bytes": 1968
   },
   {
     "path": "scripts/install-manjaro.sh",
