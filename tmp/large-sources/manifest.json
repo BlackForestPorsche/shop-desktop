@@ -1,65 +1,114 @@
 [
   {
+    "path": "src/labels-server.js",
+    "prefix": "src__labels-server.js.gz.b64",
+    "chunks": 1,
+    "sha256": "325525adf52fea0909daf1bab0919100051bfce160552491a779bd201f2f3e37",
+    "bytes": 7258
+  },
+  {
+    "path": "scripts/install-manjaro.sh",
+    "prefix": "scripts__install-manjaro.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "34a5176dd33307ea14b3ef0a5cbbb2f94d08f7adb04d8bd0ebd2271c1d5df954",
+    "bytes": 3807
+  },
+  {
+    "path": "scripts/install-windows.ps1",
+    "prefix": "scripts__install-windows.ps1.gz.b64",
+    "chunks": 1,
+    "sha256": "60d0c10bce971c41b4ade6a656457019bfe118887d8cd374cf6ac5b7ddce80f7",
+    "bytes": 5767
+  },
+  {
+    "path": "labels/server.mjs",
+    "prefix": "labels__server.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "36c8c2f96daba888ec27385bd5e12abe54e7b3c2bcff81d9c3b5d6f64d251fda",
+    "bytes": 7841
+  },
+  {
+    "path": "labels/public/index.html",
+    "prefix": "labels__public__index.html.gz.b64",
+    "chunks": 1,
+    "sha256": "cbd3dac49c5c20b18c5c7ef45f239795cd0f531723e930840cccbcc76d7018ad",
+    "bytes": 2685
+  },
+  {
+    "path": "labels/public/app.css",
+    "prefix": "labels__public__app.css.gz.b64",
+    "chunks": 1,
+    "sha256": "47d67c9acd85b3d47941ca710c2c69f2a7caef98288251beb57c04273a3d12e4",
+    "bytes": 7111
+  },
+  {
+    "path": "labels/public/app.js",
+    "prefix": "labels__public__app.js.gz.b64",
+    "chunks": 2,
+    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
+    "bytes": 26767
+  },
+  {
+    "path": "labels/shared/code128.mjs",
+    "prefix": "labels__shared__code128.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5aec0e8f19c02e2440c534a2117903c52fa95c98860cb15b0cddfbd9a5b5f3a7",
+    "bytes": 1934
+  },
+  {
+    "path": "labels/shared/detect.mjs",
+    "prefix": "labels__shared__detect.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "c3cb72e97d0ed8ebdb9bcf1314a3e7951e2f63e27d7af15172f11e9e655ccc3b",
+    "bytes": 5775
+  },
+  {
+    "path": "labels/shared/media.mjs",
+    "prefix": "labels__shared__media.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
+    "bytes": 6717
+  },
+  {
+    "path": "labels/shared/print.mjs",
+    "prefix": "labels__shared__print.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5e8c489bb1b9c77c6981e90df1ef7785ada2dbe4443506b4ff1436d652da923d",
+    "bytes": 4150
+  },
+  {
+    "path": "labels/shared/ro-idempotency.mjs",
+    "prefix": "labels__shared__ro-idempotency.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "f7c52ae2999272bc35104fb69ebb92b5d1265c846e5e9d8856cf40c259560042",
+    "bytes": 1934
+  },
+  {
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
+  },
+  {
+    "path": "labels/shared/text-fit.mjs",
+    "prefix": "labels__shared__text-fit.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5594cfa47399057108d26e69b71bb45ac0f49c0ffacc209f1abc4b9da1febcd3",
+    "bytes": 3172
+  },
+  {
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
+    "chunks": 1,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
+    "bytes": 13254
+  },
+  {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 5,
-    "sha256": "0f48bd2f5a66892d253bfe21b3bc95e1dfb2e3f9980524f53252e71c984fe0a4",
-    "bytes": 40584
-  },
-  {
-    "path": "src/shared-session.js",
-    "prefix": "src__shared-session.js.gz.b64",
-    "chunks": 1,
-    "sha256": "500f6cbb8a1d138db156876f61f00c0a0f2f66a50380a207c0b7265394a175a5",
-    "bytes": 14201
-  },
-  {
-    "path": "src/preload.js",
-    "prefix": "src__preload.js.gz.b64",
-    "chunks": 1,
-    "sha256": "d7acc1bd773c6bf9facd0efad8bfbcfb1d3f806fa14c382557de82921b7f7fb0",
-    "bytes": 5242
-  },
-  {
-    "path": "src/lock-detect.js",
-    "prefix": "src__lock-detect.js.gz.b64",
-    "chunks": 1,
-    "sha256": "842ebdf2e8e323eb5ede3cb1312589dfe468ac5199ed0aa4d94b98706745a325",
-    "bytes": 684
-  },
-  {
-    "path": "test/shared-session.test.js",
-    "prefix": "test__shared-session.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "40979f66881a3120a45709a6f8b0b1bd56afbb920fe600ded10c9622bed7f9f3",
-    "bytes": 7789
-  },
-  {
-    "path": "test/lock-detect.test.js",
-    "prefix": "test__lock-detect.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "0d06fa1317086710434d3da0707e445189253ed39213fbb71c340dd46fad7b5b",
-    "bytes": 1348
-  },
-  {
-    "path": "README.md",
-    "prefix": "README.md.gz.b64",
-    "chunks": 1,
-    "sha256": "ed6b1aa087cfbc6b4b546e4ede5782727bfef4389d635a4511dac44af21fa209",
-    "bytes": 9352
-  },
-  {
-    "path": "package.json",
-    "prefix": "package.json.gz.b64",
-    "chunks": 1,
-    "sha256": "3b587b98175fb836a8eb2fd00784f7c2146285c51a2cbcf35b435be4cb029aa6",
-    "bytes": 2333
-  },
-  {
-    "path": ".github/workflows/apply-large-sources.yml",
-    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
-    "chunks": 1,
-    "sha256": "f40e3549508c9b6f169cd00848516efb017b949e0638458a0ca24654ede78335",
-    "bytes": 3481
+    "chunks": 3,
+    "sha256": "5a84329e01f0be96d43ef4cb3b9be12081ef66c65b2d1c2d0e3998af663a3c02",
+    "bytes": 45288
   }
 ]
