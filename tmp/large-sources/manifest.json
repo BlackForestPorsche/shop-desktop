@@ -2,64 +2,7 @@
   {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 5,
-    "sha256": "0f48bd2f5a66892d253bfe21b3bc95e1dfb2e3f9980524f53252e71c984fe0a4",
-    "bytes": 40584
-  },
-  {
-    "path": "src/shared-session.js",
-    "prefix": "src__shared-session.js.gz.b64",
-    "chunks": 1,
-    "sha256": "500f6cbb8a1d138db156876f61f00c0a0f2f66a50380a207c0b7265394a175a5",
-    "bytes": 14201
-  },
-  {
-    "path": "src/preload.js",
-    "prefix": "src__preload.js.gz.b64",
-    "chunks": 1,
-    "sha256": "d7acc1bd773c6bf9facd0efad8bfbcfb1d3f806fa14c382557de82921b7f7fb0",
-    "bytes": 5242
-  },
-  {
-    "path": "src/lock-detect.js",
-    "prefix": "src__lock-detect.js.gz.b64",
-    "chunks": 1,
-    "sha256": "842ebdf2e8e323eb5ede3cb1312589dfe468ac5199ed0aa4d94b98706745a325",
-    "bytes": 684
-  },
-  {
-    "path": "test/shared-session.test.js",
-    "prefix": "test__shared-session.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "40979f66881a3120a45709a6f8b0b1bd56afbb920fe600ded10c9622bed7f9f3",
-    "bytes": 7789
-  },
-  {
-    "path": "test/lock-detect.test.js",
-    "prefix": "test__lock-detect.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "0d06fa1317086710434d3da0707e445189253ed39213fbb71c340dd46fad7b5b",
-    "bytes": 1348
-  },
-  {
-    "path": "README.md",
-    "prefix": "README.md.gz.b64",
-    "chunks": 1,
-    "sha256": "ed6b1aa087cfbc6b4b546e4ede5782727bfef4389d635a4511dac44af21fa209",
-    "bytes": 9352
-  },
-  {
-    "path": "package.json",
-    "prefix": "package.json.gz.b64",
-    "chunks": 1,
-    "sha256": "3b587b98175fb836a8eb2fd00784f7c2146285c51a2cbcf35b435be4cb029aa6",
-    "bytes": 2333
-  },
-  {
-    "path": ".github/workflows/apply-large-sources.yml",
-    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
-    "chunks": 1,
-    "sha256": "f40e3549508c9b6f169cd00848516efb017b949e0638458a0ca24654ede78335",
-    "bytes": 3481
+    "chunks": 3,
+    "sha256": "ea9a5b989ae39b87f413e1140646d5cab07dd910a8c4dd38ad98160482c30e6c"
   }
 ]
