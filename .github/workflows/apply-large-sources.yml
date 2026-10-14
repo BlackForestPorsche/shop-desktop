@@ -5,6 +5,7 @@ on:
     branches:
       - cursor/tools-desk-session-from-gate-8a47
       - cursor/tools-site-login-sync-2d77
+      - cursor/tools-website-login-sync-3261
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -76,13 +77,15 @@ jobs:
             src/shared-session.js \
             src/lock-detect.js \
             src/desk-session-bridge.js \
+            src/session-sync-guards.js \
             test/shared-session.test.js \
             test/lock-detect.test.js \
             test/desk-session-bridge.test.js \
+            test/session-sync-guards.test.js \
             .github/workflows/apply-large-sources.yml || true
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: Tools lock clears shared session for site/Desk (1.5.6)"
+            git commit -m "fix: probe-before-leave for Tools website unlock (1.5.8)"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi

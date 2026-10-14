@@ -29,8 +29,13 @@ function shouldHandleGateCookieSet({
 /**
  * Auto-exchange while the SPA URL is still /unlock.
  * - "skip": busy, locked, or no shared Bearer
- * - "leave": gate already in jar — navigate home, do not force-exchange again
- * - "exchange": mint gate from Bearer (debounced by caller)
+ * - "leave": gate already healed this session — navigate home (no re-exchange)
+ * - "exchange": mint/refresh gate from Bearer (debounced by caller)
+ *
+ * gatePresent alone is not enough: a stale/half-applied bf_shop_gate makes
+ * leave→home bounce back to /unlock while Desk still has a live Bearer.
+ * When gatePresent && !exchangedThisSession → exchange once (probe/heal).
+ * After a successful exchange this session, leave is safe.
  */
 function unlockAutoExchangeAction({
   url = "",
@@ -41,6 +46,7 @@ function unlockAutoExchangeAction({
   now = Date.now(),
   hasSession = false,
   gatePresent = false,
+  exchangedThisSession = false,
 } = {}) {
   if (!url || !String(url).includes("/unlock")) {
     return "skip";
@@ -56,6 +62,10 @@ function unlockAutoExchangeAction({
     return "skip";
   }
   if (gatePresent) {
+    // Probe/heal once before leave — do not trust jar presence alone.
+    if (!exchangedThisSession) {
+      return "exchange";
+    }
     return "leave";
   }
   return "exchange";
