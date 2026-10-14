@@ -433,7 +433,8 @@ async function exchangeWidgetSession(token, fetchImpl = fetch) {
     throw apiError("exchange_failed", res.status, `exchange failed (HTTP ${res.status})`);
   }
   const setCookie = readSetCookieHeaders(res);
-  // Prefer explicit gateToken from JSON when the site ships it (optional hardening).
+  // gateToken (shop beta 0.1.36+) is the same string as bf_shop_gate Set-Cookie.
+  // Prefer it for cookies.set when Set-Cookie is invisible to Electron/extensions.
   const gateToken = body.gateToken || body.gate || body.cookieValue || "";
   return {
     ok: true,
