@@ -30,6 +30,8 @@ jobs:
         shell: bash
         run: node scripts/ensure-icon.js
 
+      # --publish never: electron-builder v26+ auto-publishes in CI and fails without
+      # GH_TOKEN even when package.json has no publish config. Release is the next step.
       - name: Build Windows portable exe
         id: build
         continue-on-error: true
@@ -37,7 +39,8 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         shell: pwsh
         run: |
-          npm run dist:win 2>&1 | Tee-Object -FilePath electron-builder.log
+          npm run ensure-icon
+          npx electron-builder --win --publish never 2>&1 | Tee-Object -FilePath electron-builder.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Report build failure
