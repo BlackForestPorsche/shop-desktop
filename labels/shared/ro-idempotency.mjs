@@ -1,8 +1,14 @@
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+/**
+ * Remember RO numbers that already auto-printed so Create retries
+ * do not burn a second LabelWriter label.
+ */
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
-export function createRoPrintStore(filePath) {
+const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function createRoPrintStore(filePath, { ttlMs = DEFAULT_TTL_MS } = {}) {
   let cache = null;
 
   async function load() {
@@ -10,47 +16,55 @@ export function createRoPrintStore(filePath) {
     try {
       const text = await readFile(filePath, "utf8");
       const parsed = JSON.parse(text);
-      cache = parsed && typeof parsed === "object" ? parsed : {};
+      cache = parsed && typeof parsed === "object" && parsed.prints && typeof parsed.prints === "object"
+        ? parsed
+        : { prints: {} };
     } catch {
-      cache = {};
+      cache = { prints: {} };
     }
     return cache;
   }
 
   async function save() {
-    await mkdir(filePath.replace(/[^/]+$/, ""), { recursive: true }).catch(() => {});
-    const dir = filePath.slice(0, filePath.lastIndexOf("/"));
-    if (dir) await mkdir(dir, { recursive: true });
-    await writeFile(filePath, JSON.stringify(cache || {}, null, 2));
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, JSON.stringify(cache ?? { prints: {} }, null, 2));
   }
 
-  async function prune() {
-    const data = await load();
-    const now = Date.now();
-    let changed = false;
-    for (const [key, entry] of Object.entries(data)) {
-      const at = Number(entry?.at || 0);
-      if (!at || now - at > DAY_MS) {
-        delete data[key];
-        changed = true;
-      }
+  function prune(now = Date.now()) {
+    if (!cache?.prints) return;
+    for (const [key, entry] of Object.entries(cache.prints)) {
+      const at = Date.parse(entry?.at || "");
+      if (!Number.isFinite(at) || now - at > ttlMs) delete cache.prints[key];
     }
-    if (changed) await save();
-    return data;
   }
 
   return {
     async has(roNumber) {
       const key = String(roNumber || "").trim();
       if (!key) return false;
-      const data = await prune();
-      return Boolean(data[key]);
+      await load();
+      prune();
+      return Boolean(cache.prints[key]);
     },
+
+    async get(roNumber) {
+      const key = String(roNumber || "").trim();
+      if (!key) return null;
+      await load();
+      prune();
+      return cache.prints[key] ?? null;
+    },
+
     async mark(roNumber, meta = {}) {
       const key = String(roNumber || "").trim();
       if (!key) return;
-      const data = await prune();
-      data[key] = { at: Date.now(), ...meta };
+      await load();
+      prune();
+      cache.prints[key] = {
+        at: new Date().toISOString(),
+        lastName: String(meta.lastName || "").slice(0, 40),
+        model: String(meta.model || "").slice(0, 32),
+      };
       await save();
     },
   };
