@@ -22,10 +22,10 @@
     "disable-autostart": "bash scripts/disable-tools-autostart.sh",
     "firefox-signed-in": "bash scripts/open-firefox-signed-in.sh",
     "ensure-icon": "node scripts/ensure-icon.js",
-    "ensure-labels": "bash scripts/ensure-labels.sh",
-    "sync-labels": "bash scripts/sync-labels-vendor.sh",
     "dist": "npm run ensure-icon && electron-builder --linux AppImage",
-    "dist:win": "npm run ensure-icon && electron-builder --win"
+    "dist:win": "npm run ensure-icon && electron-builder --win",
+    "ensure-labels": "bash scripts/ensure-labels.sh",
+    "sync-labels": "bash scripts/sync-labels-vendor.sh"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -46,9 +46,6 @@
       "package.json"
     ],
     "asar": true,
-    "asarUnpack": [
-      "labels/**/*"
-    ],
     "forceCodeSigning": false,
     "linux": {
       "target": [
@@ -79,6 +76,9 @@
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
-    }
+    },
+    "asarUnpack": [
+      "labels/**/*"
+    ]
   }
 }
