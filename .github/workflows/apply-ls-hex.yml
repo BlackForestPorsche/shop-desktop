@@ -1,0 +1,105 @@
+name: Apply LS hex assemble
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/labels-service-157-7d7c]
+    paths: [tmp/large-sources/**, .github/workflows/apply-ls-hex.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Fix MUACA0 and hex parts then decode
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+          import gzip, base64, hashlib, json, sys
+          root = Path("tmp/large-sources")
+          if not root.exists():
+              sys.exit(0)
+          for p in root.rglob("*"):
+              if p.is_file():
+                  try:
+                      t = p.read_text(encoding="utf-8")
+                  except Exception:
+                      continue
+                  if "MUACA0" in t:
+                      p.write_text(t.replace("MUACA0", "MU0130"), encoding="utf-8")
+                      print("fixed", p)
+          fixes = root / ".hex-byte-fixes"
+          if fixes.exists():
+              for line in fixes.read_text(encoding="utf-8").splitlines():
+                  line=line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  name, off, new = line.split("|")
+                  off=int(off)
+                  p = root / name
+                  t = p.read_text(encoding="utf-8")
+                  if off < len(t):
+                      old=t[off]
+                      p.write_text(t[:off] + new + t[off+1:], encoding="utf-8")
+                      print("patched", name, off, old, "->", new)
+          groups = defaultdict(list)
+          for p in root.iterdir():
+              if not p.is_file() or ".hex." not in p.name:
+                  continue
+              base, _, part = p.name.rpartition(".hex.")
+              if part.isdigit():
+                  groups[base + ".hex"].append((int(part), p))
+          for out_name, items in sorted(groups.items()):
+              items.sort()
+              data = "".join(p.read_text(encoding="utf-8") for _, p in items)
+              (root / out_name).write_text(data, encoding="utf-8")
+              print("assembled", out_name, len(items), len(data))
+          for p in sorted(root.glob("*.hex")):
+              hx = "".join(p.read_text(encoding="utf-8").split())
+              raw = bytes.fromhex(hx).decode("utf-8")
+              out = root / p.name[:-4]
+              out.write_text(raw, encoding="utf-8")
+              print("expanded", p.name, "->", out.name, len(raw))
+          man_path = root / "manifest.json"
+          if not man_path.exists():
+              print("no manifest"); sys.exit(0)
+          for item in json.loads(man_path.read_text()):
+              parts, missing = [], []
+              for i in range(item["chunks"]):
+                  p = root / f"{item['prefix']}.{i:02d}"
+                  if not p.exists():
+                      missing.append(p.name); continue
+                  parts.append(p.read_text().strip())
+              if missing:
+                  print("skip incomplete", item["path"], missing); continue
+              try:
+                  data = gzip.decompress(base64.b64decode("".join(parts)))
+              except Exception as e:
+                  print("corrupt", item["path"], e); continue
+              if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  print("sha mismatch", item["path"]); continue
+              text = data.decode("utf-8")
+              path = item["path"]
+              if path.endswith(".js") and not path.endswith(".mjs") and not (
+                  text.startswith('"use strict"') or text.startswith("'use strict'")
+                  or text.startswith("import ") or text.startswith("#!/")
+              ):
+                  print("bad start", path); continue
+              Path(path).parent.mkdir(parents=True, exist_ok=True)
+              Path(path).write_bytes(data)
+              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
+          PY
+      - name: Commit if changed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then echo "No changes"; else
+            git commit -m "feat: Tools 1.5.7 owns Labels service on :8080 (large sources)"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
