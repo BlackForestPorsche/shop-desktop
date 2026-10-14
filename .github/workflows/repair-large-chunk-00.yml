@@ -1,0 +1,50 @@
+name: Repair large-sources chunk 00
+on:
+  push:
+    branches:
+      - cursor/tools-site-login-sync-2d77
+    paths:
+      - .github/workflows/repair-large-chunk-00.yml
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Fix paste corruption in chunk 00
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path("tmp/large-sources/src__main.js.gz.b64.00")
+          t = p.read_text()
+          bad = "VLXA5++O6n7+LsfRfDL0"
+          good = "VLXA5++O6n8LsfRfDL0"
+          if bad in t:
+              t = t.replace(bad, good, 1)
+              p.write_text(t)
+              print("applied fix")
+          else:
+              print("bad pattern absent; checking hash only")
+          digest = hashlib.sha256(p.read_text().encode()).hexdigest()
+          print("sha256", digest)
+          expect = "0c325065321faf9e0b4414c8f8eb5a25b6952a36b1d48de0c82e1e8d4a1e1f1c"
+          if digest != expect:
+              raise SystemExit(f"chunk 00 hash mismatch: {digest}")
+          PY
+      - name: Commit repair if needed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tmp/large-sources/src__main.js.gz.b64.00
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix: exact bytes for Tools 1.5.5 main.js chunk 00"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
