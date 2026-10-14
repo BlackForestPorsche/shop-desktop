@@ -12,6 +12,12 @@ const {
   checkShellUpdate,
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
+const {
+  labelsUrl,
+  probeLabels,
+  startLabelsServer,
+  stopLabelsServer,
+} = require("./labels-server");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
 const {
   sessionFilePath,
@@ -31,12 +37,6 @@ const {
   SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
-const {
-  labelsUrl,
-  probeLabels,
-  startLabelsServer,
-  stopLabelsServer,
-} = require("./labels-server");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -83,12 +83,12 @@ let applyingRemoteLock = false;
 let mintingWidgetSession = false;
 let exchangingGate = false;
 let deskSessionBridge = null;
-let labelsServerHandle = null;
 /** Avoid tight reload loops when /unlock keeps loading while exchange fails. */
 let unlockExchangeAttemptAt = 0;
 const UNLOCK_EXCHANGE_GAP_MS = 4_000;
 /** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
 let localLockUntil = 0;
+let labelsServerHandle = null;
 const LOCAL_LOCK_COOLDOWN_MS = 45_000;
 /** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
 let gateRemovalTimer = null;
@@ -534,6 +534,11 @@ function shopMenu() {
       onHardReload: () => send("hard"),
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      onOpenFirefoxSignedIn: () => {
+        openFirefoxSignedIn({ interactive: true }).catch((error) => {
+          console.error(error);
+        });
+      },
       onLabelsStatus: () => {
         showLabelsStatus().catch((error) => {
           console.error(error);
@@ -541,11 +546,6 @@ function shopMenu() {
       },
       onRestartLabels: () => {
         restartLabelsService().catch((error) => {
-          console.error(error);
-        });
-      },
-      onOpenFirefoxSignedIn: () => {
-        openFirefoxSignedIn({ interactive: true }).catch((error) => {
           console.error(error);
         });
       },
@@ -560,10 +560,6 @@ function shopMenu() {
         });
       },
       onAbout: async () => {
-        const labelsLine =
-          labelsServerHandle && labelsServerHandle.ok
-            ? `Labels service: ${labelsServerHandle.url} (${labelsServerHandle.owned ? "owned by Tools" : "adopted existing"})`
-            : "Labels service: starts with Tools (Labels → status / restart)";
         const choice = await dialog.showMessageBox(mainWindow, {
           type: "info",
           buttons: ["OK", "Check for updates"],
@@ -582,10 +578,6 @@ function shopMenu() {
             "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
             "",
             "Check for desktop updates from Settings → Check for updates.",
-            "",
-            labelsLine,
-            "LabelWriter print UX / settings buttons belong on the shop site; Tools only owns the localhost :8080 service.",
-            "Desk Create RO prints via 127.0.0.1:8080 (not the idle game).",
             "",
             "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
@@ -1298,16 +1290,15 @@ if (gotLock) {
       deskSessionBridge = null;
     }
     Menu.setApplicationMenu(shopMenu());
-    // Own Labels (:8080) so Desk Create RO / site Labels tile can reach the print service.
-    // Adopts Manjaro labels.service when already healthy.
-    ensureLabelsRunning({ interactive: false }).catch((error) => {
-      console.error(error);
-    });
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
     // Also: shared Bearer can exist while SPA jar is empty — force exchange on boot.
     await ensureSharedSessionFromGate();
     await exchangeSharedSessionToGate({ force: true, reload: false });
     createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
+    // Own Labels (:8080) so Desk Create RO / site Labels tile can reach the print service.
+    ensureLabelsRunning({ interactive: false }).catch((error) => {
+      console.error(error);
+    });
     updateTimer = setInterval(() => {
       checkForSiteUpdate({ interactive: false });
     }, UPDATE_EVERY_MS);
@@ -1344,9 +1335,6 @@ if (gotLock) {
       deskSessionBridge.close().catch(() => {});
       deskSessionBridge = null;
     }
-    // Leave Labels running so Desk can still print after Tools quits; Tools
-    // re-adopts or restarts it on next launch.
-    stopLabelsServer(labelsServerHandle, { force: false });
     app.quit();
   });
 }
