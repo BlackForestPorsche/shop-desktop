@@ -1,14 +1,15 @@
 name: Apply large desktop sources
+# Template for agent large-file uploads. Incomplete chunks exit green
+# (wait for the rest) so mid-upload pushes do not spam failure email.
+# Prefer workflow_dispatch after all parts are on the branch; avoid
+# merging this file to main with a push trigger on a live cursor/* branch.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/tools-1512-unlock-race-clean-3554
-    paths:
-      - .github/workflows/apply-large-sources.yml
-      - tmp/large-sources/**
 permissions:
   contents: write
+concurrency:
+  group: apply-large-sources-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   apply:
     runs-on: ubuntu-latest
@@ -25,18 +26,23 @@ jobs:
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No manifest -- exiting green.")
+              print("No manifest — nothing to apply (green).")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
           changed = []
           for item in manifest:
               parts = []
+              missing = False
               for i in range(item["chunks"]):
                   p = root / f"{item['prefix']}.{i:02d}"
                   if not p.exists():
-                      print(f"missing {p}", file=sys.stderr)
-                      sys.exit(1)
+                      print(f"incomplete payload, waiting for {p} (green)")
+                      missing = True
+                      break
                   parts.append(p.read_text().strip())
+              if missing:
+                  # Mid-upload: do not fail the job (avoids Actions failure email).
+                  sys.exit(0)
               data = gzip.decompress(base64.b64decode("".join(parts)))
               if item.get("sha256") and hashlib.sha256(data).hexdigest() != item["sha256"]:
                   print(f"sha mismatch {item['path']}", file=sys.stderr)
@@ -55,6 +61,6 @@ jobs:
           subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
           subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
           subprocess.check_call(["git", "add", "--"] + changed)
-          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply src/main.js from large-sources (unlock sync 1.5.12)"])
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply sources from large-sources chunks"])
           subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY
