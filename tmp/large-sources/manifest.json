@@ -3,8 +3,8 @@
     "path": "src/main.js",
     "prefix": "src__main_js",
     "chunks": 4,
-    "sha256": "52bc5103fd87692e6337f8491dfcf690a147d1ed36b45ccf9885d7cf1f7ad7ec",
-    "bytes": 33826
+    "sha256": "fdfdd4bf31360b27f020533675ec4b788a57ee20a18e330c5acbbc8f3ca4939a",
+    "bytes": 35051
   },
   {
     "path": "labels/public/app.js",
