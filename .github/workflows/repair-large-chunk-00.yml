@@ -22,19 +22,21 @@ jobs:
           import hashlib
           p = Path("tmp/large-sources/src__main.js.gz.b64.00")
           t = p.read_text()
-          bad = "VLXA5++O6n7+LsfRfDL0"
-          good = "VLXA5++O6n8LsfRfDL0"
-          if bad in t:
-              t = t.replace(bad, good, 1)
-              p.write_text(t)
-              print("applied fix")
+          # Corruption 1: O6n8 -> O6n7+ (extra char)
+          t2 = t.replace("VLXA5++O6n7+LsfRfDL0", "VLXA5++O6n8LsfRfDL0", 1)
+          # Corruption 2: cWrlz -> cXrlz
+          t2 = t2.replace("sfRfDL0cXrlz2RxDd", "sfRfDL0cWrlz2RxDd", 1)
+          if t2 != t:
+              p.write_text(t2)
+              print("applied fixes", len(t), "->", len(t2))
           else:
-              print("bad pattern absent; checking hash only")
+              print("no patterns matched; checking hash only")
           digest = hashlib.sha256(p.read_text().encode()).hexdigest()
           print("sha256", digest)
           expect = "0c325065321faf9e0b4414c8f8eb5a25b6952a36b1d48de0c82e1e8d4a1e1f1c"
           if digest != expect:
               raise SystemExit(f"chunk 00 hash mismatch: {digest}")
+          print("OK exact match")
           PY
       - name: Commit repair if needed
         shell: bash
