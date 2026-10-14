@@ -16,6 +16,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+      - name: Fix known MUACA0→MU0130 transcription corruption
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("tmp/large-sources")
+          if not root.exists():
+              raise SystemExit(0)
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+              try:
+                  t = p.read_text(encoding="utf-8")
+              except Exception:
+                  continue
+              if "MUACA0" in t:
+                  p.write_text(t.replace("MUACA0", "MU0130"), encoding="utf-8")
+                  print("fixed", p)
+          PY
+      - name: Expand .hex chunk sidecars to b64 text
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("tmp/large-sources")
+          if not root.exists():
+              raise SystemExit(0)
+          for p in sorted(root.glob("*.hex")):
+              hx = "".join(p.read_text(encoding="utf-8").split())
+              raw = bytes.fromhex(hx).decode("utf-8")
+              out = root / p.name[:-4]  # strip .hex
+              out.write_text(raw, encoding="utf-8")
+              print("expanded", p.name, "->", out.name, len(raw))
+          PY
       - name: Decode sources from large-sources chunks
         shell: bash
         run: |
