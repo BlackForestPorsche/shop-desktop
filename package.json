@@ -41,9 +41,9 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json",
       "labels/**/*",
-      "!labels/node_modules/**/*"
+      "!labels/node_modules/**/*",
+      "package.json"
     ],
     "asar": true,
     "forceCodeSigning": false,
