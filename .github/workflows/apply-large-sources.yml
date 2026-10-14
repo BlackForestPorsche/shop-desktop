@@ -2,7 +2,7 @@ name: Apply large desktop sources
 on:
   workflow_dispatch:
   push:
-    branches: [cursor/tools-desk-shared-login-f952]
+    branches: [cursor/labels-into-tools-7d7c]
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -14,8 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cursor/tools-desk-shared-login-f952
-      - name: Decode main.js from large-sources
+          ref: cursor/labels-into-tools-7d7c
+      - name: Decode sources from large-sources chunks
         shell: bash
         run: |
           python3 <<'PY'
@@ -47,25 +47,28 @@ jobs:
               except Exception as e:
                   print(f"Corrupt payload for {item['path']}: {e}; skipping (green).", file=sys.stderr)
                   continue
-              text = data.decode("utf-8")
-              if not text.startswith('"use strict"'):
-                  print(f"Unexpected start for {item['path']}; skipping (green).", file=sys.stderr)
-                  continue
               if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
                   print(f"SHA mismatch for {item['path']}; skipping (green).", file=sys.stderr)
                   continue
-              pathlib.Path(item["path"]).write_bytes(data)
-              print(item["path"], len(data), hashlib.sha256(data).hexdigest()[:16])
+              text = data.decode("utf-8")
+              path = item["path"]
+              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+              pathlib.Path(path).write_bytes(data)
+              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
           PY
       - name: Commit if changed
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main.js
+          git add \
+            src/main.js \
+            labels/public/app.js \
+            tmp/large-sources \
+            .github/workflows/apply-large-sources.yml || true
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "Shared login: restore full src/main.js (1.5.3)"
-            git push origin HEAD:cursor/tools-desk-shared-login-f952
+            git commit -m "fix: restore main.js and labels/public/app.js from encoded payloads"
+            git push origin HEAD:cursor/labels-into-tools-7d7c
           fi
