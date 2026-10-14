@@ -3,6 +3,66 @@
     "target": "tmp/large-sources/labels__package-lock.json.gz.b64.00",
     "stem": "labels__package-lock.json.gz.b64.00",
     "n": 8,
-    "sha256": "ddf5bdf0021f4e8c8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e"
+    "sha256": "ddf5bdf0021f8997e34d01cb203db07baa5bce9c21a1ed37b58789c978b1091c"
+  },
+  {
+    "target": "tmp/large-sources/labels__public__app.css.gz.b64.00",
+    "stem": "labels__public__app.css.gz.b64.00",
+    "n": 4,
+    "sha256": "0871123edb977b585d2ad419045adde7c9c614b272bc8a183a5a9924ee10b528"
+  },
+  {
+    "target": "tmp/large-sources/labels__public__app.js.gz.b64.00",
+    "stem": "labels__public__app.js.gz.b64.00",
+    "n": 9,
+    "sha256": "7878270640a1c44d6ff3fe7d497f71f08680510ee06833754fcd50950422e21d"
+  },
+  {
+    "target": "tmp/large-sources/labels__public__app.js.gz.b64.01",
+    "stem": "labels__public__app.js.gz.b64.01",
+    "n": 5,
+    "sha256": "1d8323025ce78ed91ee4e71a585d094055c0308b30a3e7fc2272c98d7c7fb7d8"
+  },
+  {
+    "target": "tmp/large-sources/labels__server.mjs.gz.b64.00",
+    "stem": "labels__server.mjs.gz.b64.00",
+    "n": 5,
+    "sha256": "27ba7296756e76ba6cb93d9a3bfd13f1a30bdf5efe456a1796b9b5bbea2e90e8"
+  },
+  {
+    "target": "tmp/large-sources/labels__shared__media.mjs.gz.b64.00",
+    "stem": "labels__shared__media.mjs.gz.b64.00",
+    "n": 5,
+    "sha256": "c17d48fa3a3bf756108a564081b8fc70b41677f02e81e1586d536a2bdead697c"
+  },
+  {
+    "target": "tmp/large-sources/labels__shared__print.mjs.gz.b64.00",
+    "stem": "labels__shared__print.mjs.gz.b64.00",
+    "n": 4,
+    "sha256": "05d8c740e3e4f17137f82896bd7212505c062229a5abbca764eac5257c868417"
+  },
+  {
+    "target": "tmp/large-sources/labels__shared__ro-label.mjs.gz.b64.00",
+    "stem": "labels__shared__ro-label.mjs.gz.b64.00",
+    "n": 8,
+    "sha256": "d885f1dd284e414aa4835f5a6ce412dbad3279b3407eba36f6ede6ab6014c017"
+  },
+  {
+    "target": "tmp/large-sources/src__main.js.gz.b64.00",
+    "stem": "src__main.js.gz.b64.00",
+    "n": 9,
+    "sha256": "07ad871fe358cc6f00414c7e77feb6f70f0ef39921ea6c129b0ffa92534941d3"
+  },
+  {
+    "target": "tmp/large-sources/src__main.js.gz.b64.01",
+    "stem": "src__main.js.gz.b64.01",
+    "n": 9,
+    "sha256": "bf2a5eb05838e188b7fb28252371bc540ef4ad98719a72c3ce7f87320ecc1d83"
+  },
+  {
+    "target": "tmp/large-sources/src__main.js.gz.b64.02",
+    "stem": "src__main.js.gz.b64.02",
+    "n": 6,
+    "sha256": "15b3dd70796437863e9b2f1352280f5db3d8b0ff26ed15a22d75849f3a8f07d5"
   }
 ]
