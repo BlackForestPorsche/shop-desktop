@@ -50,7 +50,6 @@ jobs:
               if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
                   print(f"SHA mismatch for {item['path']}; skipping (green).", file=sys.stderr)
                   continue
-              text = data.decode("utf-8")
               path = item["path"]
               pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
               pathlib.Path(path).write_bytes(data)
@@ -61,14 +60,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/main.js \
-            labels/public/app.js \
-            tmp/large-sources \
-            .github/workflows/apply-large-sources.yml || true
+          [ -f src/main.js ] && git add -- src/main.js || true
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: restore main.js and labels/public/app.js from encoded payloads"
+            git commit -m "Labels service: main.js owns :8080 without Labels UI window"
             git push origin HEAD:cursor/labels-into-tools-7d7c
           fi
