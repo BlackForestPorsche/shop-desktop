@@ -25,7 +25,7 @@ function modules(pattern) {
 }
 
 export function code128(value) {
-  const text = String(value ?? "").replace([^\x20-\x7e]/g, "").slice(0, 48);
+  const text = String(value ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 48);
   const codes = [104];
   for (const ch of text || " ") codes.push(ch.charCodeAt(0) - 32);
   let sum = codes[0];
