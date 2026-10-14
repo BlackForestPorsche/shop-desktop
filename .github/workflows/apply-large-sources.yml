@@ -35,6 +35,30 @@ jobs:
                   p.write_text(t.replace("MUACA0", "MU0130"), encoding="utf-8")
                   print("fixed", p)
           PY
+      - name: Apply .hex-byte-fixes (offset patches)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("tmp/large-sources")
+          fixes = root / ".hex-byte-fixes"
+          if not fixes.exists():
+              raise SystemExit(0)
+          for line in fixes.read_text(encoding="utf-8").splitlines():
+              line=line.strip()
+              if not line or line.startswith("#"):
+                  continue
+              name, off, new = line.split("|")
+              off=int(off)
+              p = root / name
+              t = p.read_text(encoding="utf-8")
+              if off >= len(t):
+                  print("skip bad offset", name, off); continue
+              old=t[off]
+              t = t[:off] + new + t[off+1:]
+              p.write_text(t, encoding="utf-8")
+              print("patched", name, "offset", off, old, "->", new)
+          PY
       - name: Expand .hex chunk sidecars to b64 text
         shell: bash
         run: |
@@ -101,7 +125,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          # Keep large-sources + workflow; commit applied sources
           if git diff --staged --quiet; then
             echo "No changes"
           else
