@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
   "main": "src/main.js",
@@ -11,7 +11,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall-electron.js",
+    "postinstall": "node scripts/postinstall-electron.js && node scripts/postinstall-labels.js",
     "start": "electron .",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
@@ -22,6 +22,8 @@
     "disable-autostart": "bash scripts/disable-tools-autostart.sh",
     "firefox-signed-in": "bash scripts/open-firefox-signed-in.sh",
     "ensure-icon": "node scripts/ensure-icon.js",
+    "ensure-labels": "bash scripts/ensure-labels.sh",
+    "sync-labels": "bash scripts/sync-labels-vendor.sh",
     "dist": "npm run ensure-icon && electron-builder --linux AppImage",
     "dist:win": "npm run ensure-icon && electron-builder --win"
   },
@@ -39,9 +41,14 @@
     "files": [
       "src/**/*",
       "assets/**/*",
+      "labels/**/*",
+      "!labels/node_modules/**/*",
       "package.json"
     ],
     "asar": true,
+    "asarUnpack": [
+      "labels/**/*"
+    ],
     "forceCodeSigning": false,
     "linux": {
       "target": [
