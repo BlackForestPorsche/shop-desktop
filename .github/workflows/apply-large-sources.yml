@@ -16,7 +16,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-      - name: Decode sources from large-sources chunks
+          fetch-depth: 0
+      - name: Copy Labels ownership sources from prior branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin cursor/labels-service-156-7d7c cursor/labels-service-158-7d7c
+          # Vendored Labels tree + service module (byte-match local 1.5.9)
+          git checkout origin/cursor/labels-service-156-7d7c -- \
+            src/labels-server.js \
+            labels/server.mjs \
+            labels/shared/detect.mjs \
+            labels/shared/media.mjs \
+            labels/shared/print.mjs \
+            labels/shared/ro-label.mjs \
+            scripts/install-windows.ps1
+          # install-manjaro + Labels-aware main from 158
+          git checkout origin/cursor/labels-service-158-7d7c -- \
+            scripts/install-manjaro.sh \
+            src/main.js
+          # Re-apply 1.5.8 website-unlock exchangedGateThisSession delta onto Labels main
+          if [[ -f tmp/large-sources/main-exchanged-gate.patch ]]; then
+            patch -p1 < tmp/large-sources/main-exchanged-gate.patch
+          fi
+          echo "Copied Labels sources; main.js markers:"
+          rg -n "ensureLabelsRunning|exchangedGateThisSession|leaveUnlockScreen|openLabelsWindow" src/main.js || true
+      - name: Decode optional large-sources chunks
         shell: bash
         run: |
           python3 <<'PY'
@@ -24,10 +49,13 @@ jobs:
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No tmp/large-sources/manifest.json — nothing to apply; exiting green.")
+              print("No chunk manifest — skip decode.")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
+          # Only apply src/main.js from chunks if present and complete (optional override)
           for item in manifest:
+              if item.get("path") != "src/main.js":
+                  continue
               parts = []
               missing = []
               for i in range(item["chunks"]):
@@ -37,24 +65,18 @@ jobs:
                       continue
                   parts.append(p.read_text().strip())
               if missing:
-                  print(
-                      f"Incomplete payload for {item['path']}: missing {missing}. "
-                      "Skipping (green) until all chunks land.",
-                      file=sys.stderr,
-                  )
+                  print("main.js chunks incomplete; keeping branch-copied+patched main", missing)
                   continue
               try:
                   data = gzip.decompress(base64.b64decode("".join(parts)))
               except Exception as e:
-                  print(f"Corrupt payload for {item['path']}: {e}; skipping (green).", file=sys.stderr)
+                  print("main.js chunk decode failed; keeping patched main", e)
                   continue
-              if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
-                  print(f"SHA mismatch for {item['path']}; skipping (green).", file=sys.stderr)
+              if hashlib.sha256(data).hexdigest() != item.get("sha256", ""):
+                  print("main.js SHA mismatch; keeping patched main")
                   continue
-              path = item["path"]
-              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-              pathlib.Path(path).write_bytes(data)
-              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
+              pathlib.Path("src/main.js").write_bytes(data)
+              print("src/main.js from chunks", len(data))
           PY
       - name: Commit if changed
         shell: bash
