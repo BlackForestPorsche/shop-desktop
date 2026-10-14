@@ -37,6 +37,16 @@ function Ensure-Packages {
       Pop-Location
     }
   }
+  $labelsMarker = Join-Path $Root "labels\node_modules\pdf-lib"
+  if (-not (Test-Path $labelsMarker)) {
+    Write-Host "Installing Labels server dependencies..."
+    Push-Location (Join-Path $Root "labels")
+    try {
+      npm install --omit=dev
+    } finally {
+      Pop-Location
+    }
+  }
 }
 
 function New-Shortcut {
