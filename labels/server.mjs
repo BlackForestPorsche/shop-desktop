@@ -8,6 +8,12 @@ import { sendPdfToQueue, sendToQueue } from "./shared/print.mjs";
 import { safePageKey } from "./shared/media.mjs";
 import { createRoPrintStore } from "./shared/ro-idempotency.mjs";
 import { normalizeRoPayload, planRoPrint, renderRoLabelPdf, roLabelLines } from "./shared/ro-label.mjs";
+import {
+  applyDeskExtensionUpdate,
+  isLocalClient,
+  readDeskVersion,
+  resolveLabelConnectRoot,
+} from "./shared/desk-update.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(root, "public");
@@ -142,6 +148,47 @@ const server = createServer(async (req, res) => {
       }
       const result = await exclusive(() => sendToQueue(png, { pageKey, widthPt, heightPt, copies }));
       send(res, 200, result);
+      return;
+    }
+    // Desk extension one-click update (localhost only — never expose shell to LAN).
+    if (req.method === "GET" && url.pathname === "/api/desk-extension") {
+      if (!isLocalClient(req)) {
+        send(res, 403, { error: "localhost_only", message: "Desk updates are only available from this machine." });
+        return;
+      }
+      const connectRoot = await resolveLabelConnectRoot(root);
+      const version = await readDeskVersion(connectRoot);
+      send(res, 200, {
+        ok: true,
+        version,
+        root: connectRoot,
+        updateEndpoint: "/api/update-desk-extension",
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/update-desk-extension") {
+      if (!isLocalClient(req)) {
+        send(res, 403, { error: "localhost_only", message: "Desk updates are only available from this machine." });
+        return;
+      }
+      let body = {};
+      try {
+        const raw = await readBody(req, 64_000);
+        body = JSON.parse(raw.toString("utf8") || "{}");
+      } catch {
+        body = {};
+      }
+      const localVersion =
+        typeof body?.localVersion === "string"
+          ? body.localVersion
+          : typeof body?.version === "string"
+            ? body.version
+            : null;
+      const result = await exclusive(() => applyDeskExtensionUpdate(root, { localVersion }));
+      let status = 500;
+      if (result.ok || result.upToDate || result.mode === "up_to_date") status = 200;
+      else if (result.mode === "hub_upload" || result.error === "hub_signed_kept") status = 409;
+      send(res, status, result);
       return;
     }
     // AllData Create RO → real LabelWriter print (last name + model only).
