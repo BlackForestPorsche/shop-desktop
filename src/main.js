@@ -100,6 +100,11 @@ const GATE_SYNC_QUIET_MS = 2_500;
 /** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
 let gateRemovalTimer = null;
 const GATE_REMOVAL_DEBOUNCE_MS = 600;
+
+const GATE_EXCHANGE_COOLDOWN_MS = 12_000;
+const SPA_NAV_AFTER_EXCHANGE_COOLDOWN_MS = 8_000;
+let lastGateExchangeAt = 0;
+let lastSpaNavAfterExchangeAt = 0;
 /**
  * True after a successful Bearer→gate exchange this app session.
  * gatePresent alone can be stale; leave home only after we have exchanged once.
@@ -865,14 +870,21 @@ async function injectGateCookieFromExchange(result) {
 
 async function reloadSpaAfterGateExchange() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
+    return { navigated: false, reason: "no_window" };
   }
   const current = mainWindow.webContents.getURL();
-  if (!current || current.includes("/unlock") || classifyUrl(current).kind !== "shop") {
-    await mainWindow.loadURL(SHOP_HOME);
-    return;
+  const stuckOnUnlock =
+    !current || current.includes("/unlock") || classifyUrl(current).kind !== "shop";
+  if (!stuckOnUnlock) {
+    return { navigated: false, reason: "already_shop" };
   }
-  mainWindow.webContents.reload();
+  const now = Date.now();
+  if (now - lastSpaNavAfterExchangeAt < SPA_NAV_AFTER_EXCHANGE_COOLDOWN_MS) {
+    return { navigated: false, reason: "nav_cooldown" };
+  }
+  lastSpaNavAfterExchangeAt = now;
+  await mainWindow.loadURL(SHOP_HOME);
+  return { navigated: true, reason: "left_unlock" };
 }
 
 /**
@@ -881,6 +893,13 @@ async function reloadSpaAfterGateExchange() {
  * force=true after every Tools unlock so TanStack RPC Set-Cookie misses cannot leave
  * the SPA on /unlock while Desk already has a fresh Bearer.
  */
+function spaIsOnUnlock() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+  return String(mainWindow.webContents.getURL() || "").includes("/unlock");
+}
+
 async function exchangeSharedSessionToGate({
   force = false,
   reload = true,
@@ -889,11 +908,28 @@ async function exchangeSharedSessionToGate({
   if (exchangingGate || applyingRemoteLock) {
     return { ok: false, reason: "busy" };
   }
+  if (Date.now() < localLockUntil) {
+    return { ok: false, reason: "local_lock" };
+  }
   const existing = readSession();
   if (!existing || !existing.token) {
     return { ok: false, reason: "no_session" };
   }
-  if (!force && (await shopGateCookiesPresent())) {
+  const hadGate = await shopGateCookiesPresent();
+  const onUnlock = spaIsOnUnlock();
+  if (hadGate && !onUnlock) {
+    // Jar already good and SPA not on unlock — do not force-exchange/reload (flash).
+    return { ok: true, reason: "already" };
+  }
+  if (
+    !onUnlock &&
+    hadGate === false &&
+    lastGateExchangeAt &&
+    Date.now() - lastGateExchangeAt < GATE_EXCHANGE_COOLDOWN_MS
+  ) {
+    return { ok: true, reason: "cooldown" };
+  }
+  if (!force && hadGate) {
     return { ok: true, reason: "already" };
   }
   exchangingGate = true;
@@ -906,11 +942,14 @@ async function exchangeSharedSessionToGate({
       console.error("Exchange succeeded but bf_shop_gate is still missing from the Electron jar.");
       return { ok: false, reason: "cookie_missing", ...result };
     }
+    lastGateExchangeAt = Date.now();
     exchangedGateThisSession = true;
-    if (reload) {
-      await reloadSpaAfterGateExchange();
+    let nav = { navigated: false, reason: "skipped" };
+    // Only leave /unlock. Cookie is already in the jar for an unlocked shop page.
+    if (reload && (onUnlock || spaIsOnUnlock())) {
+      nav = await reloadSpaAfterGateExchange();
     }
-    return { ok: true, reason: "exchanged", ...result };
+    return { ok: true, reason: "exchanged", navigated: nav.navigated, ...result };
   } catch (error) {
     if (error && error.code === "unauthorized") {
       console.error("Shared widget session rejected during exchange; clearing local file.");
@@ -930,7 +969,6 @@ async function exchangeSharedSessionToGate({
     console.error("Could not exchange widget session for shop gate cookie:", error);
     return { ok: false, reason: "failed", status: error && error.status };
   } finally {
-    gateSyncQuietUntil = Date.now() + GATE_SYNC_QUIET_MS;
     exchangingGate = false;
   }
 }
