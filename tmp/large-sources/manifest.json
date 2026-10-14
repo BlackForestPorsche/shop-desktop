@@ -3,8 +3,48 @@
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
     "chunks": 4,
-    "sha256": "9d56df3f0c318a4388bcdc576b3a6c0942f334e37d9287a45d324a6811f4429f",
-    "bytes": 30407,
-    "blob": "9cb07c1ea91c880a0889f52ebbd44645dd71e020"
+    "sha256": "cca0e8104eabf5e76f73c799777e090307d2b87abd7b74f5d50b2bf7e4c21583"
+  },
+  {
+    "path": "src/shared-session.js",
+    "prefix": "src__shared-session.js.gz.b64",
+    "chunks": 2,
+    "sha256": "d435958214012360a7fb8ef1be7ae0af1f9b94f25cbe73c1ef3d549764705a06"
+  },
+  {
+    "path": "src/desk-session-bridge.js",
+    "prefix": "src__desk-session-bridge.js.gz.b64",
+    "chunks": 2,
+    "sha256": "348415d4ba44639a8c7f85149f6a51a2a01abbda3af064c776ff80e03fc5a447"
+  },
+  {
+    "path": "src/preload.js",
+    "prefix": "src__preload.js.gz.b64",
+    "chunks": 1,
+    "sha256": "c26be8730d24ea6cfc07365720b8ca60c6be7adfcd6ecb26d0d99098ae4075c0"
+  },
+  {
+    "path": "package.json",
+    "prefix": "package.json.gz.b64",
+    "chunks": 1,
+    "sha256": "aa3466f6a6f7c82be86648a9f0a221fb7a67aa11ba218d75c9e91df3f378ed18"
+  },
+  {
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
+    "chunks": 2,
+    "sha256": "8e1ee4c41891cf7ebfa12cda6286e31dc820f50003e261ad1c61313ff889dffb"
+  },
+  {
+    "path": "test/shared-session.test.js",
+    "prefix": "test__shared-session.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "0531b2ebc765553bce7534d86e362432c51bf5725df9952529bbbc0603a4beaf"
+  },
+  {
+    "path": "test/desk-session-bridge.test.js",
+    "prefix": "test__desk-session-bridge.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "2ec67f588d8da741e64796a1c9c886b3afc97de424ec0df1cb1e1c9ff2767817"
   }
 ]
