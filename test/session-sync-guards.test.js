@@ -22,13 +22,25 @@ test("shouldHandleGateCookieSet blocks during exchange/mint/lock and lock cooldo
   );
 });
 
-test("unlockAutoExchangeAction prefers leave when gate already present", () => {
+test("unlockAutoExchangeAction exchanges once before leave when gate present", () => {
   assert.equal(unlockAutoExchangeAction({ url: "https://shop/x" }), "skip");
+  // Stale/half-applied gate: probe with exchange before leave.
   assert.equal(
     unlockAutoExchangeAction({
       url: "https://shop.blackforestautomotive.com/unlock",
       hasSession: true,
       gatePresent: true,
+      exchangedThisSession: false,
+    }),
+    "exchange",
+  );
+  // After a successful exchange this session, leave home (no re-exchange storm).
+  assert.equal(
+    unlockAutoExchangeAction({
+      url: "https://shop.blackforestautomotive.com/unlock",
+      hasSession: true,
+      gatePresent: true,
+      exchangedThisSession: true,
     }),
     "leave",
   );
