@@ -1,1 +1,30 @@
-[]
+[
+  {
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
+    "chunks": 2,
+    "sha256": "083e9c4d8e5995d98b6e1bcdd0811c2425d283a85ae359f9decf35c7a57dfd39",
+    "bytes": 10117
+  },
+  {
+    "path": "labels/shared/media.mjs",
+    "prefix": "labels__shared__media.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
+    "bytes": 6717
+  },
+  {
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
+  },
+  {
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
+    "chunks": 1,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
+    "bytes": 13254
+  }
+]
