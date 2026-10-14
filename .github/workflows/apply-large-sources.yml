@@ -16,6 +16,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+      - name: Assemble chunk parts if present
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import pathlib, json, hashlib
+          root = pathlib.Path("tmp/large-sources")
+          am = root / "assemble-manifest.json"
+          if not am.exists():
+              print("No assemble-manifest.json — skip assemble")
+              raise SystemExit(0)
+          items = json.loads(am.read_text())
+          for item in items:
+              chunk = item["chunk"]
+              parts = []
+              missing = []
+              for i in range(item["parts"]):
+                  p = root / f"{chunk}.p{i:02d}"
+                  if not p.exists():
+                      missing.append(p.name)
+                      continue
+                  parts.append(p.read_text().strip())
+              if missing:
+                  print(f"Incomplete parts for {chunk}: {missing}; skip")
+                  continue
+              body = "".join(parts)
+              if item.get("sha256") and hashlib.sha256(body.encode()).hexdigest() != item["sha256"]:
+                  print(f"Part SHA mismatch for {chunk}; skip")
+                  continue
+              (root / chunk).write_text(body + "\n")
+              print("assembled", chunk, len(body))
+          PY
       - name: Decode sources from large-sources chunks
         shell: bash
         run: |
