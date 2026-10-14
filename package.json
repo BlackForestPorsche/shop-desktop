@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
   "main": "src/main.js",
@@ -28,37 +28,36 @@
     "sync-labels": "bash scripts/sync-labels-vendor.sh"
   },
   "devDependencies": {
-    "electron": "^44.7.0",
-    "electron-builder": "^26.15.3"
+    "electron": "^38.2.1",
+    "electron-builder": "^26.0.12"
   },
   "build": {
     "appId": "com.blackforestautomotive.tools",
     "productName": "Black Forest Tools",
-    "executableName": "BlackForestTools",
     "directories": {
       "output": "dist"
     },
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json",
       "labels/**/*",
-      "!labels/node_modules/**/*"
+      "package.json"
     ],
-    "asar": true,
-    "forceCodeSigning": false,
     "linux": {
       "target": [
         "AppImage"
       ],
       "category": "Office",
-      "icon": "assets/icon.png",
-      "synopsis": "Live window for the Black Forest shop tools",
-      "maintainer": "Black Forest Automotive",
-      "executableName": "blackforest-tools"
+      "icon": "assets/icon.png"
     },
     "win": {
       "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "portable",
           "arch": [
@@ -66,19 +65,18 @@
           ]
         }
       ],
-      "icon": "assets/icon.png",
-      "signAndEditExecutable": false,
-      "signExecutable": false,
-      "verifyUpdateCodeSignature": false,
-      "signtoolOptions": {
-        "sign": "./scripts/skip-windows-sign.js"
-      }
+      "icon": "assets/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Black Forest Tools"
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
-    },
-    "asarUnpack": [
-      "labels/**/*"
-    ]
+    }
   }
 }

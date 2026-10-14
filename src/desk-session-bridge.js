@@ -6,8 +6,10 @@
  *
  * Binds 127.0.0.1 only. Never logs the token.
  *
- * GET  /v1/widget-session  — Desk imports Tools/Plasma session
- * POST /v1/widget-session  — Desk (or site capture) publishes token into the shared file
+ * GET    /v1/widget-session  — Desk imports Tools/Plasma session
+ * POST   /v1/widget-session  — Desk (or site capture) publishes token into the shared file
+ * DELETE /v1/widget-session  — website/Desk lock → clear shared Bearer (+ Tools SPA via onLock)
+ * POST   /v1/lock            — same as DELETE (explicit lock alias)
  */
 
 const http = require("node:http");
@@ -17,12 +19,14 @@ const {
   peekSession,
   sessionIsExpired,
   purgeExpiredSession,
+  clearSession,
 } = require("./shared-session");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8788;
 const PATH_HEALTH = "/health";
 const PATH_SESSION = "/v1/widget-session";
+const PATH_LOCK = "/v1/lock";
 
 function bridgePort(env = process.env) {
   const raw = env.BLACKFOREST_DESK_BRIDGE_PORT || env.BF_DESK_BRIDGE_PORT;
@@ -46,7 +50,7 @@ function json(res, status, body) {
     "Content-Length": Buffer.byteLength(payload),
     "Cache-Control": "no-store",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Accept, Content-Type",
   });
   res.end(payload);
@@ -132,14 +136,47 @@ function parsePublishBody(text) {
  *   port?: number,
  *   onPublished?: (session: object) => void,
  *   onSessionMiss?: (info: { sessionExpired: boolean }) => void | Promise<void>,
+ *   onLock?: (info: { source: string }) => void | Promise<void>,
+ *   clearSession?: typeof clearSession,
  * }} [opts]
  */
 function startDeskSessionBridge(opts = {}) {
   const read = opts.readSession || readSession;
   const write = opts.writeSession || writeSession;
   const peek = opts.peekSession || peekSession;
+  const clear = opts.clearSession || clearSession;
   const host = opts.host || bridgeHost();
   const port = opts.port != null ? opts.port : bridgePort();
+
+  function applyLock(source) {
+    const existing = read();
+    const had = Boolean(existing && existing.token);
+    // Prefer onLock (Tools clears jar + revokes Bearer). Fallback: drop shared file only.
+    const after =
+      typeof opts.onLock === "function"
+        ? Promise.resolve(opts.onLock({ source: source || "bridge", session: existing || null }))
+        : Promise.resolve().then(() => {
+            try {
+              clear();
+            } catch {
+              // ignore
+            }
+          });
+    return after
+      .catch(() => {
+        try {
+          clear();
+        } catch {
+          // ignore
+        }
+      })
+      .then(() => ({
+        ok: true,
+        locked: true,
+        hadSession: had,
+        source: source || "bridge",
+      }));
+  }
 
   const server = http.createServer((req, res) => {
     const method = req.method || "GET";
@@ -181,6 +218,23 @@ function startDeskSessionBridge(opts = {}) {
         person: meta.person || "",
         hint: meta.hint,
       });
+      return;
+    }
+
+    if (pathname === PATH_LOCK) {
+      if (method !== "POST" && method !== "DELETE") {
+        json(res, 405, { ok: false, error: "method_not_allowed" });
+        return;
+      }
+      applyLock("v1-lock")
+        .then((body) => json(res, 200, body))
+        .catch((error) => {
+          json(res, 500, {
+            ok: false,
+            error: "lock_failed",
+            message: error instanceof Error ? error.message : "lock failed",
+          });
+        });
       return;
     }
 
@@ -269,6 +323,19 @@ function startDeskSessionBridge(opts = {}) {
         return;
       }
 
+      if (method === "DELETE") {
+        applyLock("delete-session")
+          .then((body) => json(res, 200, body))
+          .catch((error) => {
+            json(res, 500, {
+              ok: false,
+              error: "lock_failed",
+              message: error instanceof Error ? error.message : "lock failed",
+            });
+          });
+        return;
+      }
+
       json(res, 405, { ok: false, error: "method_not_allowed" });
       return;
     }
@@ -295,6 +362,7 @@ module.exports = {
   DEFAULT_PORT,
   PATH_HEALTH,
   PATH_SESSION,
+  PATH_LOCK,
   bridgeHost,
   bridgePort,
   startDeskSessionBridge,

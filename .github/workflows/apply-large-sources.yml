@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/labels-service-159-7d7c
+      - cursor/bidirectional-lock-sync-36c9
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -17,65 +17,44 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Merge origin/main (ahead-only ancestry)
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          if git merge-base --is-ancestor origin/main HEAD; then
-            echo "Already contains main — ahead-only."
-          else
-            if ! git merge origin/main -m "merge: main into Labels 1.5.9 branch" -X ours; then
-              git checkout --ours -- . || true
-              git add -A
-              git -c core.editor=true merge --continue || git commit --allow-empty -m "merge: main into Labels 1.5.9 branch (resolved)"
-            fi
-          fi
       - name: Decode sources from large-sources chunks
         shell: bash
         run: |
           python3 <<'PY'
-          import pathlib, gzip, base64, hashlib, json, sys
+          import pathlib, gzip, base64, hashlib, json, sys, subprocess
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No tmp/large-sources/manifest.json — nothing to apply; exiting green.")
+              print("No manifest — exiting green.")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
+          changed = []
           for item in manifest:
               parts = []
-              missing = []
               for i in range(item["chunks"]):
                   p = root / f"{item['prefix']}.{i:02d}"
                   if not p.exists():
-                      missing.append(p.name)
-                      continue
+                      print(f"missing {p}", file=sys.stderr)
+                      sys.exit(1)
                   parts.append(p.read_text().strip())
-              if missing:
-                  print(f"Incomplete payload for {item['path']}: missing {missing}. Skipping.", file=sys.stderr)
+              data = gzip.decompress(base64.b64decode("".join(parts)))
+              if item.get("sha256") and hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  print(f"sha mismatch {item['path']}", file=sys.stderr)
+                  sys.exit(1)
+              path = pathlib.Path(item["path"])
+              path.parent.mkdir(parents=True, exist_ok=True)
+              if path.exists() and path.read_bytes() == data:
+                  print(f"unchanged {item['path']}")
                   continue
-              try:
-                  data = gzip.decompress(base64.b64decode("".join(parts)))
-              except Exception as e:
-                  print(f"Corrupt payload for {item['path']}: {e}; skipping.", file=sys.stderr)
-                  continue
-              if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
-                  print(f"SHA mismatch for {item['path']}; skipping.", file=sys.stderr)
-                  continue
-              path = item["path"]
-              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-              pathlib.Path(path).write_bytes(data)
-              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
+              path.write_bytes(data)
+              changed.append(item["path"])
+              print(f"wrote {item['path']} {len(data)} bytes")
+          if not changed:
+              print("No changes")
+              sys.exit(0)
+          subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
+          subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
+          subprocess.check_call(["git", "add", "--"] + changed)
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply src/main.js from large-sources (bidirectional lock)"])
+          subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY
-      - name: Commit if changed
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A labels scripts/ensure-labels.sh scripts/postinstall-labels.js scripts/sync-labels-vendor.sh scripts/install-manjaro.sh scripts/install-windows.ps1 src/app-menu.js src/labels-server.js src/main.js test/app-menu.test.js test/labels-server.test.js package.json .github/workflows/apply-large-sources.yml || true
-          if ! git diff --staged --quiet; then
-            git commit -m "feat: Tools 1.5.9 Labels ownership + main flash-loop merge"
-          fi
-          git push origin "HEAD:${GITHUB_REF_NAME}"

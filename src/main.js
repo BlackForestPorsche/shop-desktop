@@ -754,6 +754,10 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
   if (mintingWidgetSession) {
     return { ok: false, reason: "busy" };
   }
+  // Website/Desk lock sets localLockUntil — never remint Bearer from a jar we are clearing.
+  if (!force && Date.now() < localLockUntil) {
+    return { ok: false, reason: "local_lock" };
+  }
   if (!force && readSession()) {
     return { ok: true, reason: "already" };
   }
@@ -1367,14 +1371,21 @@ if (gotLock) {
     try {
       deskSessionBridge = startDeskSessionBridge({
         onPublished: (session) => {
+          // Desk/website unlock published a Bearer — leave local lock cooldown.
+          localLockUntil = 0;
           lastSharedFingerprint = sessionFingerprint(session);
           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
             console.error(error);
           });
         },
         // Desk probe while SPA unlocked + expired file → refresh Bearer before 404.
+        // Must NOT remint during localLockUntil (website lock → Tools lock).
         onSessionMiss: async () => {
           await ensureSharedSessionFromGate();
+        },
+        // DELETE /v1/widget-session or POST /v1/lock from Desk (Firefox website lock).
+        onLock: async () => {
+          await lockSharedSurfaces({ revokeRemote: true });
         },
       });
       deskSessionBridge.server.on("listening", () => {
