@@ -1189,7 +1189,10 @@ function watchSharedSessionFile() {
       return;
     }
     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
+    // Clear localLockUntil here too — website unlock may write the file before
+    // bridge onPublished runs (fs.watch race); do not leave exchange blocked.
     if (fp && fp !== previous) {
+      localLockUntil = 0;
       exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
         console.error(error);
       });
