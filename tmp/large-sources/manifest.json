@@ -44,7 +44,7 @@
   {
     "path": "labels/public/app.js",
     "prefix": "labels__public__app.js.gz.b64",
-    "chunks": 4,
+    "chunks": 3,
     "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
     "bytes": 26767
   },
@@ -108,7 +108,7 @@
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
     "chunks": 5,
-    "sha256": "5a84329e01f0be96d43ef4cb3b9be12081ef66c65b2d1c2d0e3998af663a3c02",
-    "bytes": 45288
+    "sha256": "8d56a729043a1f218bec7972be75ebefc35ca1be857bcf9f1bee03c2adb64a07",
+    "bytes": 44512
   }
 ]
