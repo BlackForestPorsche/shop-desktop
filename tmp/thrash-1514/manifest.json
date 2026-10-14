@@ -1,0 +1,20 @@
+[
+  {
+    "path": "src/main.js",
+    "prefix": "src__main.js",
+    "chunks": 2,
+    "sha256": "878b319d8f448d60f6d168f052ca67f1a4565608e77aea1a06c9682f053d5a44"
+  },
+  {
+    "path": "src/desk-session-bridge.js",
+    "prefix": "src__desk-session-bridge.js",
+    "chunks": 1,
+    "sha256": "d89b7609563f7880701af7fe0df9ac6b219a6e6385cb51e2e27fd60863ede1e9"
+  },
+  {
+    "path": "test/desk-session-bridge.test.js",
+    "prefix": "test__desk-session-bridge.test.js",
+    "chunks": 1,
+    "sha256": "ae5843c339d4b88926e3075124abfb857cde4a4cc4682a6dbd8b2a898d2913fa"
+  }
+]
