@@ -2,49 +2,50 @@
   {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 4,
-    "sha256": "cca0e8104eabf5e76f73c799777e090307d2b87abd7b74f5d50b2bf7e4c21583"
+    "chunks": 2,
+    "sha256": "dfb3d66976efd9140c7f11575f213d1aba569f7d6642306b2de755e0d2c723f7",
+    "bytes": 38664
   },
   {
     "path": "src/shared-session.js",
     "prefix": "src__shared-session.js.gz.b64",
-    "chunks": 2,
-    "sha256": "d435958214012360a7fb8ef1be7ae0af1f9b94f25cbe73c1ef3d549764705a06"
-  },
-  {
-    "path": "src/desk-session-bridge.js",
-    "prefix": "src__desk-session-bridge.js.gz.b64",
-    "chunks": 2,
-    "sha256": "348415d4ba44639a8c7f85149f6a51a2a01abbda3af064c776ff80e03fc5a447"
+    "chunks": 1,
+    "sha256": "500f6cbb8a1d138db156876f61f00c0a0f2f66a50380a207c0b7265394a175a5",
+    "bytes": 14201
   },
   {
     "path": "src/preload.js",
     "prefix": "src__preload.js.gz.b64",
     "chunks": 1,
-    "sha256": "c26be8730d24ea6cfc07365720b8ca60c6be7adfcd6ecb26d0d99098ae4075c0"
-  },
-  {
-    "path": "package.json",
-    "prefix": "package.json.gz.b64",
-    "chunks": 1,
-    "sha256": "aa3466f6a6f7c82be86648a9f0a221fb7a67aa11ba218d75c9e91df3f378ed18"
-  },
-  {
-    "path": "README.md",
-    "prefix": "README.md.gz.b64",
-    "chunks": 2,
-    "sha256": "8e1ee4c41891cf7ebfa12cda6286e31dc820f50003e261ad1c61313ff889dffb"
+    "sha256": "ec2136e7272a8a64a0b1404119888070ed122111abe70bc65656a8a5d7d3c1f6",
+    "bytes": 4076
   },
   {
     "path": "test/shared-session.test.js",
     "prefix": "test__shared-session.test.js.gz.b64",
     "chunks": 1,
-    "sha256": "0531b2ebc765553bce7534d86e362432c51bf5725df9952529bbbc0603a4beaf"
+    "sha256": "40979f66881a3120a45709a6f8b0b1bd56afbb920fe600ded10c9622bed7f9f3",
+    "bytes": 7789
   },
   {
-    "path": "test/desk-session-bridge.test.js",
-    "prefix": "test__desk-session-bridge.test.js.gz.b64",
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
     "chunks": 1,
-    "sha256": "2ec67f588d8da741e64796a1c9c886b3afc97de424ec0df1cb1e1c9ff2767817"
+    "sha256": "945e440387e9dea1f65ee8cf33b7ec3d9d94ca0e2fc559520e1ebbb3735ba270",
+    "bytes": 9098
+  },
+  {
+    "path": ".github/workflows/apply-large-sources.yml",
+    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
+    "chunks": 1,
+    "sha256": "3d6532619fa0498734583601553a2363ee0b063fa390518291de2976f176c266",
+    "bytes": 3408
+  },
+  {
+    "path": "package.json",
+    "prefix": "package.json.gz.b64",
+    "chunks": 1,
+    "sha256": "6df07e6676b487a00d3918bba510096116d061a861b3b8649f233ae733a6a649",
+    "bytes": 2333
   }
 ]

@@ -2,7 +2,9 @@ name: Apply large desktop sources
 on:
   workflow_dispatch:
   push:
-    branches: [cursor/tools-desk-session-from-gate-8a47]
+    branches:
+      - cursor/tools-desk-session-from-gate-8a47
+      - cursor/tools-site-login-sync-2d77
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -14,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cursor/tools-desk-session-from-gate-8a47
+          ref: ${{ github.ref_name }}
       - name: Decode sources from large-sources chunks
         shell: bash
         run: |
@@ -79,6 +81,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: Tools unlock refreshes widget-session for Desk (1.5.4)"
-            git push origin HEAD:cursor/tools-desk-session-from-gate-8a47
+            git commit -m "fix: Tools unlock force-exchanges shop gate cookie (1.5.5)"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
