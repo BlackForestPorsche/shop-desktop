@@ -53,7 +53,7 @@ jobs:
                   text.startswith('"use strict"')
                   or text.startswith("'use strict'")
                   or text.startswith("import ")
-                  or text.startswith("#!/"):
+                  or text.startswith("#!/")
               ):
                   print(f"Unexpected start for {path}; skipping (green).", file=sys.stderr)
                   continue
