@@ -3,8 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/tools-desk-session-from-gate-8a47
-      - cursor/tools-site-login-sync-2d77
+      - cursor/labels-service-158-7d7c
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -28,6 +27,13 @@ jobs:
               print("No tmp/large-sources/manifest.json — nothing to apply; exiting green.")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
+          wanted_prefixes = {item["prefix"] for item in manifest}
+          for p in list(root.iterdir()):
+              if p.name in {"manifest.json", ".mcp-probe", ".apply-trigger"}:
+                  continue
+              if p.is_file() and not any(p.name.startswith(pref + ".") for pref in wanted_prefixes):
+                  print("Removing stale", p.name)
+                  p.unlink()
           for item in manifest:
               parts = []
               missing = []
@@ -38,51 +44,26 @@ jobs:
                       continue
                   parts.append(p.read_text().strip())
               if missing:
-                  print(
-                      f"Incomplete payload for {item['path']}: missing {missing}. "
-                      "Skipping (green) until all chunks land.",
-                      file=sys.stderr,
-                  )
-                  continue
-              try:
-                  data = gzip.decompress(base64.b64decode("".join(parts)))
-              except Exception as e:
-                  print(f"Corrupt payload for {item['path']}: {e}; skipping (green).", file=sys.stderr)
-                  continue
-              if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
-                  print(f"SHA mismatch for {item['path']}; skipping (green).", file=sys.stderr)
-                  continue
-              text = data.decode("utf-8")
-              path = item["path"]
-              if path.endswith(".js") and not (
-                  text.startswith('"use strict"') or text.startswith("'use strict'")
-              ):
-                  print(f"Unexpected start for {path}; skipping (green).", file=sys.stderr)
-                  continue
-              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-              pathlib.Path(path).write_bytes(data)
-              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
+                  print(f"Incomplete for {item['path']}: {missing}", file=sys.stderr)
+                  sys.exit(1)
+              data = gzip.decompress(base64.b64decode("".join(parts)))
+              if hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  print(f"SHA mismatch {item['path']}", file=sys.stderr)
+                  sys.exit(1)
+              path = pathlib.Path(item["path"])
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+              print("Wrote", item["path"], len(data))
           PY
       - name: Commit if changed
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            package.json \
-            README.md \
-            src/main.js \
-            src/preload.js \
-            src/shared-session.js \
-            src/lock-detect.js \
-            src/desk-session-bridge.js \
-            test/shared-session.test.js \
-            test/lock-detect.test.js \
-            test/desk-session-bridge.test.js \
-            .github/workflows/apply-large-sources.yml || true
+          git add -A
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: Tools lock clears shared session for site/Desk (1.5.6)"
+            git commit -m "feat(labels): apply large 1.5.8 sources from chunks"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
