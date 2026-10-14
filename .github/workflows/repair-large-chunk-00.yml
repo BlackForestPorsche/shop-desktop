@@ -14,24 +14,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-      - name: Fix known paste corruptions
+      - name: Fix preload chunk paste corruption
         shell: bash
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-          import hashlib
-          fixes = [
-            (
-              "tmp/large-sources/src__preload.js.gz.b64.00",
-              [("gMPP49P3q6zcm", "gMPP49N3q6zcm")],
-              "ebe0d6c79d63b041e0e9f0c0c8b0f0e0d0",  # placeholder replaced below
-            ),
-          ]
-          # exact expected sha256 for preload chunk
-          expect = {
-            "tmp/large-sources/src__preload.js.gz.b64.00": "ebe0d6c79d63b0419c8f1e2a3b4c5d6e7",  # will set properly
-          }
-          PY
           python3 <<'PY'
           from pathlib import Path
           import hashlib
@@ -40,12 +25,25 @@ jobs:
           t2 = t.replace("gMPP49P3q6zcm", "gMPP49N3q6zcm", 1)
           if t2 != t:
               p.write_text(t2)
-              print("fixed preload")
+              print("applied preload fix", len(t), "->", len(t2))
           else:
-              print("preload pattern absent")
+              print("pattern absent; hash check only")
           digest = hashlib.sha256(p.read_text().encode()).hexdigest()
           print("sha256", digest)
-          expect = "ebe0d6c79d63b041e0b1404119888070ed122111abe70bc65656a8a5d7d3c1f6"
-          # correct expect from local:
-          expect = "ebe0d6c79d63b041"  # prefix check only first — full below
+          expect = "ebe0d6c79d63b04104be74af5b4d317874399bfbb6da3f1ec164b3680a7801bf"
+          if digest != expect:
+              raise SystemExit(f"preload chunk hash mismatch: {digest}")
+          print("OK exact match")
           PY
+      - name: Commit repair if needed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tmp/large-sources/src__preload.js.gz.b64.00
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix: exact bytes for Tools 1.5.5 preload chunk"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
