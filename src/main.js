@@ -18,10 +18,12 @@ const {
   readSession,
   writeSession,
   clearSession,
+  purgeExpiredSession,
   sessionFingerprint,
   extractPersonPin,
   extractUnlockWidgetSession,
   mintWidgetSession,
+  mintWidgetSessionFromGate,
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,
@@ -34,6 +36,8 @@ const PRELOAD_PATH = path.join(__dirname, "preload.js");
 const STATE_NAME = "window-state.json";
 const UPDATE_EVERY_MS = 3 * 60 * 1000;
 const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+/** Re-mint widget-session.json from shop gate when SPA still unlocked but Bearer expired. */
+const SESSION_REFRESH_EVERY_MS = 5 * 60 * 1000;
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
@@ -55,6 +59,7 @@ let snoozedStamp = "";
 let snoozeUntil = 0;
 let updateTimer = null;
 let shellUpdateTimer = null;
+let sessionRefreshTimer = null;
 let lastFocusCheck = 0;
 let promptOpen = false;
 let checking = false;
@@ -548,10 +553,7 @@ function rememberUnlockAttempt(details) {
     if (!part || !part.bytes) {
       continue;
     }
-    const creds = extractPersonPin(Buffer.from(part.bytes));
-    if (creds) {
-      pendingUnlockCreds = creds;
-      pendingUnlockUntil = Date.now() + 30_000;
+    if (rememberUnlockCredsRaw(Buffer.from(part.bytes))) {
       return;
     }
   }
@@ -569,17 +571,17 @@ function applyUnlockWidgetSession(raw) {
   return next;
 }
 
-async function mintSharedSessionFromPending() {
+async function mintSharedSessionFromPending({ force = false } = {}) {
   if (mintingWidgetSession) {
-    return;
+    return { ok: false, reason: "busy" };
   }
-  if (readSession()) {
+  if (!force && readSession()) {
     pendingUnlockCreds = null;
     pendingUnlockUntil = 0;
-    return;
+    return { ok: true, reason: "already" };
   }
   if (!pendingUnlockCreds || Date.now() > pendingUnlockUntil) {
-    return;
+    return { ok: false, reason: "no_creds" };
   }
   const creds = pendingUnlockCreds;
   pendingUnlockCreds = null;
@@ -588,11 +590,69 @@ async function mintSharedSessionFromPending() {
   try {
     const next = await mintWidgetSession(creds.person, creds.pin);
     lastSharedFingerprint = sessionFingerprint(next);
+    return { ok: true, reason: "minted", person: next.person || "" };
   } catch {
     console.error("Could not mint shared widget session from desktop unlock.");
+    return { ok: false, reason: "mint_failed" };
   } finally {
     mintingWidgetSession = false;
   }
+}
+
+/**
+ * Tools can look unlocked (persist:shop bf_shop_gate) while widget-session.json
+ * is missing/expired — Desk then gets 404 from :8788. Recover via from-gate.
+ * force=true remints on every unlock so Desk always gets a fresh Bearer.
+ */
+async function ensureSharedSessionFromGate({ force = false } = {}) {
+  if (mintingWidgetSession) {
+    return { ok: false, reason: "busy" };
+  }
+  if (!force && readSession()) {
+    return { ok: true, reason: "already" };
+  }
+  // Stale file on disk (Manjaro: expiresAt yesterday, SPA still unlocked).
+  try {
+    purgeExpiredSession();
+  } catch {
+    // ignore
+  }
+  if (!(await shopGateCookiesPresent())) {
+    return { ok: false, reason: "no_gate" };
+  }
+  mintingWidgetSession = true;
+  try {
+    const next = await mintWidgetSessionFromGate(partitionFetch);
+    lastSharedFingerprint = sessionFingerprint(next);
+    return { ok: true, reason: "from_gate", person: next.person || "" };
+  } catch (error) {
+    console.error("Could not mint shared widget session from shop gate cookie:", error);
+    return {
+      ok: false,
+      reason: error && error.code ? error.code : "failed",
+      status: error && error.status,
+    };
+  } finally {
+    mintingWidgetSession = false;
+  }
+}
+
+/** Every Tools unlock must refresh widget-session.json for Desk :8788. */
+async function syncSharedSessionAfterUnlock({ force = false } = {}) {
+  await mintSharedSessionFromPending({ force });
+  if (force || !readSession()) {
+    await ensureSharedSessionFromGate({ force: force || !readSession() });
+  }
+}
+
+function rememberUnlockCredsRaw(raw) {
+  const creds = extractPersonPin(raw);
+  if (!creds) {
+    return false;
+  }
+  pendingUnlockCreds = creds;
+  pendingUnlockUntil = Date.now() + 60_000;
+  return true;
 }
 
 async function shopGateCookiesPresent() {
@@ -619,7 +679,11 @@ function partitionFetch(url, init) {
  * When a widget session file exists, mint bf_shop_gate into the Electron cookie jar
  * via POST /api/widget/session/exchange (shop beta 0.1.25+). Reload when still on /unlock.
  */
-async function exchangeSharedSessionToGate({ force = false, reload = true } = {}) {
+async function exchangeSharedSessionToGate({
+  force = false,
+  reload = true,
+  fromGateRetry = false,
+} = {}) {
   if (exchangingGate || applyingRemoteLock) {
     return { ok: false, reason: "busy" };
   }
@@ -647,6 +711,15 @@ async function exchangeSharedSessionToGate({ force = false, reload = true } = {}
       console.error("Shared widget session rejected during exchange; clearing local file.");
       clearSession();
       lastSharedFingerprint = "";
+      exchangingGate = false;
+      // Gate cookie may still be valid — recover Bearer for Desk bridge instead of
+      // leaving Tools "unlocked" with an empty widget-session.json (Desk 404).
+      if (!fromGateRetry) {
+        const recovered = await ensureSharedSessionFromGate();
+        if (recovered.ok && recovered.reason === "from_gate") {
+          return exchangeSharedSessionToGate({ force: true, reload, fromGateRetry: true });
+        }
+      }
       return { ok: false, reason: "unauthorized" };
     }
     console.error("Could not exchange widget session for shop gate cookie:", error);
@@ -845,9 +918,24 @@ function configureSession() {
       // Site lock clears bf_shop_gate only — do not revoke the widget Bearer.
       return;
     }
-    mintSharedSessionFromPending().catch((error) => {
-      console.error(error);
-    });
+    // Every SPA unlock that sets bf_shop_gate must refresh widget-session.json for Desk.
+    syncSharedSessionAfterUnlock({ force: true })
+      .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
+      .catch((error) => {
+        console.error(error);
+      });
+  });
+  ipcMain.on("shop-unlock-creds", (_event, text) => {
+    try {
+      if (rememberUnlockCredsRaw(text)) {
+        // PIN seen in preload fetch — mint as soon as gate lands (and retry now).
+        syncSharedSessionAfterUnlock({ force: true }).catch((error) => {
+          console.error(error);
+        });
+      }
+    } catch (error) {
+      console.error("Could not capture unlock person/PIN:", error);
+    }
   });
   ipcMain.on("shop-unlock-json", (_event, text) => {
     try {
@@ -855,7 +943,14 @@ function configureSession() {
         exchangeSharedSessionToGate({ force: false, reload: true }).catch((error) => {
           console.error(error);
         });
+        return;
       }
+      // No widgetToken in JSON (or viewer-shaped): still deposit Bearer via PIN/from-gate.
+      syncSharedSessionAfterUnlock({ force: true })
+        .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
+        .catch((error) => {
+          console.error(error);
+        });
     } catch (error) {
       console.error("Could not apply unlock widgetToken:", error);
     }
@@ -902,6 +997,10 @@ if (gotLock) {
             console.error(error);
           });
         },
+        // Desk probe while SPA unlocked + expired file → refresh Bearer before 404.
+        onSessionMiss: async () => {
+          await ensureSharedSessionFromGate();
+        },
       });
       deskSessionBridge.server.on("listening", () => {
         console.log(
@@ -917,6 +1016,8 @@ if (gotLock) {
       deskSessionBridge = null;
     }
     Menu.setApplicationMenu(shopMenu());
+    // Gate cookie can persist in Electron while widget-session.json is gone/expired.
+    await ensureSharedSessionFromGate();
     await exchangeSharedSessionToGate({ force: false, reload: false });
     createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
     updateTimer = setInterval(() => {
@@ -925,19 +1026,27 @@ if (gotLock) {
     shellUpdateTimer = setInterval(() => {
       checkForShellUpdate({ interactive: false });
     }, SHELL_UPDATE_EVERY_MS);
+    sessionRefreshTimer = setInterval(() => {
+      ensureSharedSessionFromGate().catch((error) => {
+        console.error(error);
+      });
+    }, SESSION_REFRESH_EVERY_MS);
     setTimeout(() => {
       checkForShellUpdate({ interactive: false });
     }, 20_000);
     setTimeout(() => {
-      exchangeSharedSessionToGate({ force: false, reload: true }).catch((error) => {
-        console.error(error);
-      });
+      ensureSharedSessionFromGate()
+        .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
+        .catch((error) => {
+          console.error(error);
+        });
     }, 2_500);
   });
 
   app.on("window-all-closed", () => {
     if (updateTimer) clearInterval(updateTimer);
     if (shellUpdateTimer) clearInterval(shellUpdateTimer);
+    if (sessionRefreshTimer) clearInterval(sessionRefreshTimer);
     try {
       if (sharedSessionWatcher) sharedSessionWatcher.close();
     } catch {

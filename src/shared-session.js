@@ -35,18 +35,37 @@ function ensureSessionDir(env = process.env) {
   return dir;
 }
 
-function readSession(env = process.env) {
+/** Raw on-disk session (may be expired). Does not delete the file. */
+function peekSession(env = process.env) {
   const file = sessionFilePath(env);
   try {
-    const text = fs.readFileSync(file, "utf8");
-    const parsed = parseSessionJson(text);
-    if (!parsed || isSessionExpired(parsed, Date.now(), 0)) {
-      return null;
-    }
-    return parsed;
+    return parseSessionJson(fs.readFileSync(file, "utf8"));
   } catch {
     return null;
   }
+}
+
+function sessionIsExpired(session, nowMs = Date.now()) {
+  return Boolean(session && isSessionExpired(session, nowMs, 0));
+}
+
+/** Delete widget-session.json when present but past expiresAt. */
+function purgeExpiredSession(env = process.env) {
+  const parsed = peekSession(env);
+  if (!parsed || !sessionIsExpired(parsed)) {
+    return false;
+  }
+  clearSession(env);
+  return true;
+}
+
+/** Live session only — expired files count as missing (Desk bridge → 404). */
+function readSession(env = process.env) {
+  const parsed = peekSession(env);
+  if (!parsed || sessionIsExpired(parsed)) {
+    return null;
+  }
+  return parsed;
 }
 
 function writeSession(session, env = process.env) {
@@ -147,7 +166,7 @@ function extractPersonPin(raw) {
 
 /**
  * Desk unlock JSON (shop beta 0.1.25+) may include widgetToken + widgetExpiresAt.
- * Viewers/Dwight omit these. Prefer writing the shared file from this over PIN mint.
+ * Viewers/Dwight omit widgetToken. Also accept token+expiresAt from widget session mint.
  */
 function extractUnlockWidgetSession(raw) {
   const data = parseJsonPayload(raw);
@@ -158,14 +177,23 @@ function extractUnlockWidgetSession(raw) {
     Boolean,
   );
   for (const obj of candidates) {
-    if (!obj.widgetToken || !obj.widgetExpiresAt) {
+    const token = obj.widgetToken || obj.token || obj.accessToken || obj.bearer;
+    const expiresAt = obj.widgetExpiresAt || obj.expiresAt;
+    if (!token || !expiresAt) {
+      continue;
+    }
+    // Avoid capturing unrelated API payloads that happen to include token fields.
+    const person = obj.person ? String(obj.person).trim().toLowerCase() : "";
+    const role = obj.role ? String(obj.role) : "";
+    const looksUnlock = Boolean(obj.widgetToken || person || role || obj.ok === true);
+    if (!looksUnlock) {
       continue;
     }
     return {
-      token: String(obj.widgetToken),
-      expiresAt: String(obj.widgetExpiresAt),
-      person: obj.person ? String(obj.person).trim().toLowerCase() : "",
-      role: obj.role ? String(obj.role) : "",
+      token: String(token),
+      expiresAt: String(expiresAt),
+      person,
+      role,
       loginAt: new Date().toISOString(),
     };
   }
@@ -235,6 +263,54 @@ async function readJsonBody(res) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Mint a widget Bearer from an existing SPA bf_shop_gate cookie (shop beta 0.1.34+).
+ * Caller should use Electron session.fetch so the gate cookie is sent.
+ * Writes ~/.local/share/blackforest-tools/widget-session.json on success.
+ * Fixes Tools looking unlocked (gate jar) while Desk bridge has no session file.
+ */
+async function mintWidgetSessionFromGate(fetchImpl = fetch) {
+  let res;
+  try {
+    res = await fetchImpl(`${SHOP_BASE}/api/widget/session/from-gate`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (error) {
+    const err = apiError("network", 0, error instanceof Error ? error.message : "network");
+    err.cause = error;
+    throw err;
+  }
+  const body = await readJsonBody(res);
+  if (res.status === 401 || res.status === 403) {
+    throw apiError("unauthorized", res.status, "shop gate rejected");
+  }
+  if (res.status === 429) {
+    throw apiError("rate_limited", res.status, "from-gate rate limited");
+  }
+  if (res.status !== 200 || !body) {
+    throw apiError("from_gate_failed", res.status, `from-gate failed (HTTP ${res.status})`);
+  }
+  const token = body.token || body.accessToken || body.bearer || body.widgetToken;
+  const expiresAt = body.expiresAt || body.widgetExpiresAt;
+  if (!token || !expiresAt) {
+    throw apiError("from_gate_failed", res.status, "from-gate returned no token");
+  }
+  const next = {
+    token: String(token),
+    expiresAt: String(expiresAt),
+    person: body.person ? String(body.person).trim().toLowerCase() : "",
+    role: body.role ? String(body.role) : "",
+    loginAt: new Date().toISOString(),
+  };
+  writeSession(next);
+  return next;
 }
 
 /**
@@ -329,6 +405,9 @@ module.exports = {
   sessionDir,
   sessionFilePath,
   ensureSessionDir,
+  peekSession,
+  sessionIsExpired,
+  purgeExpiredSession,
   readSession,
   writeSession,
   clearSession,
@@ -336,6 +415,7 @@ module.exports = {
   extractPersonPin,
   extractUnlockWidgetSession,
   mintWidgetSession,
+  mintWidgetSessionFromGate,
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,

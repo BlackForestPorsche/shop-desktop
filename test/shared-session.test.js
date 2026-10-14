@@ -17,6 +17,9 @@ const {
   exchangeWidgetSession,
   requestFirefoxHandoff,
   extractUnlockWidgetSession,
+  peekSession,
+  purgeExpiredSession,
+  mintWidgetSessionFromGate,
   SHOP_BASE,
 } = require("../src/shared-session");
 
@@ -82,7 +85,40 @@ test("readSession treats expired sessions as missing", () => {
     env,
   );
   assert.equal(readSession(env), null);
+  assert.equal(peekSession(env)?.person, "logan");
+  assert.equal(purgeExpiredSession(env), true);
+  assert.equal(peekSession(env), null);
+  assert.equal(purgeExpiredSession(env), false);
   fs.rmSync(env.root, { recursive: true, force: true });
+});
+
+test("mintWidgetSessionFromGate writes shared session from shop gate", async () => {
+  const env = tempEnv();
+  const prev = process.env.XDG_DATA_HOME;
+  process.env.XDG_DATA_HOME = env.XDG_DATA_HOME;
+  try {
+    const next = await mintWidgetSessionFromGate(async (url, init) => {
+      assert.equal(url, `${SHOP_BASE}/api/widget/session/from-gate`);
+      assert.equal(init.method, "POST");
+      return {
+        status: 200,
+        async json() {
+          return {
+            token: "from-gate-tok",
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            person: "Logan",
+            role: "desk",
+          };
+        },
+      };
+    });
+    assert.equal(next.token, "from-gate-tok");
+    assert.equal(readSession()?.person, "logan");
+  } finally {
+    if (prev === undefined) delete process.env.XDG_DATA_HOME;
+    else process.env.XDG_DATA_HOME = prev;
+    fs.rmSync(env.root, { recursive: true, force: true });
+  }
 });
 
 test("extractUnlockWidgetSession reads desk unlock widgetToken fields", () => {
@@ -100,11 +136,23 @@ test("extractUnlockWidgetSession reads desk unlock widgetToken fields", () => {
   assert.equal(got.person, "logan");
   assert.equal(got.role, "desk");
   assert.ok(got.loginAt);
-  // Viewers / Dwight: no widgetToken
+  // Viewers / Dwight: no widgetToken and no token
   assert.equal(
     extractUnlockWidgetSession(JSON.stringify({ ok: true, person: "dwight", role: "viewer" })),
     null,
   );
+  // token+expiresAt+person (widget mint / unlock without widgetToken alias)
+  const minted = extractUnlockWidgetSession(
+    JSON.stringify({
+      token: "minted-tok",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      person: "logan",
+      role: "desk",
+    }),
+  );
+  assert.equal(minted.token, "minted-tok");
+  assert.equal(minted.person, "logan");
+  // Bare token without person/role/ok — ignore (unrelated API)
   assert.equal(
     extractUnlockWidgetSession(JSON.stringify({ token: "not-enough", expiresAt: "2099-01-01T00:00:00.000Z" })),
     null,
