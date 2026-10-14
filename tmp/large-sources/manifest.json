@@ -1,16 +1,37 @@
 [
   {
-    "path": "labels/public/app.js",
-    "prefix": "labels__public__app.js.gz.b64",
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
     "chunks": 2,
-    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
-    "bytes": 26767
+    "sha256": "083e9c4d8e5995d98b6e1bcdd0811c2425d283a85ae359f9decf35c7a57dfd39",
+    "bytes": 10117
   },
   {
-    "path": "src/main.js",
-    "prefix": "src__main.js.gz.b64",
-    "chunks": 3,
-    "sha256": "cc1da34006e5438b07fea9c3784450f1994ca8d6cbe3e25b3eac8e8f1fdac671",
-    "bytes": 46390
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
+    "chunks": 1,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
+    "bytes": 13254
+  },
+  {
+    "path": "labels/shared/detect.mjs",
+    "prefix": "labels__shared__detect.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "c3cb72e97d0ed8ebdb9bcf1314a3e7951e2f63e27d7af15172f11e9e655ccc3b",
+    "bytes": 5775
+  },
+  {
+    "path": "labels/shared/media.mjs",
+    "prefix": "labels__shared__media.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
+    "bytes": 6717
+  },
+  {
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
   }
 ]
