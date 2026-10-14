@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/unlock-sync-fix-36c9
+      - cursor/tools-1512-unlock-race-clean-3554
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -25,7 +25,7 @@ jobs:
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No manifest — exiting green.")
+              print("No manifest -- exiting green.")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
           changed = []

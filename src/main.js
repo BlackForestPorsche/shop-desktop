@@ -40,6 +40,7 @@ const {
 const {
   shouldHandleGateCookieSet,
   unlockAutoExchangeAction,
+  shouldClearLocalLockOnSharedPublish,
 } = require("./session-sync-guards");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
@@ -1189,9 +1190,9 @@ function watchSharedSessionFile() {
       return;
     }
     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
-    // Clear localLockUntil here too — website unlock may write the file before
-    // bridge onPublished runs (fs.watch race); do not leave exchange blocked.
-    if (fp && fp !== previous) {
+    // Clear local_lock first — website unlock publish must not stay stuck behind cooldown
+    // if the file watcher races ahead of (or instead of) bridge onPublished.
+    if (shouldClearLocalLockOnSharedPublish({ previousFingerprint: previous, nextFingerprint: fp })) {
       localLockUntil = 0;
       exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
         console.error(error);
@@ -1374,8 +1375,10 @@ if (gotLock) {
     try {
       deskSessionBridge = startDeskSessionBridge({
         onPublished: (session) => {
-          // Desk/website unlock published a Bearer — leave local lock cooldown.
+          // Desk/website unlock published a Bearer — leave local lock cooldown immediately
+          // so exchange cannot return local_lock (1.5.12 race fix).
           localLockUntil = 0;
+          exchangedGateThisSession = false;
           lastSharedFingerprint = sessionFingerprint(session);
           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
             console.error(error);
