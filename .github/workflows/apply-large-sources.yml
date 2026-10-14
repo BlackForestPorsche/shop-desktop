@@ -61,7 +61,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A labels scripts/ensure-labels.sh scripts/postinstall-labels.js scripts/sync-labels-vendor.sh scripts/install-manjaro.sh scripts/install-windows.ps1 src/app-menu.js src/labels-server.js src/main.js test/app-menu.test.js test/labels-server.test.js .github/workflows/apply-large-sources.yml tmp/large-sources || true
+          git add -A
           if git diff --staged --quiet; then
             echo "No changes"
           else
