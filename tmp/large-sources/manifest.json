@@ -1,8 +1,20 @@
 [
   {
-    "path": "src/main.js",
-    "prefix": "src__main.js.gz.b64",
-    "chunks": 5,
-    "sha256": "ea9a5b989ae39b87f413e1140646d5cab07dd910a8c4dd38ad98160482c30e6c"
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
+    "chunks": 2,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63"
+  },
+  {
+    "path": "labels/public/app.css",
+    "prefix": "labels__public__app.css.gz.b64",
+    "chunks": 1,
+    "sha256": "47d67c9acd85b3d47941ca710c2c69f2a7caef98288251beb57c04273a3d12e4"
+  },
+  {
+    "path": "labels/public/app.js",
+    "prefix": "labels__public__app.js.gz.b64",
+    "chunks": 3,
+    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84"
   }
 ]
