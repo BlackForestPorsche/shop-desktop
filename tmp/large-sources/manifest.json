@@ -2,7 +2,7 @@
   {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 2,
+    "chunks": 5,
     "sha256": "0f48bd2f5a66892d253bfe21b3bc95e1dfb2e3f9980524f53252e71c984fe0a4",
     "bytes": 40584
   },
