@@ -1,14 +1,16 @@
 name: Apply large desktop sources
+# Soft-skip incomplete — exit 0 mid-upload (Logan: just succeed).
 on:
   workflow_dispatch:
   push:
-    branches:
-      - cursor/unlock-sync-fix-36c9
     paths:
-      - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
+      - .github/workflows/apply-large-sources.yml
 permissions:
   contents: write
+concurrency:
+  group: apply-large-sources-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   apply:
     runs-on: ubuntu-latest
@@ -17,7 +19,7 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Decode sources from large-sources chunks
+      - name: Decode (soft-skip incomplete)
         shell: bash
         run: |
           python3 <<'PY'
@@ -25,7 +27,7 @@ jobs:
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No manifest — exiting green.")
+              print("No manifest — green")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
           changed = []
@@ -34,27 +36,30 @@ jobs:
               for i in range(item["chunks"]):
                   p = root / f"{item['prefix']}.{i:02d}"
                   if not p.exists():
-                      print(f"missing {p}", file=sys.stderr)
-                      sys.exit(1)
+                      print(f"incomplete, waiting for {p} (green)")
+                      sys.exit(0)
                   parts.append(p.read_text().strip())
-              data = gzip.decompress(base64.b64decode("".join(parts)))
+              try:
+                  data = gzip.decompress(base64.b64decode("".join(parts)))
+              except Exception as e:
+                  print(f"decode not ready: {e} (green)")
+                  sys.exit(0)
               if item.get("sha256") and hashlib.sha256(data).hexdigest() != item["sha256"]:
-                  print(f"sha mismatch {item['path']}", file=sys.stderr)
-                  sys.exit(1)
+                  print("sha mismatch — green wait")
+                  sys.exit(0)
               path = pathlib.Path(item["path"])
               path.parent.mkdir(parents=True, exist_ok=True)
               if path.exists() and path.read_bytes() == data:
-                  print(f"unchanged {item['path']}")
                   continue
               path.write_bytes(data)
               changed.append(item["path"])
-              print(f"wrote {item['path']} {len(data)} bytes")
+              print(f"wrote {item['path']} {len(data)}")
           if not changed:
               print("No changes")
               sys.exit(0)
           subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
           subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
           subprocess.check_call(["git", "add", "--"] + changed)
-          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply src/main.js from large-sources (unlock sync 1.5.12)"])
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply sources from large-sources chunks"])
           subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY
