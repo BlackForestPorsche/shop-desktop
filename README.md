@@ -126,10 +126,11 @@ One desk unlock covers Plasma widgets, Black Forest Tools, Firefox on the shop s
 
 1. Unlock **Black Forest Tools** or a Plasma shop widget (person + PIN).
 2. Tools writes `~/.local/share/blackforest-tools/widget-session.json` and, while running, serves the Bearer on loopback `http://127.0.0.1:8788/v1/widget-session` for Desk.
-3. **Shop → Open in Firefox signed in** (or `npm run firefox-signed-in` / `blackforest-firefox-signed-in`) mints a one-time shop handoff URL and opens it in your **default** Firefox profile (`firefox --new-tab` — never a new profile).
-4. Desk popup **Use Tools session** (or auto-import on open) pulls that Bearer — no PIN retype when Tools is already unlocked.
+3. If Tools still has a shop gate cookie but the session file is missing/expired (window looks unlocked, Desk said “no shared session”), Tools **1.5.4+** re-mints the Bearer via `POST /api/widget/session/from-gate` on launch and after unlock.
+4. **Shop → Open in Firefox signed in** (or `npm run firefox-signed-in` / `blackforest-firefox-signed-in`) mints a one-time shop handoff URL and opens it in your **default** Firefox profile (`firefox --new-tab` — never a new profile).
+5. Desk popup **Use Tools session** (or auto-import on open) pulls that Bearer — no PIN retype when Tools is already unlocked.
 
-Requires shop site beta **0.1.25+** for `/api/widget/session/exchange` and `/api/widget/session/handoff`.
+Requires shop site beta **0.1.25+** for `/api/widget/session/exchange` and `/api/widget/session/handoff`, and **0.1.34+** for `/api/widget/session/from-gate`.
 
 ## KDE Plasma widget (Manjaro)
 
