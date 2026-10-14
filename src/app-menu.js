@@ -13,6 +13,7 @@
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
  *   onOpenFirefoxSignedIn: () => void,
+ *   onOpenLabels: () => void,
  *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
@@ -27,6 +28,11 @@ function buildAppMenuTemplate(handlers) {
         { label: "Back", accelerator: "Alt+Left", click: handlers.onBack },
         { label: "Forward", accelerator: "Alt+Right", click: handlers.onForward },
         { type: "separator" },
+        {
+          label: "Open Labels",
+          accelerator: "CmdOrCtrl+Shift+L",
+          click: handlers.onOpenLabels,
+        },
         {
           label: "Open in Firefox signed in",
           accelerator: "CmdOrCtrl+Shift+F",
@@ -58,6 +64,10 @@ function buildAppMenuTemplate(handlers) {
           click: handlers.onCheckAppUpdates,
         },
         { type: "separator" },
+        {
+          label: "Open Labels",
+          click: handlers.onOpenLabels,
+        },
         {
           label: "Open in Firefox signed in",
           click: handlers.onOpenFirefoxSignedIn,
