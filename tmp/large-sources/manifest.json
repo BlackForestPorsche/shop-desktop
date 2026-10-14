@@ -2,64 +2,113 @@
   {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 5,
-    "sha256": "0f48bd2f5a66892d253bfe21b3bc95e1dfb2e3f9980524f53252e71c984fe0a4",
-    "bytes": 40584
+    "chunks": 3,
+    "sha256": "cc1da34006e5438b07fea9c3784450f1994ca8d6cbe3e25b3eac8e8f1fdac671",
+    "bytes": 46390
   },
   {
-    "path": "src/shared-session.js",
-    "prefix": "src__shared-session.js.gz.b64",
-    "chunks": 1,
-    "sha256": "500f6cbb8a1d138db156876f61f00c0a0f2f66a50380a207c0b7265394a175a5",
-    "bytes": 14201
+    "path": "labels/public/app.js",
+    "prefix": "labels__public__app.js.gz.b64",
+    "chunks": 2,
+    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
+    "bytes": 26767
   },
   {
-    "path": "src/preload.js",
-    "prefix": "src__preload.js.gz.b64",
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
     "chunks": 1,
-    "sha256": "d7acc1bd773c6bf9facd0efad8bfbcfb1d3f806fa14c382557de82921b7f7fb0",
-    "bytes": 5242
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
+    "bytes": 13254
   },
   {
-    "path": "src/lock-detect.js",
-    "prefix": "src__lock-detect.js.gz.b64",
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
     "chunks": 1,
-    "sha256": "842ebdf2e8e323eb5ede3cb1312589dfe468ac5199ed0aa4d94b98706745a325",
-    "bytes": 684
-  },
-  {
-    "path": "test/shared-session.test.js",
-    "prefix": "test__shared-session.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "40979f66881a3120a45709a6f8b0b1bd56afbb920fe600ded10c9622bed7f9f3",
-    "bytes": 7789
-  },
-  {
-    "path": "test/lock-detect.test.js",
-    "prefix": "test__lock-detect.test.js.gz.b64",
-    "chunks": 1,
-    "sha256": "0d06fa1317086710434d3da0707e445189253ed39213fbb71c340dd46fad7b5b",
-    "bytes": 1348
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
   },
   {
     "path": "README.md",
     "prefix": "README.md.gz.b64",
     "chunks": 1,
-    "sha256": "ed6b1aa087cfbc6b4b546e4ede5782727bfef4389d635a4511dac44af21fa209",
-    "bytes": 9352
+    "sha256": "083e9c4d8e5995d98b6e1bcdd0811c2425d283a85ae359f9decf35c7a57dfd39",
+    "bytes": 10117
   },
   {
-    "path": "package.json",
-    "prefix": "package.json.gz.b64",
+    "path": "labels/server.mjs",
+    "prefix": "labels__server.mjs.gz.b64",
     "chunks": 1,
-    "sha256": "3b587b98175fb836a8eb2fd00784f7c2146285c51a2cbcf35b435be4cb029aa6",
-    "bytes": 2333
+    "sha256": "36c8c2f96daba888ec27385bd5e12abe54e7b3c2bcff81d9c3b5d6f64d251fda",
+    "bytes": 7841
   },
   {
-    "path": ".github/workflows/apply-large-sources.yml",
-    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
+    "path": "labels/shared/detect.mjs",
+    "prefix": "labels__shared__detect.mjs.gz.b64",
     "chunks": 1,
-    "sha256": "f40e3549508c9b6f169cd00848516efb017b949e0638458a0ca24654ede78335",
-    "bytes": 3481
+    "sha256": "c3cb72e97d0ed8ebdb9bcf1314a3e7951e2f63e27d7af15172f11e9e655ccc3b",
+    "bytes": 5775
+  },
+  {
+    "path": "labels/shared/media.mjs",
+    "prefix": "labels__shared__media.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
+    "bytes": 6717
+  },
+  {
+    "path": "src/labels-server.js",
+    "prefix": "src__labels-server.js.gz.b64",
+    "chunks": 1,
+    "sha256": "325525adf52fea0909daf1bab0919100051bfce160552491a779bd201f2f3e37",
+    "bytes": 7258
+  },
+  {
+    "path": "src/app-menu.js",
+    "prefix": "src__app-menu.js.gz.b64",
+    "chunks": 1,
+    "sha256": "bb696659e7ca64c46ed8faeef05e7e0639760f41c3e91f34748f77da1f86b519",
+    "bytes": 3794
+  },
+  {
+    "path": "scripts/install-manjaro.sh",
+    "prefix": "scripts__install-manjaro.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "34a5176dd33307ea14b3ef0a5cbbb2f94d08f7adb04d8bd0ebd2271c1d5df954",
+    "bytes": 3807
+  },
+  {
+    "path": "scripts/install-windows.ps1",
+    "prefix": "scripts__install-windows.ps1.gz.b64",
+    "chunks": 1,
+    "sha256": "60d0c10bce971c41b4ade6a656457019bfe118887d8cd374cf6ac5b7ddce80f7",
+    "bytes": 5767
+  },
+  {
+    "path": "scripts/sync-labels-vendor.sh",
+    "prefix": "scripts__sync-labels-vendor.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "36f2a8099da30a7daddac8649be0178e9246ed0a4802d4cadcf97bf19953ad96",
+    "bytes": 1968
+  },
+  {
+    "path": "labels/public/index.html",
+    "prefix": "labels__public__index.html.gz.b64",
+    "chunks": 1,
+    "sha256": "cbd3dac49c5c20b18c5c7ef45f239795cd0f531723e930840cccbcc76d7018ad",
+    "bytes": 2685
+  },
+  {
+    "path": "test/app-menu.test.js",
+    "prefix": "test__app-menu.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "40d21829b48f5414ac26ec4dd2460092d5acfd8200a4e158ba4931a15fe348e0",
+    "bytes": 4372
+  },
+  {
+    "path": "test/labels-server.test.js",
+    "prefix": "test__labels-server.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "e84b30d20e5e1cf7f87e25cb7b288c402df89119de59478ee2d1ecdde299b1f4a",
+    "bytes": 3634
   }
 ]
