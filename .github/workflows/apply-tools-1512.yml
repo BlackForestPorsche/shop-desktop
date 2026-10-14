@@ -1,0 +1,44 @@
+name: apply-tools-1512
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/tools-1512-unlock-race-3554]
+    paths:
+      - "tmp/tools-1512-chunks/**"
+      - ".github/workflows/apply-tools-1512.yml"
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/tools-1512-unlock-race-3554
+      - name: Decode and write Tools 1.5.12 sources
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import base64, gzip, json
+          from pathlib import Path
+          parts = sorted(Path("tmp/tools-1512-chunks").glob("payload.*.b64"))
+          raw = "".join(p.read_text() for p in parts)
+          blob = json.loads(raw)
+          for rel, b64 in blob.items():
+              path = Path(rel)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(gzip.decompress(base64.b64decode(b64)))
+              print("wrote", rel, path.stat().st_size)
+          PY
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git config user.email "service@blackforestautomotive.com"
+          git config user.name "BlackForestPorsche"
+          git add package.json src/main.js src/session-sync-guards.js test/session-sync-guards.test.js
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "fix(tools): apply 1.5.12 local_lock unlock race fix"
+          git push origin HEAD:cursor/tools-1512-unlock-race-3554
