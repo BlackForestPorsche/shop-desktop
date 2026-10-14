@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const {
   shouldHandleGateCookieSet,
   unlockAutoExchangeAction,
+  shouldClearLocalLockOnSharedPublish,
 } = require("../src/session-sync-guards");
 
 test("shouldHandleGateCookieSet blocks during exchange/mint/lock and lock cooldown", () => {
@@ -68,5 +69,30 @@ test("unlockAutoExchangeAction exchanges once before leave when gate present", (
       exchangingGate: true,
     }),
     "skip",
+  );
+});
+
+test("shouldClearLocalLockOnSharedPublish when Bearer fingerprint changes", () => {
+  assert.equal(shouldClearLocalLockOnSharedPublish({}), false);
+  assert.equal(
+    shouldClearLocalLockOnSharedPublish({
+      previousFingerprint: "",
+      nextFingerprint: "tok|exp",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldClearLocalLockOnSharedPublish({
+      previousFingerprint: "old",
+      nextFingerprint: "new",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldClearLocalLockOnSharedPublish({
+      previousFingerprint: "same",
+      nextFingerprint: "same",
+    }),
+    false,
   );
 });

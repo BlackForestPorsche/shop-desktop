@@ -71,7 +71,19 @@ function unlockAutoExchangeAction({
   return "exchange";
 }
 
+/**
+ * New shared Bearer from Desk/website unlock must clear local_lock before exchange.
+ * Otherwise file-watch / publish races return reason "local_lock" and Tools stays on /unlock.
+ */
+function shouldClearLocalLockOnSharedPublish({
+  previousFingerprint = "",
+  nextFingerprint = "",
+} = {}) {
+  return Boolean(nextFingerprint && nextFingerprint !== previousFingerprint);
+}
+
 module.exports = {
   shouldHandleGateCookieSet,
   unlockAutoExchangeAction,
+  shouldClearLocalLockOnSharedPublish,
 };
