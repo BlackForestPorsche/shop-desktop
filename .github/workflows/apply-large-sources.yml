@@ -58,8 +58,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          # Drop obsolete 1.5.6 main.js chunks if present
-          git rm -f --ignore-unmatch tmp/large-sources/src__main.js.gz.b64.03 tmp/large-sources/src__main.js.gz.b64.04 || true
           if git diff --staged --quiet; then
             echo "No changes"
           else
