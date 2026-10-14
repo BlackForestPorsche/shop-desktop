@@ -3,8 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/tools-desk-session-from-gate-8a47
-      - cursor/tools-site-login-sync-2d77
+      - cursor/labels-service-157-7d7c
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -38,11 +37,7 @@ jobs:
                       continue
                   parts.append(p.read_text().strip())
               if missing:
-                  print(
-                      f"Incomplete payload for {item['path']}: missing {missing}. "
-                      "Skipping (green) until all chunks land.",
-                      file=sys.stderr,
-                  )
+                  print(f"Incomplete payload for {item['path']}: missing {missing}. Skipping (green) until all chunks land.", file=sys.stderr)
                   continue
               try:
                   data = gzip.decompress(base64.b64decode("".join(parts)))
@@ -54,8 +49,11 @@ jobs:
                   continue
               text = data.decode("utf-8")
               path = item["path"]
-              if path.endswith(".js") and not (
-                  text.startswith('"use strict"') or text.startswith("'use strict'")
+              if path.endswith(".js") and not path.endswith(".mjs") and not (
+                  text.startswith('"use strict"')
+                  or text.startswith("'use strict'")
+                  or text.startswith("import ")
+                  or text.startswith("#!/"):
               ):
                   print(f"Unexpected start for {path}; skipping (green).", file=sys.stderr)
                   continue
@@ -68,21 +66,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            package.json \
-            README.md \
-            src/main.js \
-            src/preload.js \
-            src/shared-session.js \
-            src/lock-detect.js \
-            src/desk-session-bridge.js \
-            test/shared-session.test.js \
-            test/lock-detect.test.js \
-            test/desk-session-bridge.test.js \
-            .github/workflows/apply-large-sources.yml || true
+          git add -A
+          # Keep large-sources + workflow; commit applied sources
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: Tools lock clears shared session for site/Desk (1.5.6)"
+            git commit -m "feat: Tools 1.5.7 owns Labels service on :8080 (large sources)"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
