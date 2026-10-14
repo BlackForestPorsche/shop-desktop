@@ -93,6 +93,11 @@ const GATE_SYNC_QUIET_MS = 2_500;
 /** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
 let gateRemovalTimer = null;
 const GATE_REMOVAL_DEBOUNCE_MS = 600;
+/**
+ * True after a successful Bearer→gate exchange this app session.
+ * gatePresent alone can be stale; leave home only after we have exchanged once.
+ */
+let exchangedGateThisSession = false;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -788,6 +793,7 @@ async function exchangeSharedSessionToGate({
       console.error("Exchange succeeded but bf_shop_gate is still missing from the Electron jar.");
       return { ok: false, reason: "cookie_missing", ...result };
     }
+    exchangedGateThisSession = true;
     if (reload) {
       await reloadSpaAfterGateExchange();
     }
@@ -846,12 +852,13 @@ async function maybeExchangeWhileOnUnlock(url) {
     now,
     hasSession: Boolean(readSession()),
     gatePresent: await shopGateCookiesPresent(),
+    exchangedThisSession: exchangedGateThisSession,
   });
   if (action === "skip") {
     return;
   }
   if (action === "leave") {
-    // Gate already present — navigate home without another force-exchange/reload storm.
+    // Gate healed this session — navigate home without another force-exchange.
     if (now - unlockExchangeAttemptAt < UNLOCK_EXCHANGE_GAP_MS) {
       return;
     }
@@ -868,6 +875,7 @@ async function maybeExchangeWhileOnUnlock(url) {
   }
   unlockExchangeAttemptAt = now;
   try {
+    // Missing gate, or gatePresent but not yet exchanged this session (stale probe).
     await exchangeSharedSessionToGate({ force: true, reload: true });
   } catch (error) {
     console.error(error);
@@ -979,6 +987,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
   }
   applyingRemoteLock = true;
   localLockUntil = Date.now() + LOCAL_LOCK_COOLDOWN_MS;
+  exchangedGateThisSession = false;
   try {
     const existing = readSession();
     if (revokeRemote && existing && existing.token) {
@@ -1125,8 +1134,9 @@ function configureSession() {
     ) {
       return;
     }
-    // Cookie already landed in the jar — only ensure Desk Bearer. Unlock IPC /
-    // maybeExchangeWhileOnUnlock handle SPA leave; do not force-exchange here.
+    // Cookie already landed in the jar — only ensure Desk Bearer.
+    // Do NOT force-exchange here (flash/429 loop). SPA leave is handled by
+    // maybeExchangeWhileOnUnlock: gatePresent → exchange-once-this-session, then leave.
     gateSyncQuietUntil = now + GATE_SYNC_QUIET_MS;
     ensureSharedSessionFromGate({ force: false }).catch((error) => {
       console.error(error);
