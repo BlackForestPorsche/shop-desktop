@@ -3,7 +3,8 @@ on:
   push:
     branches: [cursor/labels-service-155-7d7c]
     paths:
-      - 'tmp/large-sources/rolabel-lock.b64.json'
+      - 'tmp/large-sources/rolabel-lock.b64.part0'
+      - 'tmp/large-sources/rolabel-lock.b64.part1'
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,7 +20,11 @@ jobs:
         run: |
           python3 <<'PY'
           import json, base64, gzip, pathlib
-          meta=json.loads(pathlib.Path('tmp/large-sources/rolabel-lock.b64.json').read_text())
+          p0=pathlib.Path('tmp/large-sources/rolabel-lock.b64.part0')
+          p1=pathlib.Path('tmp/large-sources/rolabel-lock.b64.part1')
+          if not (p0.exists() and p1.exists()):
+              print('parts missing'); raise SystemExit(0)
+          meta=json.loads(p0.read_text()+p1.read_text())
           for path, b64 in meta['files'].items():
               data=gzip.decompress(base64.b64decode(b64))
               p=pathlib.Path(path)
