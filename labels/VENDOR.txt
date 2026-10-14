@@ -1,8 +1,8 @@
 Vendored Labels (LabelWriter 550) server for Black Forest Tools.
 
 Upstream: https://github.com/BlackForestPorsche/label-connect
-Synced from commit: ed3796045a699506021305157a8c57fe875ff686
-Upstream version: 0.1.12
+Synced from commit: 4ab230fdad67ee062e1ab7a3e22852cee7305953
+Upstream version: 0.1.19
 
 Owned at runtime by Tools: Electron main spawns `node server.mjs` on PORT 8080
 when nothing already answers there (so a leftover labels.service still works during

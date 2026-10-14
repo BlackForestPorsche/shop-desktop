@@ -1,7 +1,7 @@
 {
   "name": "blackforest-tools-labels",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.1.19",
   "type": "module",
   "description": "Vendored Labels (LabelWriter 550) server owned by Black Forest Tools.",
   "scripts": {
