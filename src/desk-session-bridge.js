@@ -11,7 +11,13 @@
  */
 
 const http = require("node:http");
-const { readSession, writeSession } = require("./shared-session");
+const {
+  readSession,
+  writeSession,
+  peekSession,
+  sessionIsExpired,
+  purgeExpiredSession,
+} = require("./shared-session");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8788;
@@ -57,6 +63,19 @@ function sessionPayload(session) {
     person: session.person || "",
     role: session.role || "",
     source: "blackforest-tools",
+  };
+}
+
+function missMeta(peek) {
+  const stale = typeof peek === "function" ? peek() : peekSession();
+  const expired = sessionIsExpired(stale);
+  return {
+    sessionExpired: expired,
+    person: stale && stale.person ? stale.person : "",
+    hint: expired ? "bridge_up_session_expired" : "bridge_up_no_session",
+    message: expired
+      ? "Tools session expired — unlock Tools again (or Use shop session / desk PIN in Desk)."
+      : "Tools is running, but has no shared Bearer yet. Re-unlock Tools with your desk PIN, or unlock the shop site in this Firefox profile.",
   };
 }
 
@@ -108,14 +127,17 @@ function parsePublishBody(text) {
  * @param {{
  *   readSession?: typeof readSession,
  *   writeSession?: typeof writeSession,
+ *   peekSession?: typeof peekSession,
  *   host?: string,
  *   port?: number,
  *   onPublished?: (session: object) => void,
+ *   onSessionMiss?: (info: { sessionExpired: boolean }) => void | Promise<void>,
  * }} [opts]
  */
 function startDeskSessionBridge(opts = {}) {
   const read = opts.readSession || readSession;
   const write = opts.writeSession || writeSession;
+  const peek = opts.peekSession || peekSession;
   const host = opts.host || bridgeHost();
   const port = opts.port != null ? opts.port : bridgePort();
 
@@ -140,27 +162,73 @@ function startDeskSessionBridge(opts = {}) {
         return;
       }
       const session = read();
+      const meta = session && session.token
+        ? {
+            hasSession: true,
+            sessionExpired: false,
+            person: session.person || "",
+            hint: "session_ready",
+          }
+        : {
+            hasSession: false,
+            ...missMeta(peek),
+          };
       json(res, 200, {
         ok: true,
         service: "blackforest-tools-desk-bridge",
-        hasSession: Boolean(session && session.token),
-        person: session && session.person ? session.person : "",
+        hasSession: meta.hasSession,
+        sessionExpired: Boolean(meta.sessionExpired),
+        person: meta.person || "",
+        hint: meta.hint,
       });
       return;
     }
 
     if (pathname === PATH_SESSION) {
       if (method === "GET") {
-        const payload = sessionPayload(read());
-        if (!payload) {
+        const respondMiss = () => {
+          const meta = missMeta(peek);
+          // Drop stale file so health matches Desk (optional purge).
+          if (meta.sessionExpired) {
+            try {
+              purgeExpiredSession();
+            } catch {
+              // ignore
+            }
+          }
           json(res, 404, {
             ok: false,
             error: "no_session",
-            message: "Unlock Black Forest Tools, Plasma, Desk, or the shop site first.",
+            hint: meta.hint,
+            sessionExpired: Boolean(meta.sessionExpired),
+            message: meta.message,
           });
+        };
+
+        const payload = sessionPayload(read());
+        if (payload) {
+          json(res, 200, payload);
           return;
         }
-        json(res, 200, payload);
+
+        const meta = missMeta(peek);
+        if (typeof opts.onSessionMiss === "function") {
+          Promise.resolve(opts.onSessionMiss({ sessionExpired: Boolean(meta.sessionExpired) }))
+            .then(() => {
+              const retry = sessionPayload(read());
+              if (retry) {
+                json(res, 200, retry);
+                return;
+              }
+              respondMiss();
+            })
+            .catch(() => {
+              respondMiss();
+            });
+          return;
+        }
+
+        respondMiss();
         return;
       }
 
@@ -232,4 +300,5 @@ module.exports = {
   startDeskSessionBridge,
   sessionPayload,
   parsePublishBody,
+  missMeta,
 };
