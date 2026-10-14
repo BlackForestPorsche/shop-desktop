@@ -1,1 +1,191 @@
-PLACEHOLDER
+[
+  {
+    "path": ".gitignore",
+    "prefix": ".gitignore.gz.b64",
+    "chunks": 1,
+    "sha256": "6e18cd8ad57d3429a215271d4c1f2111b2a1e3fb25ee5e2509af257932959d1e",
+    "bytes": 57
+  },
+  {
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
+    "chunks": 2,
+    "sha256": "097853b7584c210c8a30c44b8e27a85a1a69ee0bf76a992b69bbb7cbb399da60",
+    "bytes": 9984
+  },
+  {
+    "path": "labels/VENDOR.txt",
+    "prefix": "labels__VENDOR.txt.gz.b64",
+    "chunks": 1,
+    "sha256": "36bf897eaaa178e15990d835c618e5d038247adb19a97f575a5e6561dbd0d7ab",
+    "bytes": 604
+  },
+  {
+    "path": "labels/package.json",
+    "prefix": "labels__package.json.gz.b64",
+    "chunks": 1,
+    "sha256": "1eb622b5ca1b0da34a973c8273d50289f8fad5eda2a339b122749177212ffe07",
+    "bytes": 318
+  },
+  {
+    "path": "labels/package-lock.json",
+    "prefix": "labels__package-lock.json.gz.b64",
+    "chunks": 1,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63",
+    "bytes": 13254
+  },
+  {
+    "path": "labels/server.mjs",
+    "prefix": "labels__server.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "36c8c2f96daba888ec27385bd5e12abe54e7b3c2bcff81d9c3b5d6f64d251fda",
+    "bytes": 7841
+  },
+  {
+    "path": "labels/public/index.html",
+    "prefix": "labels__public__index.html.gz.b64",
+    "chunks": 1,
+    "sha256": "cbd3dac49c5c20b18c5c7ef45f239795cd0f531723e930840cccbcc76d7018ad",
+    "bytes": 2685
+  },
+  {
+    "path": "labels/public/app.css",
+    "prefix": "labels__public__app.css.gz.b64",
+    "chunks": 1,
+    "sha256": "47d67c9acd85b3d47941ca710c2c69f2a7caef98288251beb57c04273a3d12e4",
+    "bytes": 7111
+  },
+  {
+    "path": "labels/public/app.js",
+    "prefix": "labels__public__app.js.gz.b64",
+    "chunks": 2,
+    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
+    "bytes": 26767
+  },
+  {
+    "path": "labels/shared/code128.mjs",
+    "prefix": "labels__shared__code128.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5aec0e8f19c02e2440c534a2117903c52fa95c98860cb15b0cddfbd9a5b5f3a7",
+    "bytes": 1934
+  },
+  {
+    "path": "labels/shared/detect.mjs",
+    "prefix": "labels__shared__detect.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "c3cb72e97d0ed8ebdb9bcf1314a3e7951e2f63e27d7af15172f11e9e655ccc3b",
+    "bytes": 5775
+  },
+  {
+    "path": "labels/shared/media.mjs",
+    "prefix": "labels__shared__media.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "aeaa4197d0983dd0303079f306a9fd14e0ea096b3ab48cad10ac5dc9e55513cf",
+    "bytes": 6717
+  },
+  {
+    "path": "labels/shared/print.mjs",
+    "prefix": "labels__shared__print.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5e8c489bb1b9c77c6981e90df1ef7785ada2dbe4443506b4ff1436d652da923d",
+    "bytes": 4150
+  },
+  {
+    "path": "labels/shared/ro-idempotency.mjs",
+    "prefix": "labels__shared__ro-idempotency.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "f7c52ae2999272bc35104fb69ebb92b5d1265c846e5e9d8856cf40c259560042",
+    "bytes": 1934
+  },
+  {
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels__shared__ro-label.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33",
+    "bytes": 10171
+  },
+  {
+    "path": "labels/shared/status.mjs",
+    "prefix": "labels__shared__status.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "99a67fd213b2dfa5ba30f1b25a0133b1072f632eb83018a132c2258741ad2d7d",
+    "bytes": 1405
+  },
+  {
+    "path": "labels/shared/text-fit.mjs",
+    "prefix": "labels__shared__text-fit.mjs.gz.b64",
+    "chunks": 1,
+    "sha256": "5594cfa47399057108d26e69b71bb45ac0f49c0ffacc209f1abc4b9da1febcd3",
+    "bytes": 3172
+  },
+  {
+    "path": "scripts/ensure-labels.sh",
+    "prefix": "scripts__ensure-labels.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "c6fde12d19659995246c98253038b87e6b076b0c11c440f4534f27cb578b360e",
+    "bytes": 533
+  },
+  {
+    "path": "scripts/postinstall-labels.js",
+    "prefix": "scripts__postinstall-labels.js.gz.b64",
+    "chunks": 1,
+    "sha256": "a756d0da78352d4e42555ed7b53a8d98997974fb10614312e61ab7e033ce4048",
+    "bytes": 1104
+  },
+  {
+    "path": "scripts/sync-labels-vendor.sh",
+    "prefix": "scripts__sync-labels-vendor.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "36f2a8099da30a7daddac8649be0178e9246ed0a4802d4cadcf97bf19953ad96",
+    "bytes": 1968
+  },
+  {
+    "path": "scripts/install-manjaro.sh",
+    "prefix": "scripts__install-manjaro.sh.gz.b64",
+    "chunks": 1,
+    "sha256": "2e2100ab4dbd0fe85a2c10057fb5ebe46609ade3d1a434082ee67ea1c3634c6a",
+    "bytes": 3807
+  },
+  {
+    "path": "scripts/install-windows.ps1",
+    "prefix": "scripts__install-windows.ps1.gz.b64",
+    "chunks": 1,
+    "sha256": "60d0c10bce971c41b4ade6a656457019bfe118887d8cd374cf6ac5b7ddce80f7",
+    "bytes": 5767
+  },
+  {
+    "path": "src/app-menu.js",
+    "prefix": "src__app-menu.js.gz.b64",
+    "chunks": 1,
+    "sha256": "bb696659e7ca64c46ed8faeef05e7e0639760f41c3e91f34748f77da1f86b519",
+    "bytes": 3794
+  },
+  {
+    "path": "src/labels-server.js",
+    "prefix": "src__labels-server.js.gz.b64",
+    "chunks": 1,
+    "sha256": "325525adf52fea0909daf1bab0919100051bfce160552491a779bd201f2f3e37",
+    "bytes": 7258
+  },
+  {
+    "path": "src/main.js",
+    "prefix": "src__main.js.gz.b64",
+    "chunks": 3,
+    "sha256": "a929587f08f2db2413c520d5f1b280d8c1ca31e8d9684e4b89ad12f6427bf83d",
+    "bytes": 39202
+  },
+  {
+    "path": "test/app-menu.test.js",
+    "prefix": "test__app-menu.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "40d21829b48f5414ac26ec4dd2460092d5acfd8200a4e158ba4931a15fe348e0",
+    "bytes": 4372
+  },
+  {
+    "path": "test/labels-server.test.js",
+    "prefix": "test__labels-server.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "e84b30d20e5e1cf7f87e25b7b288c402df89119de59478ee2d1ecdde299b1f4a",
+    "bytes": 3634
+  }
+]
