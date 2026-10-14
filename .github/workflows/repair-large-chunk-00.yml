@@ -1,49 +1,8 @@
-name: Repair large-sources chunks
+name: MUTED — repair
 on:
-  push:
-    branches:
-      - cursor/tools-site-login-sync-2d77
-    paths:
-      - .github/workflows/repair-large-chunk-00.yml
-permissions:
-  contents: write
+  workflow_dispatch:
 jobs:
-  repair:
+  muted:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-      - name: Fix preload chunk paste corruption
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          import hashlib
-          p = Path("tmp/large-sources/src__preload.js.gz.b64.00")
-          t = p.read_text()
-          t2 = t.replace("gMPP49P3q6zcm", "gMPP49N3q6zcm", 1)
-          if t2 != t:
-              p.write_text(t2)
-              print("applied preload fix", len(t), "->", len(t2))
-          else:
-              print("pattern absent; hash check only")
-          digest = hashlib.sha256(p.read_text().encode()).hexdigest()
-          print("sha256", digest)
-          expect = "ebe0d6c79d63b04104be74af5b4d317874399bfbb6da3f1ec164b3680a7801bf"
-          if digest != expect:
-              raise SystemExit(f"preload chunk hash mismatch: {digest}")
-          print("OK exact match")
-          PY
-      - name: Commit repair if needed
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tmp/large-sources/src__preload.js.gz.b64.00
-          if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "fix: exact bytes for Tools 1.5.5 preload chunk"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+      - run: echo Muted
