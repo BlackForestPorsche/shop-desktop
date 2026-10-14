@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cursor/bidirectional-lock-sync-36c9
+      - cursor/unlock-sync-fix-36c9
     paths:
       - .github/workflows/apply-large-sources.yml
       - tmp/large-sources/**
@@ -55,6 +55,6 @@ jobs:
           subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
           subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
           subprocess.check_call(["git", "add", "--"] + changed)
-          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply src/main.js from large-sources (bidirectional lock)"])
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply src/main.js from large-sources (unlock sync 1.5.12)"])
           subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY
