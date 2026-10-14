@@ -10,5 +10,17 @@
     "prefix": "labels_public_app_js",
     "chunks": 2,
     "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84"
+  },
+  {
+    "path": "labels/shared/ro-label.mjs",
+    "prefix": "labels_shared_ro_label_mjs",
+    "chunks": 2,
+    "sha256": "e37bfe475c8976b959385999616d374b309bfaf17128ff84e7f7703257299d33"
+  },
+  {
+    "path": "labels/package-lock.json",
+    "prefix": "labels_package_lock_json",
+    "chunks": 2,
+    "sha256": "796c7b4bef97632be5f1b52a87b64b1c31094d629fa96c26c2c483baabf31e63"
   }
 ]
