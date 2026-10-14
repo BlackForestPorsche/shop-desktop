@@ -60,7 +60,7 @@ export function extractLastName(fullName) {
     text = text.split(",")[0].trim();
   }
   // Leading first initial: "J. Smith", "J Smith", "J.Smith"
-  text = text.replace(/^[A-Za-z]\.\s+/, "").replace(/^[A-Za-z]\.(?=[A-Za-z])/, "");
+  text = text.replace(/^[A-Za-z]\.?\s+/, "").replace(/^[A-Za-z]\.(?=[A-Za-z])/, "");
   // Glued initial + PascalCase last: "LWhatcott" → "Whatcott" (not "McDonald")
   if (/^[A-Z][A-Z][a-z]/.test(text) && !/\s/.test(text)) {
     text = text.slice(1);
