@@ -3,6 +3,7 @@
 /**
  * Native application menu template for Black Forest Tools.
  * Shop / Settings / Help are the product menus; Edit + View stay for standard roles.
+ * Labels is a thin service menu (status / restart) — print UX lives on the shop site.
  *
  * @param {{
  *   onShopHome: () => void,
@@ -13,7 +14,8 @@
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
  *   onOpenFirefoxSignedIn: () => void,
- *   onOpenLabels: () => void,
+ *   onLabelsStatus: () => void,
+ *   onRestartLabels: () => void,
  *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
@@ -28,11 +30,6 @@ function buildAppMenuTemplate(handlers) {
         { label: "Back", accelerator: "Alt+Left", click: handlers.onBack },
         { label: "Forward", accelerator: "Alt+Right", click: handlers.onForward },
         { type: "separator" },
-        {
-          label: "Open Labels",
-          accelerator: "CmdOrCtrl+Shift+L",
-          click: handlers.onOpenLabels,
-        },
         {
           label: "Open in Firefox signed in",
           accelerator: "CmdOrCtrl+Shift+F",
@@ -57,6 +54,19 @@ function buildAppMenuTemplate(handlers) {
       ],
     },
     {
+      label: "Labels",
+      submenu: [
+        {
+          label: "Labels service status…",
+          click: handlers.onLabelsStatus,
+        },
+        {
+          label: "Restart Labels service",
+          click: handlers.onRestartLabels,
+        },
+      ],
+    },
+    {
       label: "Settings",
       submenu: [
         {
@@ -65,9 +75,14 @@ function buildAppMenuTemplate(handlers) {
         },
         { type: "separator" },
         {
-          label: "Open Labels",
-          click: handlers.onOpenLabels,
+          label: "Labels service status…",
+          click: handlers.onLabelsStatus,
         },
+        {
+          label: "Restart Labels service",
+          click: handlers.onRestartLabels,
+        },
+        { type: "separator" },
         {
           label: "Open in Firefox signed in",
           click: handlers.onOpenFirefoxSignedIn,
@@ -117,7 +132,7 @@ function buildAppMenuTemplate(handlers) {
 }
 
 /** Top-level menu labels in display order (for tests / docs). */
-const APP_MENU_LABELS = ["Shop", "Settings", "Edit", "View", "Help"];
+const APP_MENU_LABELS = ["Shop", "Labels", "Settings", "Edit", "View", "Help"];
 
 module.exports = {
   buildAppMenuTemplate,
