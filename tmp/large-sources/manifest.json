@@ -3,8 +3,8 @@
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
     "chunks": 2,
-    "sha256": "dfb3d66976efd9140c7f11575f213d1aba569f7d6642306b2de755e0d2c723f7",
-    "bytes": 38664
+    "sha256": "0f48bd2f5a66892d253bfe21b3bc95e1dfb2e3f9980524f53252e71c984fe0a4",
+    "bytes": 40584
   },
   {
     "path": "src/shared-session.js",
@@ -17,8 +17,15 @@
     "path": "src/preload.js",
     "prefix": "src__preload.js.gz.b64",
     "chunks": 1,
-    "sha256": "ec2136e7272a8a64a0b1404119888070ed122111abe70bc65656a8a5d7d3c1f6",
-    "bytes": 4076
+    "sha256": "d7acc1bd773c6bf9facd0efad8bfbcfb1d3f806fa14c382557de82921b7f7fb0",
+    "bytes": 5242
+  },
+  {
+    "path": "src/lock-detect.js",
+    "prefix": "src__lock-detect.js.gz.b64",
+    "chunks": 1,
+    "sha256": "842ebdf2e8e323eb5ede3cb1312589dfe468ac5199ed0aa4d94b98706745a325",
+    "bytes": 684
   },
   {
     "path": "test/shared-session.test.js",
@@ -28,24 +35,31 @@
     "bytes": 7789
   },
   {
+    "path": "test/lock-detect.test.js",
+    "prefix": "test__lock-detect.test.js.gz.b64",
+    "chunks": 1,
+    "sha256": "0d06fa1317086710434d3da0707e445189253ed39213fbb71c340dd46fad7b5b",
+    "bytes": 1348
+  },
+  {
     "path": "README.md",
     "prefix": "README.md.gz.b64",
     "chunks": 1,
-    "sha256": "945e440387e9dea1f65ee8cf33b7ec3d9d94ca0e2fc559520e1ebbb3735ba270",
-    "bytes": 9098
-  },
-  {
-    "path": ".github/workflows/apply-large-sources.yml",
-    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
-    "chunks": 1,
-    "sha256": "3d6532619fa0498734583601553a2363ee0b063fa390518291de2976f176c266",
-    "bytes": 3408
+    "sha256": "ed6b1aa087cfbc6b4b546e4ede5782727bfef4389d635a4511dac44af21fa209",
+    "bytes": 9352
   },
   {
     "path": "package.json",
     "prefix": "package.json.gz.b64",
     "chunks": 1,
-    "sha256": "6df07e6676b487a00d3918bba510096116d061a861b3b8649f233ae733a6a649",
+    "sha256": "3b587b98175fb836a8eb2fd00784f7c2146285c51a2cbcf35b435be4cb029aa6",
     "bytes": 2333
+  },
+  {
+    "path": ".github/workflows/apply-large-sources.yml",
+    "prefix": ".github__workflows__apply-large-sources.yml.gz.b64",
+    "chunks": 1,
+    "sha256": "f40e3549508c9b6f169cd00848516efb017b949e0638458a0ca24654ede78335",
+    "bytes": 3481
   }
 ]

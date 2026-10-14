@@ -74,13 +74,15 @@ jobs:
             src/main.js \
             src/preload.js \
             src/shared-session.js \
+            src/lock-detect.js \
             src/desk-session-bridge.js \
             test/shared-session.test.js \
+            test/lock-detect.test.js \
             test/desk-session-bridge.test.js \
             .github/workflows/apply-large-sources.yml || true
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "fix: Tools unlock force-exchanges shop gate cookie (1.5.5)"
+            git commit -m "fix: Tools lock clears shared session for site/Desk (1.5.6)"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
