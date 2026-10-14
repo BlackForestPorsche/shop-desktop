@@ -1,0 +1,35 @@
+name: apply-rolabel-lock
+on:
+  push:
+    branches: [cursor/labels-service-155-7d7c]
+    paths:
+      - 'tmp/large-sources/rolabel-lock.b64.json'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/labels-service-155-7d7c
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply
+        run: |
+          python3 <<'PY'
+          import json, base64, gzip, pathlib, subprocess
+          meta=json.loads(pathlib.Path('tmp/large-sources/rolabel-lock.b64.json').read_text())
+          for path, b64 in meta['files'].items():
+              data=gzip.decompress(base64.b64decode(b64))
+              p=pathlib.Path(path)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(data)
+              print('wrote', path, len(data))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add labels/shared/ro-label.mjs labels/package-lock.json
+          git diff --cached --stat
+          git commit -m "feat: Tools 1.5.5 owns Labels service on :8080 (part 6 ro-label exact + lock)" || echo "no changes"
+          git push origin HEAD:cursor/labels-service-155-7d7c
+
