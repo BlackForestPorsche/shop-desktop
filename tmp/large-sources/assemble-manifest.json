@@ -1,0 +1,82 @@
+[
+  {
+    "chunk": "labels__package-lock.json.gz.b64.00",
+    "parts": 5,
+    "sha256": "17f4a3e344abd888b5b674d3e7aa6a2fc875fa7f00980e2cdb1c42b94aafa000"
+  },
+  {
+    "chunk": "labels__public__app.css.gz.b64.00",
+    "parts": 3,
+    "sha256": "d27f344db83bf312ccbb3d6133d54615a99c3b9fe545cb9c1818f21467dc901f"
+  },
+  {
+    "chunk": "labels__public__app.js.gz.b64.00",
+    "parts": 5,
+    "sha256": "516464f736339751767b9608f1fe10ce7952545b9309b20faad45df16ad776bd"
+  },
+  {
+    "chunk": "labels__public__app.js.gz.b64.01",
+    "parts": 4,
+    "sha256": "ed6445265ce89c86b95ce01dc5947f8c58e95cfe115a13b279dee7a17aa4f30e"
+  },
+  {
+    "chunk": "labels__server.mjs.gz.b64.00",
+    "parts": 3,
+    "sha256": "00135bb455473b29aed1e7a9671b8bffdc42be1bb5027090f72092941dfcd5cc"
+  },
+  {
+    "chunk": "labels__shared__detect.mjs.gz.b64.00",
+    "parts": 3,
+    "sha256": "3110ab1e12a14808c85fff6884c4073f901b0d8c53df7717e9193a37dd8af374"
+  },
+  {
+    "chunk": "labels__shared__media.mjs.gz.b64.00",
+    "parts": 3,
+    "sha256": "74eea762af859ece3e814bd2d4d7f89138c88763a3c4f830763b35b9ef7680e6"
+  },
+  {
+    "chunk": "labels__shared__print.mjs.gz.b64.00",
+    "parts": 2,
+    "sha256": "aed1e1838afd04c52038cabb50d12980fc4be58c1b4730ee9abc150eaef51e7c"
+  },
+  {
+    "chunk": "labels__shared__ro-label.mjs.gz.b64.00",
+    "parts": 5,
+    "sha256": "5d17df75041f9035039d14f12485a9863f0b2e776f87af59d59468f614046fa1"
+  },
+  {
+    "chunk": "labels__shared__text-fit.mjs.gz.b64.00",
+    "parts": 2,
+    "sha256": "b0762d6313f7f5a6c3c465959bd220ca6ac3b482eeaa662735af9d7c92cdfd80"
+  },
+  {
+    "chunk": "scripts__install-windows.ps1.gz.b64.00",
+    "parts": 3,
+    "sha256": "23dc4d07278384fe7fde8cd2c0b30c478d2a92e13e78b4b7727ef7a4f76875c3"
+  },
+  {
+    "chunk": "src__labels-server.js.gz.b64.00",
+    "parts": 3,
+    "sha256": "e96c5bd09d6ac1e84b33d85e87641e1a944d8f42d379c16fcc157674fbccc9af"
+  },
+  {
+    "chunk": "src__main.js.gz.b64.00",
+    "parts": 5,
+    "sha256": "1de65aeabb323457eb0b8c10ee4018438eb6301883f7a7eab301ff4a10916473"
+  },
+  {
+    "chunk": "src__main.js.gz.b64.01",
+    "parts": 5,
+    "sha256": "65ca4b8aa3133d38e764ff769e0aa31d6833431d85bc51fe261fe4223c453614"
+  },
+  {
+    "chunk": "src__main.js.gz.b64.02",
+    "parts": 3,
+    "sha256": "8405eb7485339ee8980bcf8a8a95731516fa931c318f27d07574c4b282340660"
+  },
+  {
+    "chunk": "test__labels-server.test.js.gz.b64.00",
+    "parts": 2,
+    "sha256": "028497e63f50c0186490c61536cdf24015b288eaf0ab1cbd69f9c2402abc463c"
+  }
+]
