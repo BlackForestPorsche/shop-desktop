@@ -4,6 +4,7 @@ on:
     branches: [cursor/labels-service-155-7d7c]
     paths:
       - 'tmp/large-sources/rolabel-lock.b64.json'
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -13,11 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: cursor/labels-service-155-7d7c
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
       - name: Apply
         run: |
           python3 <<'PY'
-          import json, base64, gzip, pathlib, subprocess
+          import json, base64, gzip, pathlib
           meta=json.loads(pathlib.Path('tmp/large-sources/rolabel-lock.b64.json').read_text())
           for path, b64 in meta['files'].items():
               data=gzip.decompress(base64.b64decode(b64))
@@ -28,8 +29,12 @@ jobs:
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add labels/shared/ro-label.mjs labels/package-lock.json
-          git diff --cached --stat
-          git commit -m "feat: Tools 1.5.5 owns Labels service on :8080 (part 6 ro-label exact + lock)" || echo "no changes"
-          git push origin HEAD:cursor/labels-service-155-7d7c
-
+          git add -- labels/shared/ro-label.mjs || true
+          git add -- labels/package-lock.json || true
+          git status
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "feat: Tools 1.5.5 owns Labels service on :8080 (part 6 ro-label exact + lock)"
+            git push origin HEAD:cursor/labels-service-155-7d7c
+          fi
