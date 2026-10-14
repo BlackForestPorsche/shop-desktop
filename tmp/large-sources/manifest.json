@@ -2,7 +2,15 @@
   {
     "path": "src/main.js",
     "prefix": "src__main.js.gz.b64",
-    "chunks": 5,
-    "sha256": "ea9a5b989ae39b87f413e1140646d5cab07dd910a8c4dd38ad98160482c30e6c"
+    "chunks": 2,
+    "sha256": "3323b03243dd64626d2395c0d62401713142bc74204f84940a5dcfbb6ca7dbd6",
+    "bytes": 43881
+  },
+  {
+    "path": "package.json",
+    "prefix": "package.json.gz.b64",
+    "chunks": 1,
+    "sha256": "57515b43129110ed95ad32e2aff61e6ff4504c2f438893704894b20108f8151d",
+    "bytes": 2333
   }
 ]

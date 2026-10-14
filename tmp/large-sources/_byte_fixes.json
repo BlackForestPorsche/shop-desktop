@@ -1,0 +1,14 @@
+[
+  {
+    "path": "tmp/large-sources/_hex_parts/README.md.gz.b64.00.hex.01",
+    "replacements": [{"offset": 3502, "old": "5", "new": "6"}]
+  },
+  {
+    "path": "tmp/large-sources/_hex_parts/README.md.gz.b64.00.hex.02",
+    "replacements": [{"offset": 2578, "old": "5", "new": "3"}]
+  },
+  {
+    "path": "tmp/large-sources/_hex_parts/.github__workflows__apply-large-sources.yml.gz.b64.00.hex.00",
+    "replacements": [{"offset": 556, "old": "4", "new": "6"}]
+  }
+]
