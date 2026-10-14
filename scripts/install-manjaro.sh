@@ -94,9 +94,9 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 echo "Black Forest Tools is in the application menu."
-echo "Labels service: starts with Tools on :8080 (adopts existing labels.service) — Labels → status / restart"
 echo "Command: blackforest-tools"
 echo "Firefox signed-in: blackforest-firefox-signed-in (or Shop → Open in Firefox signed in)"
+echo "Labels service: starts with Tools on :8080 (adopts existing labels.service) — Labels → status / restart"
 echo "If the command is not found, log out once, or open it from the menu."
 
 if [[ "$ENABLE_AUTOSTART" -eq 1 ]]; then
