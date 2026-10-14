@@ -59,6 +59,7 @@ test("GET /v1/widget-session is 404 without session", async () => {
   const bridge = startDeskSessionBridge({
     port: 0,
     readSession: () => null,
+    peekSession: () => null,
   });
   await new Promise((resolve, reject) => {
     bridge.server.once("listening", resolve);
@@ -70,6 +71,54 @@ test("GET /v1/widget-session is 404 without session", async () => {
     assert.equal(res.status, 404);
     const body = await res.json();
     assert.equal(body.error, "no_session");
+    assert.equal(body.hint, "bridge_up_no_session");
+    assert.equal(body.sessionExpired, false);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("GET /v1/widget-session reports expired and refreshes via onSessionMiss", async () => {
+  let live = null;
+  let missCalls = 0;
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => live,
+    peekSession: () =>
+      live
+        ? live
+        : {
+            token: "stale",
+            expiresAt: "2000-01-01T00:00:00.000Z",
+            person: "logan",
+          },
+    onSessionMiss: async ({ sessionExpired }) => {
+      missCalls += 1;
+      assert.equal(sessionExpired, true);
+      live = {
+        token: "fresh",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        person: "logan",
+        role: "desk",
+      };
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    assert.equal(health.hasSession, false);
+    assert.equal(health.sessionExpired, true);
+    assert.equal(health.hint, "bridge_up_session_expired");
+
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`);
+    assert.equal(res.status, 200);
+    assert.equal(missCalls, 1);
+    const body = await res.json();
+    assert.equal(body.token, "fresh");
   } finally {
     await bridge.close();
   }
