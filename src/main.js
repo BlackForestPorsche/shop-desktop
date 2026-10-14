@@ -29,6 +29,12 @@ const {
   requestFirefoxHandoff,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
+const {
+  labelsUrl,
+  probeLabels,
+  startLabelsServer,
+  stopLabelsServer,
+} = require("./labels-server");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -75,6 +81,7 @@ let applyingRemoteLock = false;
 let mintingWidgetSession = false;
 let exchangingGate = false;
 let deskSessionBridge = null;
+let labelsServerHandle = null;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -406,6 +413,96 @@ async function checkForSiteUpdate({ interactive }) {
   }
 }
 
+async function ensureLabelsRunning({ interactive = false } = {}) {
+  const url = (labelsServerHandle && labelsServerHandle.url) || labelsUrl(8080);
+  if (labelsServerHandle && labelsServerHandle.ok && (await probeLabels(url))) {
+    return labelsServerHandle;
+  }
+  try {
+    labelsServerHandle = await startLabelsServer({ appRoot: APP_ROOT });
+  } catch (error) {
+    labelsServerHandle = {
+      ok: false,
+      reason: String(error && error.message ? error.message : error),
+      url: labelsUrl(8080),
+    };
+  }
+  if (!labelsServerHandle.ok) {
+    console.error("Labels server failed:", labelsServerHandle.reason);
+    if (interactive && mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        buttons: ["OK"],
+        defaultId: 0,
+        title: "Labels service",
+        message: "Labels service could not start",
+        detail: [
+          labelsServerHandle.reason || "Unknown error",
+          "",
+          "Desk Create RO still needs http://127.0.0.1:8080.",
+          "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
+        ].join("\n"),
+      });
+    }
+  } else {
+    console.log(labelsServerHandle.reason || `Labels at ${labelsServerHandle.url}`);
+  }
+  return labelsServerHandle;
+}
+
+async function showLabelsStatus() {
+  await ensureLabelsRunning({ interactive: false });
+  const url = (labelsServerHandle && labelsServerHandle.url) || labelsUrl(8080);
+  const up = await probeLabels(url);
+  const owned = Boolean(labelsServerHandle && labelsServerHandle.owned);
+  const adopted = Boolean(labelsServerHandle && labelsServerHandle.adopted);
+  const lines = [
+    up ? `Listening at ${url}` : `Not reachable at ${url}`,
+    owned ? "Owned by Black Forest Tools (vendored server)." : adopted
+      ? "Adopted an existing process (legacy labels.service or start-labels)."
+      : labelsServerHandle && labelsServerHandle.reason
+        ? labelsServerHandle.reason
+        : "Not started.",
+    "",
+    "Print controls and Labels settings belong on the shop site.",
+    "Desk Create RO keeps POSTing to this localhost API.",
+    "This menu only shows status / restart — not a second Labels app.",
+  ];
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  await dialog.showMessageBox(mainWindow, {
+    type: up ? "info" : "warning",
+    buttons: ["OK"],
+    defaultId: 0,
+    title: "Labels service",
+    message: up ? "Labels service is up" : "Labels service is down",
+    detail: lines.join("\n"),
+  });
+}
+
+async function restartLabelsService() {
+  if (labelsServerHandle && labelsServerHandle.owned) {
+    stopLabelsServer(labelsServerHandle, { force: true });
+  }
+  labelsServerHandle = null;
+  const handle = await ensureLabelsRunning({ interactive: true });
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (handle && handle.ok) {
+    await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["OK"],
+      defaultId: 0,
+      title: "Labels service",
+      message: "Labels service ready",
+      detail: [
+        handle.url,
+        handle.owned ? "Restarted the Tools-owned server." : "Re-adopted the process already on :8080.",
+        "",
+        "Desk Create RO can print again when the LabelWriter is online.",
+      ].join("\n"),
+    });
+  }
+}
+
 function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
@@ -426,6 +523,16 @@ function shopMenu() {
       onHardReload: () => send("hard"),
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      onLabelsStatus: () => {
+        showLabelsStatus().catch((error) => {
+          console.error(error);
+        });
+      },
+      onRestartLabels: () => {
+        restartLabelsService().catch((error) => {
+          console.error(error);
+        });
+      },
       onOpenFirefoxSignedIn: () => {
         openFirefoxSignedIn({ interactive: true }).catch((error) => {
           console.error(error);
@@ -442,6 +549,10 @@ function shopMenu() {
         });
       },
       onAbout: async () => {
+        const labelsLine =
+          labelsServerHandle && labelsServerHandle.ok
+            ? `Labels service: ${labelsServerHandle.url} (${labelsServerHandle.owned ? "owned by Tools" : "adopted existing"})`
+            : "Labels service: starts with Tools (Labels → status / restart)";
         const choice = await dialog.showMessageBox(mainWindow, {
           type: "info",
           buttons: ["OK", "Check for updates"],
@@ -460,6 +571,10 @@ function shopMenu() {
             "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
             "",
             "Check for desktop updates from Settings → Check for updates.",
+            "",
+            labelsLine,
+            "LabelWriter print UX / settings buttons belong on the shop site; Tools only owns the localhost :8080 service.",
+            "Desk Create RO prints via 127.0.0.1:8080 (not the idle game).",
             "",
             "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
@@ -1016,6 +1131,10 @@ if (gotLock) {
       deskSessionBridge = null;
     }
     Menu.setApplicationMenu(shopMenu());
+    // Own Labels (:8080) so Desk Create RO / site Labels tile can reach the print service.
+    ensureLabelsRunning({ interactive: false }).catch((error) => {
+      console.error(error);
+    });
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
     await ensureSharedSessionFromGate();
     await exchangeSharedSessionToGate({ force: false, reload: false });
@@ -1056,6 +1175,9 @@ if (gotLock) {
       deskSessionBridge.close().catch(() => {});
       deskSessionBridge = null;
     }
+    // Leave Labels running so Desk can still print after Tools quits; Tools
+    // re-adopts or restarts it on next launch.
+    stopLabelsServer(labelsServerHandle, { force: false });
     app.quit();
   });
 }
