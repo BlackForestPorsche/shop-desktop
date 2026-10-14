@@ -1,0 +1,12 @@
+Vendored Labels (LabelWriter 550) server for Black Forest Tools.
+
+Upstream: https://github.com/BlackForestPorsche/label-connect
+Synced from commit: fdef823647c45ad1950a669fc51beba41d3f4a65
+Upstream version: 0.1.10
+
+Owned at runtime by Tools: Electron main spawns `node server.mjs` on PORT 8080
+when nothing already answers there (so a leftover labels.service still works during
+the transition). Desk extension keeps calling http://127.0.0.1:8080/api/print-ro.
+
+Do not mix this into the pirate idle overlay. Re-sync from label-connect when
+print/layout changes land there (scripts/sync-labels-vendor.sh).

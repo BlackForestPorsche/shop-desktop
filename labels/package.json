@@ -1,0 +1,14 @@
+{
+  "name": "blackforest-tools-labels",
+  "private": true,
+  "version": "0.1.10",
+  "type": "module",
+  "description": "Vendored Labels (LabelWriter 550) server owned by Black Forest Tools.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4"
+  }
+}
