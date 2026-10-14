@@ -1,0 +1,80 @@
+name: Assemble large-sources parts
+on:
+  push:
+    branches:
+      - cursor/tools-site-login-sync-2d77
+    paths:
+      - .github/workflows/assemble-large-parts.yml
+      - tmp/large-sources/parts/**
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Fix known part02 corruption then assemble
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import hashlib
+          # Surgical fix for README part02 (lie -> lte)
+          p02 = Path("tmp/large-sources/parts/README.md.gz.b64.00.part02")
+          if p02.exists():
+              t = p02.read_text()
+              t2 = t.replace("Et5lie2tr", "Et5lte2tr", 1)
+              if t2 != t:
+                  p02.write_text(t2)
+                  print("fixed part02 lie->lte")
+              else:
+                  print("part02 pattern absent or already fixed")
+          expect = {
+              "tmp/large-sources/test__shared-session.test.js.gz.b64.00": {"sha256": "12a8c9bc0e30a2daf797798bc6da9cc9bfe257004152061fcf80ecb6aa84c8b5", "stem": "test__shared-session.test.js.gz.b64.00", "n": 8},
+              "tmp/large-sources/README.md.gz.b64.00": {"sha256": "c5d74055186b5bd5a761050d403c91a5bc3b04fb66810943cd77695cfdbcc482", "stem": "README.md.gz.b64.00", "n": 14},
+              "tmp/large-sources/.github__workflows__apply-large-sources.yml.gz.b64.00": {"sha256": "23b6f5d2efa2e16423d4f4c587bb83bbbc374d083684d7a5761e7fce674ae1aa", "stem": ".github__workflows__apply-large-sources.yml.gz.b64.00", "n": 5},
+              "tmp/large-sources/package.json.gz.b64.00": {"sha256": "a1f6a5994db14b3926c4bf72722ef9d729d2f49e56708f64032bb9c85f705481", "stem": "package.json.gz.b64.00", "n": 3},
+          }
+          root = Path("tmp/large-sources/parts")
+          changed = []
+          errors = []
+          for target, meta in expect.items():
+              parts = []
+              missing = []
+              for i in range(meta["n"]):
+                  p = root / f"{meta['stem']}.part{i:02d}"
+                  if not p.exists():
+                      missing.append(p.name)
+                  else:
+                      parts.append(p.read_text())
+              if missing:
+                  print(f"incomplete {target}: {missing}")
+                  continue
+              data = "".join(parts)
+              digest = hashlib.sha256(data.encode()).hexdigest()
+              ok = digest == meta["sha256"]
+              print(target, "sha", digest, "match", ok)
+              if not ok:
+                  errors.append(target)
+                  continue
+              Path(target).parent.mkdir(parents=True, exist_ok=True)
+              Path(target).write_text(data)
+              changed.append(target)
+          print("wrote", changed)
+          if errors:
+              raise SystemExit(f"hash mismatch for {errors}")
+          PY
+      - name: Commit assembled chunks and part fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tmp/large-sources/
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix: assemble Tools 1.5.5 large-sources chunks from parts"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

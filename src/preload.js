@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 const { mountShellChrome } = require("./shell-chrome");
 const { resolveIdleIntervalMs } = require("./idle-fleet");
+const { looksLikeLockRequest } = require("./lock-detect");
 
 contextBridge.exposeInMainWorld("blackForestTools", {
   checkForDesktopUpdates: () => ipcRenderer.invoke("shell:check-updates"),
@@ -36,6 +37,14 @@ function maybeReportUnlockCreds(url, method, body) {
   if (String(method || "GET").toUpperCase() !== "POST" || !isShopUrl(url)) {
     return;
   }
+  try {
+    if (looksLikeLockRequest(url, method, bodyText(body))) {
+      ipcRenderer.send("shop-lock");
+      return;
+    }
+  } catch {
+    // ignore
+  }
   const text = bodyText(body);
   if (!text || text.indexOf("pin") === -1 || text.indexOf("person") === -1) {
     return;
@@ -45,8 +54,9 @@ function maybeReportUnlockCreds(url, method, body) {
 
 /**
  * Capture unlock / widget-session JSON so main writes
- * ~/.local/share/blackforest-tools/widget-session.json.
- * Desk roles include widgetToken; also accept token+expiresAt shapes.
+ * ~/.local/share/blackforest-tools/widget-session.json and force-exchanges
+ * bf_shop_gate into the Electron jar (Tools SPA unlock).
+ * Desk roles include widgetToken; also accept token+expiresAt and unlock-ok shapes.
  */
 function maybeReportUnlock(text) {
   if (typeof text !== "string" || !text) {
@@ -57,10 +67,33 @@ function maybeReportUnlock(text) {
     text.indexOf('"token"') !== -1 &&
     text.indexOf("expiresAt") !== -1 &&
     (text.indexOf("person") !== -1 || text.indexOf("role") !== -1);
-  if (!hasWidget && !hasToken) {
+  // unlockShop success without widgetToken (mint failed) still needs SPA/Desk sync.
+  const hasUnlockOk =
+    (text.indexOf('"ok":true') !== -1 || text.indexOf('"ok": true') !== -1) &&
+    text.indexOf("person") !== -1 &&
+    (text.indexOf("until") !== -1 || text.indexOf("kind") !== -1 || text.indexOf("mustChange") !== -1);
+  if (!hasWidget && !hasToken && !hasUnlockOk) {
     return;
   }
   ipcRenderer.send("shop-unlock-json", text);
+}
+
+function maybeReportLockResponse(url, method, text) {
+  if (String(method || "GET").toUpperCase() !== "POST" || !isShopUrl(url)) {
+    return;
+  }
+  if (looksLikeLockRequest(url, method, "")) {
+    ipcRenderer.send("shop-lock");
+    return;
+  }
+  // URL alone may not carry lockShop when body was empty — check response shape.
+  const bareOk =
+    typeof text === "string" &&
+    (/^\s*\{\s*"ok"\s*:\s*true\s*\}\s*$/.test(text) ||
+      /^\s*\{\s*"ok"\s*:\s*true\s*,\s*"result"\s*:\s*\{\s*"ok"\s*:\s*true\s*\}\s*\}\s*$/.test(text));
+  if (bareOk && /lockShop/i.test(String(url || ""))) {
+    ipcRenderer.send("shop-lock");
+  }
 }
 
 const originalFetch = window.fetch.bind(window);
@@ -79,7 +112,17 @@ window.fetch = async (...args) => {
     const clone = response.clone();
     const contentType = clone.headers.get("content-type") || "";
     if (contentType.includes("json") || contentType.includes("text") || !contentType) {
-      clone.text().then(maybeReportUnlock).catch(() => {});
+      clone
+        .text()
+        .then((text) => {
+          try {
+            maybeReportLockResponse(url, method, text);
+          } catch {
+            // ignore
+          }
+          maybeReportUnlock(text);
+        })
+        .catch(() => {});
     }
   } catch {
     // ignore
@@ -101,6 +144,11 @@ XMLHttpRequest.prototype.send = function sendPatched(...args) {
     // ignore
   }
   this.addEventListener("load", function onLoad() {
+    try {
+      maybeReportLockResponse(this.__bfUrl, this.__bfMethod, this.responseText);
+    } catch {
+      // ignore
+    }
     try {
       maybeReportUnlock(this.responseText);
     } catch {

@@ -27,6 +27,8 @@ const {
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,
+  parseGateSetCookie,
+  SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
 
@@ -75,6 +77,15 @@ let applyingRemoteLock = false;
 let mintingWidgetSession = false;
 let exchangingGate = false;
 let deskSessionBridge = null;
+/** Avoid tight reload loops when /unlock keeps loading while exchange fails. */
+let unlockExchangeAttemptAt = 0;
+const UNLOCK_EXCHANGE_GAP_MS = 4_000;
+/** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
+let localLockUntil = 0;
+const LOCAL_LOCK_COOLDOWN_MS = 45_000;
+/** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
+let gateRemovalTimer = null;
+const GATE_REMOVAL_DEBOUNCE_MS = 600;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -464,7 +475,7 @@ function shopMenu() {
             "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
             "While Tools is open, Desk can import the same session from http://127.0.0.1:8788 without re-typing the PIN.",
-            "Lock shop clears the shared file + this window; Firefox and Desk may still need their own lock or wait for expiry.",
+            "Lock shop (menu or SPA Lock) clears the shared file, revokes the widget Bearer, and this window — Desk Sync Tools then has nothing to import. Firefox’s own shop cookie may still need Lock or expiry.",
           ].join("\n"),
         });
         if (choice.response === 1) {
@@ -532,6 +543,11 @@ function createWindow(startUrl) {
     readLoadedStamp(win.webContents).then((stamp) => {
       if (stamp) runningStamp = stamp;
     });
+    // Shared Bearer present but SPA still on /unlock (TanStack Set-Cookie miss) → exchange.
+    maybeExchangeWhileOnUnlock(win.webContents.getURL());
+  });
+  win.webContents.on("did-navigate", (_event, url) => {
+    maybeExchangeWhileOnUnlock(url);
   });
 
   win.loadURL(startUrl, {
@@ -657,11 +673,20 @@ function rememberUnlockCredsRaw(raw) {
 
 async function shopGateCookiesPresent() {
   try {
-    const cookies = await shopPartition().cookies.get({
+    // Prefer url= so host-only cookies (no Domain attr) are found. domain= alone
+    // can miss the jar entry Electron stores from Set-Cookie Path=/ responses.
+    const byUrl = await shopPartition().cookies.get({
+      url: `${SHOP_BASE}/`,
+      name: GATE_COOKIE,
+    });
+    if (byUrl.some((cookie) => cookie && cookie.value)) {
+      return true;
+    }
+    const byDomain = await shopPartition().cookies.get({
       domain: "shop.blackforestautomotive.com",
       name: GATE_COOKIE,
     });
-    return cookies.some((cookie) => cookie && cookie.value);
+    return byDomain.some((cookie) => cookie && cookie.value);
   } catch {
     return false;
   }
@@ -675,9 +700,60 @@ function partitionFetch(url, init) {
   return fetch(url, init);
 }
 
+/** Inject bf_shop_gate when session.fetch hid Set-Cookie from the jar. */
+async function injectGateCookieFromExchange(result) {
+  const shopSession = shopPartition();
+  const headers = Array.isArray(result && result.setCookie) ? result.setCookie : [];
+  for (const header of headers) {
+    const details = parseGateSetCookie(header, GATE_COOKIE);
+    if (!details) {
+      continue;
+    }
+    try {
+      await shopSession.cookies.set(details);
+      return true;
+    } catch (error) {
+      console.error("Could not inject shop gate cookie from Set-Cookie:", error);
+    }
+  }
+  const gateToken = result && result.gateToken ? String(result.gateToken) : "";
+  if (!gateToken) {
+    return false;
+  }
+  try {
+    await shopSession.cookies.set({
+      url: `${SHOP_BASE}/`,
+      name: GATE_COOKIE,
+      value: gateToken,
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+    });
+    return true;
+  } catch (error) {
+    console.error("Could not inject shop gate cookie from gateToken:", error);
+    return false;
+  }
+}
+
+async function reloadSpaAfterGateExchange() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const current = mainWindow.webContents.getURL();
+  if (!current || current.includes("/unlock") || classifyUrl(current).kind !== "shop") {
+    await mainWindow.loadURL(SHOP_HOME);
+    return;
+  }
+  mainWindow.webContents.reload();
+}
+
 /**
  * When a widget session file exists, mint bf_shop_gate into the Electron cookie jar
  * via POST /api/widget/session/exchange (shop beta 0.1.25+). Reload when still on /unlock.
+ * force=true after every Tools unlock so TanStack RPC Set-Cookie misses cannot leave
+ * the SPA on /unlock while Desk already has a fresh Bearer.
  */
 async function exchangeSharedSessionToGate({
   force = false,
@@ -697,13 +773,15 @@ async function exchangeSharedSessionToGate({
   exchangingGate = true;
   try {
     const result = await exchangeWidgetSession(existing.token, partitionFetch);
-    if (reload && mainWindow && !mainWindow.isDestroyed()) {
-      const current = mainWindow.webContents.getURL();
-      if (!current || current.includes("/unlock") || classifyUrl(current).kind !== "shop") {
-        await mainWindow.loadURL(SHOP_HOME);
-      } else {
-        mainWindow.webContents.reload();
-      }
+    if (!(await shopGateCookiesPresent())) {
+      await injectGateCookieFromExchange(result);
+    }
+    if (!(await shopGateCookiesPresent())) {
+      console.error("Exchange succeeded but bf_shop_gate is still missing from the Electron jar.");
+      return { ok: false, reason: "cookie_missing", ...result };
+    }
+    if (reload) {
+      await reloadSpaAfterGateExchange();
     }
     return { ok: true, reason: "exchanged", ...result };
   } catch (error) {
@@ -726,6 +804,39 @@ async function exchangeSharedSessionToGate({
     return { ok: false, reason: "failed", status: error && error.status };
   } finally {
     exchangingGate = false;
+  }
+}
+
+/** Unlock PIN / widgetToken → refresh Bearer, then force SPA gate cookie into Tools. */
+async function syncToolsSpaAfterUnlock() {
+  await syncSharedSessionAfterUnlock({ force: true });
+  return exchangeSharedSessionToGate({ force: true, reload: true });
+}
+
+/** Shared session exists but SPA is still on /unlock — exchange once (debounced). */
+async function maybeExchangeWhileOnUnlock(url) {
+  if (!url || !String(url).includes("/unlock")) {
+    return;
+  }
+  if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+    return;
+  }
+  // SPA Lock / menu Lock shop just cleared the jar — do not mint a new gate from Bearer.
+  if (Date.now() < localLockUntil) {
+    return;
+  }
+  if (!readSession()) {
+    return;
+  }
+  const now = Date.now();
+  if (now - unlockExchangeAttemptAt < UNLOCK_EXCHANGE_GAP_MS) {
+    return;
+  }
+  unlockExchangeAttemptAt = now;
+  try {
+    await exchangeSharedSessionToGate({ force: true, reload: true });
+  } catch (error) {
+    console.error(error);
   }
 }
 
@@ -754,7 +865,12 @@ function launchFirefox(url) {
 }
 
 async function openFirefoxSignedIn({ interactive = true } = {}) {
-  const existing = readSession();
+  // Prefer a live shared Bearer; recover from Electron gate cookie if file is stale.
+  let existing = readSession();
+  if (!existing || !existing.token) {
+    await ensureSharedSessionFromGate({ force: true });
+    existing = readSession();
+  }
   if (!existing || !existing.token) {
     if (interactive && mainWindow && !mainWindow.isDestroyed()) {
       await dialog.showMessageBox(mainWindow, {
@@ -769,6 +885,8 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
   }
 
   try {
+    // Keep Tools SPA jar in sync before minting the Firefox ticket.
+    await exchangeSharedSessionToGate({ force: true, reload: false });
     const { url } = await requestFirefoxHandoff(existing.token, fetch);
     await launchFirefox(url);
     return { ok: true, url };
@@ -795,18 +913,26 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
 async function clearShopGateCookies() {
   const shopSession = shopPartition();
   try {
-    const cookies = await shopSession.cookies.get({
-      domain: "shop.blackforestautomotive.com",
-    });
+    const seen = new Set();
+    const batches = await Promise.all([
+      shopSession.cookies.get({ url: `${SHOP_BASE}/` }),
+      shopSession.cookies.get({ domain: "shop.blackforestautomotive.com" }),
+    ]);
+    const cookies = batches.flat();
     await Promise.all(
       cookies
         .filter((cookie) => cookie.name === GATE_COOKIE || cookie.name.startsWith(`${GATE_COOKIE}`))
-        .map((cookie) =>
-          shopSession.cookies.remove(
+        .map((cookie) => {
+          const key = `${cookie.name}|${cookie.path || "/"}|${cookie.domain || ""}`;
+          if (seen.has(key)) {
+            return Promise.resolve();
+          }
+          seen.add(key);
+          return shopSession.cookies.remove(
             `https://shop.blackforestautomotive.com${cookie.path || "/"}`,
             cookie.name,
-          ),
-        ),
+          );
+        }),
     );
   } catch (error) {
     console.error("Could not clear shop gate cookies:", error);
@@ -818,6 +944,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     return;
   }
   applyingRemoteLock = true;
+  localLockUntil = Date.now() + LOCAL_LOCK_COOLDOWN_MS;
   try {
     const existing = readSession();
     if (revokeRemote && existing && existing.token) {
@@ -827,10 +954,12 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     }
     lastSharedFingerprint = "";
     await clearShopGateCookies();
+    // Desk :8788 reads the same file — after clear, /health hasSession:false so
+    // "Use Tools session" / Sync Tools no longer offers a live unlock.
     if (mainWindow && !mainWindow.isDestroyed()) {
       const current = mainWindow.webContents.getURL();
       if (!current.includes("/unlock")) {
-        await mainWindow.loadURL("https://shop.blackforestautomotive.com/unlock");
+        await mainWindow.loadURL(`${SHOP_BASE}/unlock`);
       }
     }
   } finally {
@@ -852,7 +981,8 @@ function watchSharedSessionFile() {
     if (fp === lastSharedFingerprint) {
       return;
     }
-    const had = Boolean(lastSharedFingerprint);
+    const previous = lastSharedFingerprint;
+    const had = Boolean(previous);
     lastSharedFingerprint = fp;
     if (!fp && had) {
       lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
@@ -860,7 +990,8 @@ function watchSharedSessionFile() {
       });
       return;
     }
-    if (fp && !had) {
+    // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
+    if (fp && fp !== previous) {
       exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
         console.error(error);
       });
@@ -915,21 +1046,57 @@ function configureSession() {
       return;
     }
     if (removed) {
-      // Site lock clears bf_shop_gate only — do not revoke the widget Bearer.
+      // Cookie replace during exchange often fires removed→set. Wait; if the jar
+      // stays empty, treat it as SPA Lock and clear Desk's shared Bearer too.
+      if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+        return;
+      }
+      if (gateRemovalTimer) {
+        clearTimeout(gateRemovalTimer);
+      }
+      gateRemovalTimer = setTimeout(() => {
+        gateRemovalTimer = null;
+        if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+          return;
+        }
+        shopGateCookiesPresent()
+          .then((present) => {
+            if (present) {
+              return null;
+            }
+            return lockSharedSurfaces({ revokeRemote: true });
+          })
+          .catch((error) => {
+            console.error(error);
+          });
+      }, GATE_REMOVAL_DEBOUNCE_MS);
       return;
     }
-    // Every SPA unlock that sets bf_shop_gate must refresh widget-session.json for Desk.
-    syncSharedSessionAfterUnlock({ force: true })
-      .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
-      .catch((error) => {
-        console.error(error);
-      });
+    if (gateRemovalTimer) {
+      clearTimeout(gateRemovalTimer);
+      gateRemovalTimer = null;
+    }
+    if (Date.now() < localLockUntil) {
+      return;
+    }
+    // Gate cookie set → refresh Desk Bearer, then force-exchange so Tools SPA jar
+    // matches even when TanStack unlock Set-Cookie was a no-op / host-only quirk.
+    syncToolsSpaAfterUnlock().catch((error) => {
+      console.error(error);
+    });
+  });
+  ipcMain.on("shop-lock", () => {
+    // SPA Lock button / lockShop server fn — clear Bearer + jar immediately.
+    lockSharedSurfaces({ revokeRemote: true }).catch((error) => {
+      console.error(error);
+    });
   });
   ipcMain.on("shop-unlock-creds", (_event, text) => {
     try {
       if (rememberUnlockCredsRaw(text)) {
-        // PIN seen in preload fetch — mint as soon as gate lands (and retry now).
-        syncSharedSessionAfterUnlock({ force: true }).catch((error) => {
+        localLockUntil = 0;
+        // PIN seen in preload fetch — mint + force SPA exchange (Desk + Tools window).
+        syncToolsSpaAfterUnlock().catch((error) => {
           console.error(error);
         });
       }
@@ -939,18 +1106,18 @@ function configureSession() {
   });
   ipcMain.on("shop-unlock-json", (_event, text) => {
     try {
+      localLockUntil = 0;
       if (applyUnlockWidgetSession(text)) {
-        exchangeSharedSessionToGate({ force: false, reload: true }).catch((error) => {
+        // Always force exchange after unlock JSON — do not trust a pre-existing jar entry.
+        exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
           console.error(error);
         });
         return;
       }
-      // No widgetToken in JSON (or viewer-shaped): still deposit Bearer via PIN/from-gate.
-      syncSharedSessionAfterUnlock({ force: true })
-        .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
-        .catch((error) => {
-          console.error(error);
-        });
+      // No widgetToken in JSON (or viewer-shaped / unlock-ok only): PIN/from-gate + exchange.
+      syncToolsSpaAfterUnlock().catch((error) => {
+        console.error(error);
+      });
     } catch (error) {
       console.error("Could not apply unlock widgetToken:", error);
     }
@@ -1017,8 +1184,9 @@ if (gotLock) {
     }
     Menu.setApplicationMenu(shopMenu());
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
+    // Also: shared Bearer can exist while SPA jar is empty — force exchange on boot.
     await ensureSharedSessionFromGate();
-    await exchangeSharedSessionToGate({ force: false, reload: false });
+    await exchangeSharedSessionToGate({ force: true, reload: false });
     createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
     updateTimer = setInterval(() => {
       checkForSiteUpdate({ interactive: false });
@@ -1036,7 +1204,7 @@ if (gotLock) {
     }, 20_000);
     setTimeout(() => {
       ensureSharedSessionFromGate()
-        .then(() => exchangeSharedSessionToGate({ force: false, reload: true }))
+        .then(() => exchangeSharedSessionToGate({ force: true, reload: true }))
         .catch((error) => {
           console.error(error);
         });

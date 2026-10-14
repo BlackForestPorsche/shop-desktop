@@ -20,6 +20,7 @@ const {
   peekSession,
   purgeExpiredSession,
   mintWidgetSessionFromGate,
+  parseGateSetCookie,
   SHOP_BASE,
 } = require("../src/shared-session");
 
@@ -165,12 +166,23 @@ test("exchangeWidgetSession posts Bearer and maps contract statuses", async () =
     calls.push({ url, init });
     return {
       status: 200,
+      headers: {
+        getSetCookie() {
+          return [
+            "bf_shop_gate=v2.1.logan.desk.abc; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600",
+          ];
+        },
+        get() {
+          return null;
+        },
+      },
       async json() {
         return {
           ok: true,
           person: "logan",
           role: "desk",
           expiresAt: "2099-01-01T00:00:00.000Z",
+          gateToken: "v2.1.logan.desk.abc",
         };
       },
     };
@@ -178,19 +190,38 @@ test("exchangeWidgetSession posts Bearer and maps contract statuses", async () =
   const got = await exchangeWidgetSession("tok", fetchImpl);
   assert.equal(calls[0].url, `${SHOP_BASE}/api/widget/session/exchange`);
   assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+  assert.equal(calls[0].init.credentials, "include");
   assert.equal(got.ok, true);
   assert.equal(got.person, "logan");
+  assert.equal(got.gateToken, "v2.1.logan.desk.abc");
+  assert.equal(got.setCookie.length, 1);
 
   await assert.rejects(
     () =>
       exchangeWidgetSession("tok", async () => ({
         status: 401,
+        headers: { getSetCookie() { return []; }, get() { return null; } },
         async json() {
           return { error: "unauthorized" };
         },
       })),
     (err) => err && err.code === "unauthorized" && err.status === 401,
   );
+});
+
+test("parseGateSetCookie reads bf_shop_gate Set-Cookie details", () => {
+  const details = parseGateSetCookie(
+    "bf_shop_gate=v2.99.logan.desk.mac; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=120",
+  );
+  assert.equal(details.name, "bf_shop_gate");
+  assert.equal(details.value, "v2.99.logan.desk.mac");
+  assert.equal(details.path, "/");
+  assert.equal(details.httpOnly, true);
+  assert.equal(details.secure, true);
+  assert.equal(details.sameSite, "lax");
+  assert.equal(details.url, `${SHOP_BASE}/`);
+  assert.ok(details.expirationDate > Math.floor(Date.now() / 1000));
+  assert.equal(parseGateSetCookie("other=1; Path=/"), null);
 });
 
 test("requestFirefoxHandoff returns shop URL and rejects off-host urls", async () => {

@@ -281,6 +281,7 @@ async function mintWidgetSessionFromGate(fetchImpl = fetch) {
         "Content-Type": "application/json",
       },
       body: "{}",
+      credentials: "include",
     });
   } catch (error) {
     const err = apiError("network", 0, error instanceof Error ? error.message : "network");
@@ -313,11 +314,92 @@ async function mintWidgetSessionFromGate(fetchImpl = fetch) {
   return next;
 }
 
+/** Pull Set-Cookie header values from a fetch Response (Electron / undici). */
+function readSetCookieHeaders(res) {
+  if (!res || !res.headers) {
+    return [];
+  }
+  const headers = res.headers;
+  if (typeof headers.getSetCookie === "function") {
+    try {
+      const list = headers.getSetCookie();
+      if (Array.isArray(list) && list.length) {
+        return list.map(String);
+      }
+    } catch {
+      // fall through
+    }
+  }
+  try {
+    const single = headers.get("set-cookie");
+    if (single) {
+      return [String(single)];
+    }
+  } catch {
+    // Chromium forbids reading Set-Cookie from some fetch wrappers.
+  }
+  return [];
+}
+
+/**
+ * Parse a single Set-Cookie header into Electron session.cookies.set() details.
+ * Only accepts bf_shop_gate for the shop host.
+ */
+function parseGateSetCookie(header, cookieName = "bf_shop_gate") {
+  if (!header || typeof header !== "string") {
+    return null;
+  }
+  const parts = header.split(";").map((part) => part.trim());
+  const first = parts[0] || "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) {
+    return null;
+  }
+  const name = first.slice(0, eq).trim();
+  const value = first.slice(eq + 1).trim();
+  if (name !== cookieName || !value) {
+    return null;
+  }
+  const details = {
+    url: `${SHOP_BASE}/`,
+    name,
+    value,
+    path: "/",
+    secure: true,
+    httpOnly: false,
+    sameSite: "lax",
+  };
+  for (const part of parts.slice(1)) {
+    const lower = part.toLowerCase();
+    if (lower === "httponly") {
+      details.httpOnly = true;
+    } else if (lower === "secure") {
+      details.secure = true;
+    } else if (lower.startsWith("path=")) {
+      details.path = part.slice(5).trim() || "/";
+    } else if (lower.startsWith("max-age=")) {
+      const maxAge = Number(part.slice(8).trim());
+      if (Number.isFinite(maxAge) && maxAge > 0) {
+        details.expirationDate = Math.floor(Date.now() / 1000) + maxAge;
+      }
+    } else if (lower.startsWith("samesite=")) {
+      const same = part.slice(9).trim().toLowerCase();
+      if (same === "none" || same === "lax" || same === "strict") {
+        details.sameSite = same;
+      }
+    } else if (lower.startsWith("domain=")) {
+      details.domain = part.slice(7).trim();
+    }
+  }
+  return details;
+}
+
 /**
  * Exchange a widget Bearer token for the SPA bf_shop_gate cookie (shop beta 0.1.25+).
  * Caller should use Electron session.fetch so Set-Cookie lands in the jar.
  * Cookie: Path=/, HttpOnly, Secure on HTTPS, SameSite=None on HTTPS.
  * TTL = earlier of normal shop lock and widget token remaining life.
+ * Also returns setCookie headers when the runtime exposes them (manual jar inject).
  */
 async function exchangeWidgetSession(token, fetchImpl = fetch) {
   if (!token) {
@@ -333,6 +415,7 @@ async function exchangeWidgetSession(token, fetchImpl = fetch) {
         "Content-Type": "application/json",
       },
       body: "{}",
+      credentials: "include",
     });
   } catch (error) {
     const err = apiError("network", 0, error instanceof Error ? error.message : "network");
@@ -349,11 +432,16 @@ async function exchangeWidgetSession(token, fetchImpl = fetch) {
   if (res.status !== 200 || !body || body.ok !== true) {
     throw apiError("exchange_failed", res.status, `exchange failed (HTTP ${res.status})`);
   }
+  const setCookie = readSetCookieHeaders(res);
+  // Prefer explicit gateToken from JSON when the site ships it (optional hardening).
+  const gateToken = body.gateToken || body.gate || body.cookieValue || "";
   return {
     ok: true,
     person: body.person || "",
     role: body.role || "",
     expiresAt: body.expiresAt || "",
+    setCookie,
+    gateToken: gateToken ? String(gateToken) : "",
   };
 }
 
@@ -375,6 +463,7 @@ async function requestFirefoxHandoff(token, fetchImpl = fetch) {
         "Content-Type": "application/json",
       },
       body: "{}",
+      credentials: "include",
     });
   } catch (error) {
     const err = apiError("network", 0, error instanceof Error ? error.message : "network");
@@ -419,4 +508,6 @@ module.exports = {
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,
+  readSetCookieHeaders,
+  parseGateSetCookie,
 };
