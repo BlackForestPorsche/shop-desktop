@@ -15,9 +15,14 @@ function shouldHandleGateCookieSet({
   mintingWidgetSession = false,
   applyingRemoteLock = false,
   localLockUntil = 0,
+  intentionallyLocked = false,
   now = Date.now(),
 } = {}) {
   if (exchangingGate || mintingWidgetSession || applyingRemoteLock) {
+    return false;
+  }
+  // Sticky lock (last intentional lock) — ignore gate SET remint until unlock.
+  if (intentionallyLocked) {
     return false;
   }
   if (now < localLockUntil) {
@@ -43,6 +48,7 @@ function unlockAutoExchangeAction({
   mintingWidgetSession = false,
   applyingRemoteLock = false,
   localLockUntil = 0,
+  intentionallyLocked = false,
   now = Date.now(),
   hasSession = false,
   gatePresent = false,
@@ -52,6 +58,10 @@ function unlockAutoExchangeAction({
     return "skip";
   }
   if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+    return "skip";
+  }
+  // Last intentional lock wins — do not auto-exchange / leave until unlock.
+  if (intentionallyLocked) {
     return "skip";
   }
   // SPA Lock / menu Lock shop just cleared the jar — do not mint a new gate.
