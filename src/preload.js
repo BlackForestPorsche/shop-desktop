@@ -45,8 +45,9 @@ function maybeReportUnlockCreds(url, method, body) {
 
 /**
  * Capture unlock / widget-session JSON so main writes
- * ~/.local/share/blackforest-tools/widget-session.json.
- * Desk roles include widgetToken; also accept token+expiresAt shapes.
+ * ~/.local/share/blackforest-tools/widget-session.json and force-exchanges
+ * bf_shop_gate into the Electron jar (Tools SPA unlock).
+ * Desk roles include widgetToken; also accept token+expiresAt and unlock-ok shapes.
  */
 function maybeReportUnlock(text) {
   if (typeof text !== "string" || !text) {
@@ -57,7 +58,12 @@ function maybeReportUnlock(text) {
     text.indexOf('"token"') !== -1 &&
     text.indexOf("expiresAt") !== -1 &&
     (text.indexOf("person") !== -1 || text.indexOf("role") !== -1);
-  if (!hasWidget && !hasToken) {
+  // unlockShop success without widgetToken (mint failed) still needs SPA/Desk sync.
+  const hasUnlockOk =
+    (text.indexOf('"ok":true') !== -1 || text.indexOf('"ok": true') !== -1) &&
+    text.indexOf("person") !== -1 &&
+    (text.indexOf("until") !== -1 || text.indexOf("kind") !== -1 || text.indexOf("mustChange") !== -1);
+  if (!hasWidget && !hasToken && !hasUnlockOk) {
     return;
   }
   ipcRenderer.send("shop-unlock-json", text);
