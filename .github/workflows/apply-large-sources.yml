@@ -17,31 +17,23 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Copy Labels ownership sources from prior branches
+      - name: Merge origin/main (ahead-only ancestry)
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin cursor/labels-service-156-7d7c cursor/labels-service-158-7d7c
-          # Vendored Labels tree + service module (byte-match local 1.5.9)
-          git checkout origin/cursor/labels-service-156-7d7c -- \
-            src/labels-server.js \
-            labels/server.mjs \
-            labels/shared/detect.mjs \
-            labels/shared/media.mjs \
-            labels/shared/print.mjs \
-            labels/shared/ro-label.mjs \
-            scripts/install-windows.ps1
-          # install-manjaro + Labels-aware main from 158
-          git checkout origin/cursor/labels-service-158-7d7c -- \
-            scripts/install-manjaro.sh \
-            src/main.js
-          # Re-apply 1.5.8 website-unlock exchangedGateThisSession delta onto Labels main
-          if [[ -f tmp/large-sources/main-exchanged-gate.patch ]]; then
-            patch -p1 < tmp/large-sources/main-exchanged-gate.patch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "Already contains main — ahead-only."
+          else
+            if ! git merge origin/main -m "merge: main into Labels 1.5.9 branch" -X ours; then
+              git checkout --ours -- . || true
+              git add -A
+              git -c core.editor=true merge --continue || git commit --allow-empty -m "merge: main into Labels 1.5.9 branch (resolved)"
+            fi
           fi
-          echo "Copied Labels sources; main.js markers:"
-          rg -n "ensureLabelsRunning|exchangedGateThisSession|leaveUnlockScreen|openLabelsWindow" src/main.js || true
-      - name: Decode optional large-sources chunks
+      - name: Decode sources from large-sources chunks
         shell: bash
         run: |
           python3 <<'PY'
@@ -49,13 +41,10 @@ jobs:
           root = pathlib.Path("tmp/large-sources")
           manifest_path = root / "manifest.json"
           if not manifest_path.exists():
-              print("No chunk manifest — skip decode.")
+              print("No tmp/large-sources/manifest.json — nothing to apply; exiting green.")
               sys.exit(0)
           manifest = json.loads(manifest_path.read_text())
-          # Only apply src/main.js from chunks if present and complete (optional override)
           for item in manifest:
-              if item.get("path") != "src/main.js":
-                  continue
               parts = []
               missing = []
               for i in range(item["chunks"]):
@@ -65,28 +54,28 @@ jobs:
                       continue
                   parts.append(p.read_text().strip())
               if missing:
-                  print("main.js chunks incomplete; keeping branch-copied+patched main", missing)
+                  print(f"Incomplete payload for {item['path']}: missing {missing}. Skipping.", file=sys.stderr)
                   continue
               try:
                   data = gzip.decompress(base64.b64decode("".join(parts)))
               except Exception as e:
-                  print("main.js chunk decode failed; keeping patched main", e)
+                  print(f"Corrupt payload for {item['path']}: {e}; skipping.", file=sys.stderr)
                   continue
-              if hashlib.sha256(data).hexdigest() != item.get("sha256", ""):
-                  print("main.js SHA mismatch; keeping patched main")
+              if "sha256" in item and hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  print(f"SHA mismatch for {item['path']}; skipping.", file=sys.stderr)
                   continue
-              pathlib.Path("src/main.js").write_bytes(data)
-              print("src/main.js from chunks", len(data))
+              path = item["path"]
+              pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+              pathlib.Path(path).write_bytes(data)
+              print(path, len(data), hashlib.sha256(data).hexdigest()[:16])
           PY
       - name: Commit if changed
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "feat: Tools 1.5.9 Labels service ownership (vendored tree + boot/adopt)"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+          git add -A labels scripts/ensure-labels.sh scripts/postinstall-labels.js scripts/sync-labels-vendor.sh scripts/install-manjaro.sh scripts/install-windows.ps1 src/app-menu.js src/labels-server.js src/main.js test/app-menu.test.js test/labels-server.test.js package.json .github/workflows/apply-large-sources.yml || true
+          if ! git diff --staged --quiet; then
+            git commit -m "feat: Tools 1.5.9 Labels ownership + main flash-loop merge"
           fi
+          git push origin "HEAD:${GITHUB_REF_NAME}"
