@@ -80,6 +80,12 @@ let deskSessionBridge = null;
 /** Avoid tight reload loops when /unlock keeps loading while exchange fails. */
 let unlockExchangeAttemptAt = 0;
 const UNLOCK_EXCHANGE_GAP_MS = 4_000;
+/** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
+let localLockUntil = 0;
+const LOCAL_LOCK_COOLDOWN_MS = 45_000;
+/** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
+let gateRemovalTimer = null;
+const GATE_REMOVAL_DEBOUNCE_MS = 600;
 
 function stateFile() {
   return path.join(app.getPath("userData"), STATE_NAME);
@@ -469,7 +475,7 @@ function shopMenu() {
             "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
             "While Tools is open, Desk can import the same session from http://127.0.0.1:8788 without re-typing the PIN.",
-            "Lock shop clears the shared file + this window; Firefox and Desk may still need their own lock or wait for expiry.",
+            "Lock shop (menu or SPA Lock) clears the shared file, revokes the widget Bearer, and this window — Desk Sync Tools then has nothing to import. Firefox’s own shop cookie may still need Lock or expiry.",
           ].join("\n"),
         });
         if (choice.response === 1) {
@@ -815,6 +821,10 @@ async function maybeExchangeWhileOnUnlock(url) {
   if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
     return;
   }
+  // SPA Lock / menu Lock shop just cleared the jar — do not mint a new gate from Bearer.
+  if (Date.now() < localLockUntil) {
+    return;
+  }
   if (!readSession()) {
     return;
   }
@@ -934,6 +944,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     return;
   }
   applyingRemoteLock = true;
+  localLockUntil = Date.now() + LOCAL_LOCK_COOLDOWN_MS;
   try {
     const existing = readSession();
     if (revokeRemote && existing && existing.token) {
@@ -943,10 +954,12 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     }
     lastSharedFingerprint = "";
     await clearShopGateCookies();
+    // Desk :8788 reads the same file — after clear, /health hasSession:false so
+    // "Use Tools session" / Sync Tools no longer offers a live unlock.
     if (mainWindow && !mainWindow.isDestroyed()) {
       const current = mainWindow.webContents.getURL();
       if (!current.includes("/unlock")) {
-        await mainWindow.loadURL("https://shop.blackforestautomotive.com/unlock");
+        await mainWindow.loadURL(`${SHOP_BASE}/unlock`);
       }
     }
   } finally {
@@ -1033,7 +1046,37 @@ function configureSession() {
       return;
     }
     if (removed) {
-      // Site lock clears bf_shop_gate only — do not revoke the widget Bearer.
+      // Cookie replace during exchange often fires removed→set. Wait; if the jar
+      // stays empty, treat it as SPA Lock and clear Desk's shared Bearer too.
+      if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+        return;
+      }
+      if (gateRemovalTimer) {
+        clearTimeout(gateRemovalTimer);
+      }
+      gateRemovalTimer = setTimeout(() => {
+        gateRemovalTimer = null;
+        if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+          return;
+        }
+        shopGateCookiesPresent()
+          .then((present) => {
+            if (present) {
+              return null;
+            }
+            return lockSharedSurfaces({ revokeRemote: true });
+          })
+          .catch((error) => {
+            console.error(error);
+          });
+      }, GATE_REMOVAL_DEBOUNCE_MS);
+      return;
+    }
+    if (gateRemovalTimer) {
+      clearTimeout(gateRemovalTimer);
+      gateRemovalTimer = null;
+    }
+    if (Date.now() < localLockUntil) {
       return;
     }
     // Gate cookie set → refresh Desk Bearer, then force-exchange so Tools SPA jar
@@ -1042,9 +1085,16 @@ function configureSession() {
       console.error(error);
     });
   });
+  ipcMain.on("shop-lock", () => {
+    // SPA Lock button / lockShop server fn — clear Bearer + jar immediately.
+    lockSharedSurfaces({ revokeRemote: true }).catch((error) => {
+      console.error(error);
+    });
+  });
   ipcMain.on("shop-unlock-creds", (_event, text) => {
     try {
       if (rememberUnlockCredsRaw(text)) {
+        localLockUntil = 0;
         // PIN seen in preload fetch — mint + force SPA exchange (Desk + Tools window).
         syncToolsSpaAfterUnlock().catch((error) => {
           console.error(error);
@@ -1056,6 +1106,7 @@ function configureSession() {
   });
   ipcMain.on("shop-unlock-json", (_event, text) => {
     try {
+      localLockUntil = 0;
       if (applyUnlockWidgetSession(text)) {
         // Always force exchange after unlock JSON — do not trust a pre-existing jar entry.
         exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
