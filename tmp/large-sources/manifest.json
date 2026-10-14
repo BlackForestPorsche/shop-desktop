@@ -1,16 +1,8 @@
 [
   {
     "path": "src/main.js",
-    "prefix": "src__main_js",
+    "prefix": "main",
     "chunks": 4,
-    "sha256": "fdfdd4bf31360b27f020533675ec4b788a57ee20a18e330c5acbbc8f3ca4939a",
-    "bytes": 35051
-  },
-  {
-    "path": "labels/public/app.js",
-    "prefix": "labels__public__app_js",
-    "chunks": 3,
-    "sha256": "c625cc6bc907996be294206d0be9552c7bc6b2c801007f5345a8729aea63ac84",
-    "bytes": 26767
+    "sha256": "fdfdd4bf31360b27f020533675ec4b788a57ee20a18e330c5acbbc8f3ca4939a"
   }
 ]
