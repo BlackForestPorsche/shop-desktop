@@ -31,6 +31,10 @@ const {
   SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
+const {
+  shouldHandleGateCookieSet,
+  unlockAutoExchangeAction,
+} = require("./session-sync-guards");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -83,6 +87,9 @@ const UNLOCK_EXCHANGE_GAP_MS = 4_000;
 /** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
 let localLockUntil = 0;
 const LOCAL_LOCK_COOLDOWN_MS = 45_000;
+/** After exchange/mint, ignore cookie-SET sync briefly (events can fire after flags clear). */
+let gateSyncQuietUntil = 0;
+const GATE_SYNC_QUIET_MS = 2_500;
 /** Debounce gate-cookie removal so Set-Cookie replace during exchange is not a lock. */
 let gateRemovalTimer = null;
 const GATE_REMOVAL_DEBOUNCE_MS = 600;
@@ -649,6 +656,7 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
       status: error && error.status,
     };
   } finally {
+    gateSyncQuietUntil = Date.now() + GATE_SYNC_QUIET_MS;
     mintingWidgetSession = false;
   }
 }
@@ -803,6 +811,7 @@ async function exchangeSharedSessionToGate({
     console.error("Could not exchange widget session for shop gate cookie:", error);
     return { ok: false, reason: "failed", status: error && error.status };
   } finally {
+    gateSyncQuietUntil = Date.now() + GATE_SYNC_QUIET_MS;
     exchangingGate = false;
   }
 }
@@ -813,22 +822,47 @@ async function syncToolsSpaAfterUnlock() {
   return exchangeSharedSessionToGate({ force: true, reload: true });
 }
 
+/** Leave /unlock when the jar already has bf_shop_gate (no force-exchange). */
+async function leaveUnlockScreen() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const current = mainWindow.webContents.getURL();
+  if (!current || !current.includes("/unlock")) {
+    return;
+  }
+  await mainWindow.loadURL(SHOP_HOME);
+}
+
 /** Shared session exists but SPA is still on /unlock — exchange once (debounced). */
 async function maybeExchangeWhileOnUnlock(url) {
-  if (!url || !String(url).includes("/unlock")) {
-    return;
-  }
-  if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
-    return;
-  }
-  // SPA Lock / menu Lock shop just cleared the jar — do not mint a new gate from Bearer.
-  if (Date.now() < localLockUntil) {
-    return;
-  }
-  if (!readSession()) {
-    return;
-  }
   const now = Date.now();
+  const action = unlockAutoExchangeAction({
+    url,
+    exchangingGate,
+    mintingWidgetSession,
+    applyingRemoteLock,
+    localLockUntil,
+    now,
+    hasSession: Boolean(readSession()),
+    gatePresent: await shopGateCookiesPresent(),
+  });
+  if (action === "skip") {
+    return;
+  }
+  if (action === "leave") {
+    // Gate already present — navigate home without another force-exchange/reload storm.
+    if (now - unlockExchangeAttemptAt < UNLOCK_EXCHANGE_GAP_MS) {
+      return;
+    }
+    unlockExchangeAttemptAt = now;
+    try {
+      await leaveUnlockScreen();
+    } catch (error) {
+      console.error(error);
+    }
+    return;
+  }
   if (now - unlockExchangeAttemptAt < UNLOCK_EXCHANGE_GAP_MS) {
     return;
   }
@@ -1076,12 +1110,25 @@ function configureSession() {
       clearTimeout(gateRemovalTimer);
       gateRemovalTimer = null;
     }
-    if (Date.now() < localLockUntil) {
+    // Exchange/mint Set-Cookie must not re-enter syncToolsSpaAfterUnlock
+    // (force from-gate + force exchange + reload) — that flashes the SPA and 429s.
+    const now = Date.now();
+    if (
+      now < gateSyncQuietUntil ||
+      !shouldHandleGateCookieSet({
+        exchangingGate,
+        mintingWidgetSession,
+        applyingRemoteLock,
+        localLockUntil,
+        now,
+      })
+    ) {
       return;
     }
-    // Gate cookie set → refresh Desk Bearer, then force-exchange so Tools SPA jar
-    // matches even when TanStack unlock Set-Cookie was a no-op / host-only quirk.
-    syncToolsSpaAfterUnlock().catch((error) => {
+    // Cookie already landed in the jar — only ensure Desk Bearer. Unlock IPC /
+    // maybeExchangeWhileOnUnlock handle SPA leave; do not force-exchange here.
+    gateSyncQuietUntil = now + GATE_SYNC_QUIET_MS;
+    ensureSharedSessionFromGate({ force: false }).catch((error) => {
       console.error(error);
     });
   });
