@@ -53,7 +53,12 @@ function readGitTip(root) {
 
 /** @returns {{ version: string, sha: string | null, label: string }} */
 function getRevision({ root, version }) {
-  const tip = readGitTip(root);
+  let tip = null;
+  try {
+    tip = readGitTip(root);
+  } catch {
+    tip = null;
+  }
   const sha = tip ? tip.slice(0, 7) : null;
   return {
     version,
