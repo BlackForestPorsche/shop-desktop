@@ -1,5 +1,13 @@
 "use strict";
 
+const path = require("node:path");
+const { getRevision } = require("./revision");
+
+function installedRevisionLabel() {
+  const root = path.join(__dirname, "..");
+  return getRevision({ root, version: require("../package.json").version }).label;
+}
+
 /**
  * Native application menu template for Black Forest Tools.
  * Shop / Settings / Help are the product menus; Edit + View stay for standard roles.
@@ -19,9 +27,15 @@
  *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
+ *   revisionLabel?: string | null,
  * }} handlers
  */
 function buildAppMenuTemplate(handlers) {
+  const revisionLabel =
+    handlers.revisionLabel === undefined ? installedRevisionLabel() : handlers.revisionLabel;
+  const revisionItems = revisionLabel
+    ? [{ label: revisionLabel, enabled: false }, { type: "separator" }]
+    : [];
   return [
     {
       label: "Shop",
@@ -69,6 +83,7 @@ function buildAppMenuTemplate(handlers) {
     {
       label: "Settings",
       submenu: [
+        ...revisionItems,
         {
           label: "Check for updates",
           click: handlers.onCheckAppUpdates,
