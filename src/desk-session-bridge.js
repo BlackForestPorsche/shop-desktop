@@ -28,6 +28,7 @@ const DEFAULT_PORT = 8788;
 const PATH_HEALTH = "/health";
 const PATH_SESSION = "/v1/widget-session";
 const PATH_LOCK = "/v1/lock";
+const HEALTH_REMINT_MS = 4_000;
 
 function bridgePort(env = process.env) {
   const raw = env.BLACKFOREST_DESK_BRIDGE_PORT || env.BF_DESK_BRIDGE_PORT;
@@ -201,28 +202,49 @@ function startDeskSessionBridge(opts = {}) {
         json(res, 405, { ok: false, error: "method_not_allowed" });
         return;
       }
+      const respondHealth = (session) => {
+        const meta = session && session.token
+          ? {
+              hasSession: true,
+              sessionExpired: false,
+              person: session.person || "",
+              hint: "session_ready",
+            }
+          : {
+              hasSession: false,
+              ...missMeta(peek),
+            };
+        json(res, 200, {
+          ok: true,
+          service: "blackforest-tools-desk-bridge",
+          hasSession: meta.hasSession,
+          sessionExpired: Boolean(meta.sessionExpired),
+          person: meta.person || "",
+          hint: meta.hint,
+          sessionId: session && session.token ? sessionId(session) : "",
+          ...(typeof opts.lockInfo === "function" ? opts.lockInfo() : {}),
+        });
+      };
       const session = read();
-      const meta = session && session.token
-        ? {
-            hasSession: true,
-            sessionExpired: false,
-            person: session.person || "",
-            hint: "session_ready",
-          }
-        : {
-            hasSession: false,
-            ...missMeta(peek),
-          };
-      json(res, 200, {
-        ok: true,
-        service: "blackforest-tools-desk-bridge",
-        hasSession: meta.hasSession,
-        sessionExpired: Boolean(meta.sessionExpired),
-        person: meta.person || "",
-        hint: meta.hint,
-        sessionId: session && session.token ? sessionId(session) : "",
-        ...(typeof opts.lockInfo === "function" ? opts.lockInfo() : {}),
-      });
+      if (session && session.token) {
+        respondHealth(session);
+        return;
+      }
+      // An expired Bearer must not read as "Tools signed out" to Desk (which would
+      // clear the site gate). Give Tools one chance to re-mint from the live gate first.
+      const stale = missMeta(peek);
+      if (stale.sessionExpired && typeof opts.onSessionMiss === "function") {
+        const bounded = Promise.race([
+          Promise.resolve(opts.onSessionMiss({ sessionExpired: true })),
+          new Promise((resolve) => setTimeout(resolve, HEALTH_REMINT_MS)),
+        ]);
+        bounded.then(
+          () => respondHealth(read()),
+          () => respondHealth(read()),
+        );
+        return;
+      }
+      respondHealth(session);
       return;
     }
 
