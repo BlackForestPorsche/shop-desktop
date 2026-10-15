@@ -61,3 +61,9 @@ test("matches real git in this checkout", () => {
     .trim();
   assert.equal(tip, real);
 });
+
+test("getRevision never throws on a bad root", () => {
+  const rev = getRevision({ root: undefined, version: "1.5.13" });
+  assert.equal(rev.sha, null);
+  assert.equal(rev.label, "Version 1.5.13");
+});

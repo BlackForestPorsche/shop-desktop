@@ -1,11 +1,21 @@
 "use strict";
 
 const path = require("node:path");
-const { getRevision } = require("./revision");
+
+let getRevision = () => ({ label: null });
+try {
+  ({ getRevision } = require("./revision"));
+} catch {
+  // Revision line is cosmetic; a bad/missing revision module must not block launch.
+}
 
 function installedRevisionLabel() {
-  const root = path.join(__dirname, "..");
-  return getRevision({ root, version: require("../package.json").version }).label;
+  try {
+    const root = path.join(__dirname, "..");
+    return getRevision({ root, version: require("../package.json").version }).label;
+  } catch {
+    return null;
+  }
 }
 
 /**
