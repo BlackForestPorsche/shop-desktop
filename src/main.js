@@ -32,6 +32,13 @@ const {
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
 const {
+  readLatch,
+  setLatch,
+  clearLatch,
+  sessionId,
+  acceptsPublish,
+} = require("./lock-latch");
+const {
   labelsUrl,
   probeLabels,
   startLabelsServer,
@@ -95,7 +102,50 @@ let unlockExchangeAttemptAt = 0;
 const UNLOCK_EXCHANGE_GAP_MS = 4_000;
 /** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
 let localLockUntil = 0;
-const LOCAL_LOCK_COOLDOWN_MS = 45_000;
+/**
+ * Intentional lock is sticky: no timer ends it. Only an intentional unlock
+ * (unlockLatch) does. Persisted in lock-latch.json so a restart keeps it.
+ */
+let lockLatched = false;
+let lockLatchedAt = 0;
+function isLockLatched() {
+  return lockLatched;
+}
+function engageLockLatch({ source = "lock", revokedSessionId = "" } = {}) {
+  lockLatched = true;
+  if (!lockLatchedAt) {
+    lockLatchedAt = Date.now();
+  }
+  localLockUntil = Infinity;
+  setLatch({ source, revokedSessionId });
+}
+function unlockLatch() {
+  lockLatched = false;
+  lockLatchedAt = 0;
+  localLockUntil = 0;
+  clearLatch();
+}
+function loadPersistedLatch() {
+  const latch = readLatch();
+  if (latch) {
+    const live = readSession();
+    if (live && acceptsPublish(latch, live)) {
+      // Unlocked elsewhere (Plasma widget) while Tools was closed.
+      clearLatch();
+      return;
+    }
+    if (live) {
+      try {
+        clearSession();
+      } catch {
+        // ignore
+      }
+    }
+    lockLatched = true;
+    lockLatchedAt = latch.at || Date.now();
+    localLockUntil = Infinity;
+  }
+}
 /** After exchange/mint, ignore cookie-SET sync briefly (events can fire after flags clear). */
 let gateSyncQuietUntil = 0;
 const GATE_SYNC_QUIET_MS = 2_500;
@@ -758,6 +808,9 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
   if (mintingWidgetSession) {
     return { ok: false, reason: "busy" };
   }
+  if (lockLatched) {
+    return { ok: false, reason: "locked" };
+  }
   // Website/Desk lock sets localLockUntil — never remint Bearer from a jar we are clearing.
   if (!force && Date.now() < localLockUntil) {
     return { ok: false, reason: "local_lock" };
@@ -956,6 +1009,10 @@ async function exchangeSharedSessionToGate({
   exchangingGate = true;
   try {
     const result = await exchangeWidgetSession(existing.token, partitionFetch);
+    if (lockLatched) {
+      await clearShopGateCookies();
+      return { ok: false, reason: "locked" };
+    }
     // Always apply gateToken when present — do not assume Set-Cookie landed in the jar.
     if (result && result.gateToken) {
       await injectGateCookieFromExchange(result);
@@ -1033,7 +1090,7 @@ async function maybeMintAfterLeavingUnlock(url) {
     ) {
       return;
     }
-    localLockUntil = 0;
+    unlockLatch();
     await ensureSharedSessionFromGate({ force: true });
   } catch (error) {
     console.error(error);
@@ -1186,10 +1243,13 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     return;
   }
   applyingRemoteLock = true;
-  localLockUntil = Date.now() + LOCAL_LOCK_COOLDOWN_MS;
   exchangedGateThisSession = false;
   try {
     const existing = readSession();
+    engageLockLatch({
+      source: revokeRemote ? "lock" : "session-file-cleared",
+      revokedSessionId: sessionId(existing),
+    });
     if (revokeRemote && existing && existing.token) {
       await revokeWidgetSession(existing.token);
     } else {
@@ -1236,8 +1296,18 @@ function watchSharedSessionFile() {
     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
     // Clear local_lock first — website unlock publish must not stay stuck behind cooldown
     // if the file watcher races ahead of (or instead of) bridge onPublished.
+    if (lockLatched && !acceptsPublish(readLatch(), next)) {
+      // A revoked Bearer came back (stale copy). Drop it; the lock stays.
+      try {
+        clearSession();
+      } catch {
+        // ignore
+      }
+      lastSharedFingerprint = "";
+      return;
+    }
     if (shouldClearLocalLockOnSharedPublish({ previousFingerprint: previous, nextFingerprint: fp })) {
-      localLockUntil = 0;
+      unlockLatch();
       exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
         console.error(error);
       });
@@ -1322,6 +1392,16 @@ function configureSession() {
       clearTimeout(gateRemovalTimer);
       gateRemovalTimer = null;
     }
+    // While locked, Tools never writes this cookie itself (exchange is blocked), so a
+    // Set-Cookie here is the PIN unlock in this window. Unlock now and mint the Bearer
+    // so Desk sees hasSession on :8788 without waiting for the page to leave /unlock.
+    if (lockLatched && !exchangingGate && !mintingWidgetSession && !applyingRemoteLock) {
+      unlockLatch();
+      ensureSharedSessionFromGate({ force: true }).catch((error) => {
+        console.error(error);
+      });
+      return;
+    }
     // Exchange/mint Set-Cookie must not re-enter syncToolsSpaAfterUnlock
     // (force from-gate + force exchange + reload) — that flashes the SPA and 429s.
     const now = Date.now();
@@ -1354,7 +1434,7 @@ function configureSession() {
   ipcMain.on("shop-unlock-creds", (_event, text) => {
     try {
       if (rememberUnlockCredsRaw(text)) {
-        localLockUntil = 0;
+        unlockLatch();
         // PIN seen in preload fetch — mint + force SPA exchange (Desk + Tools window).
         syncToolsSpaAfterUnlock().catch((error) => {
           console.error(error);
@@ -1366,7 +1446,7 @@ function configureSession() {
   });
   ipcMain.on("shop-unlock-json", (_event, text) => {
     try {
-      localLockUntil = 0;
+      unlockLatch();
       if (applyUnlockWidgetSession(text)) {
         // Always force exchange after unlock JSON — do not trust a pre-existing jar entry.
         exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
@@ -1414,14 +1494,17 @@ if (gotLock) {
     if (process.platform === "win32") {
       app.setAppUserModelId("com.blackforestautomotive.tools");
     }
+    loadPersistedLatch();
     configureSession();
     watchSharedSessionFile();
     try {
       deskSessionBridge = startDeskSessionBridge({
+        acceptPublish: (next) => !lockLatched || acceptsPublish(readLatch(), next),
+        lockInfo: () => ({ locked: lockLatched, lockedAt: lockLatchedAt }),
         onPublished: (session) => {
           // Desk/website unlock published a Bearer — leave local lock cooldown immediately
           // so exchange cannot return local_lock (1.5.12 race fix).
-          localLockUntil = 0;
+          unlockLatch();
           exchangedGateThisSession = false;
           lastSharedFingerprint = sessionFingerprint(session);
           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
