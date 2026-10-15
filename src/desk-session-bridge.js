@@ -21,6 +21,7 @@ const {
   purgeExpiredSession,
   clearSession,
 } = require("./shared-session");
+const { sessionId } = require("./lock-latch");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8788;
@@ -138,6 +139,8 @@ function parsePublishBody(text) {
  *   onSessionMiss?: (info: { sessionExpired: boolean }) => void | Promise<void>,
  *   onLock?: (info: { source: string }) => void | Promise<void>,
  *   clearSession?: typeof clearSession,
+ *   acceptPublish?: (session: object) => boolean,
+ *   lockInfo?: () => { locked: boolean, lockedAt: number },
  * }} [opts]
  */
 function startDeskSessionBridge(opts = {}) {
@@ -217,6 +220,8 @@ function startDeskSessionBridge(opts = {}) {
         sessionExpired: Boolean(meta.sessionExpired),
         person: meta.person || "",
         hint: meta.hint,
+        sessionId: session && session.token ? sessionId(session) : "",
+        ...(typeof opts.lockInfo === "function" ? opts.lockInfo() : {}),
       });
       return;
     }
@@ -295,6 +300,14 @@ function startDeskSessionBridge(opts = {}) {
                 ok: false,
                 error: "bad_request",
                 message: "Body needs token + expiresAt (or widgetToken + widgetExpiresAt).",
+              });
+              return;
+            }
+            if (typeof opts.acceptPublish === "function" && !opts.acceptPublish(next)) {
+              json(res, 409, {
+                ok: false,
+                error: "locked",
+                message: "Tools is locked. Unlock with the PIN first.",
               });
               return;
             }
