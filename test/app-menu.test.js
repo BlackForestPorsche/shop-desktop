@@ -114,3 +114,24 @@ test("Help menu opens Firefox signed in and keeps About", () => {
   assert.ok(labels.includes("About Black Forest Tools"));
   assert.ok(labels.includes("Open this page in Firefox signed in"));
 });
+
+test("Settings menu leads with a disabled installed-revision line when given", () => {
+  const h = { ...handlers(), revisionLabel: "Version 1.5.13 (abc1234)" };
+  const settings = buildAppMenuTemplate(h).find((item) => item.label === "Settings");
+  assert.equal(settings.submenu[0].label, "Version 1.5.13 (abc1234)");
+  assert.equal(settings.submenu[0].enabled, false);
+  assert.equal(settings.submenu[1].type, "separator");
+});
+
+test("Settings menu has no revision line when none is given", () => {
+  const h = { ...handlers(), revisionLabel: null };
+  const settings = buildAppMenuTemplate(h).find((item) => item.label === "Settings");
+  assert.equal(settings.submenu[0].label, "Check for updates");
+});
+
+test("Settings menu defaults to this install's package.json version", () => {
+  const { version } = require("../package.json");
+  const settings = buildAppMenuTemplate(handlers()).find((item) => item.label === "Settings");
+  assert.match(settings.submenu[0].label, new RegExp(`^Version ${version.replace(/\./g, "\\.")}`));
+  assert.equal(settings.submenu[0].enabled, false);
+});
