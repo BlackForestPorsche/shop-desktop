@@ -1,9 +1,14 @@
-import { access, copyFile, mkdir, readFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"]);
+
+export const DESK_ADDON_ID = "black-forest-desk@blackforestautomotive.com";
+export const DESK_UPDATES_JSON_URL =
+  "https://github.com/BlackForestPorsche/label-connect/releases/download/desk-extension/updates.json";
 
 /** True when the HTTP client is loopback (Labels binds 0.0.0.0). */
 export function isLocalClient(req) {
@@ -55,38 +60,6 @@ export async function readDeskVersion(root) {
   } catch {
     return null;
   }
-}
-
-/** Semver-ish compare: true when `remote` is strictly newer than `local`. */
-export function isNewerVersion(remote, local) {
-  const parse = (v) =>
-    String(v || "0")
-      .split(/[.+-]/)
-      .map((part) => Number.parseInt(part, 10) || 0);
-  const a = parse(remote);
-  const b = parse(local);
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i += 1) {
-    const x = a[i] || 0;
-    const y = b[i] || 0;
-    if (x > y) return true;
-    if (x < y) return false;
-  }
-  return false;
-}
-
-function upToDateResult(version, root, extra = {}) {
-  return {
-    ok: true,
-    upToDate: true,
-    mode: "up_to_date",
-    version: version || "?",
-    root,
-    applied: false,
-    restartRequired: false,
-    message: version ? `Desk ${version} is up to date.` : "Desk is up to date.",
-    ...extra,
-  };
 }
 
 function runCommand(command, args, { cwd, timeoutMs = 180_000 } = {}) {
@@ -153,31 +126,154 @@ function parseInstallMode(combinedOutput) {
   return "unknown";
 }
 
+function parseVersionParts(v) {
+  return String(v || "0")
+    .split(/[.+-]/)
+    .map((part) => Number.parseInt(part, 10) || 0);
+}
+
+export function isNewerVersion(remote, local) {
+  const a = parseVersionParts(remote);
+  const b = parseVersionParts(local);
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
+}
+
+/**
+ * Read the live desk-extension updates.json feed (signed XPI link + hash).
+ */
+export async function fetchDeskUpdateFeed(fetchImpl = globalThis.fetch) {
+  if (typeof fetchImpl !== "function") return null;
+  const response = await fetchImpl(`${DESK_UPDATES_JSON_URL}?t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`updates.json ${response.status}`);
+  const data = await response.json();
+  const updates = data?.addons?.[DESK_ADDON_ID]?.updates;
+  if (!Array.isArray(updates) || !updates.length) return null;
+  let best = updates[0];
+  for (const entry of updates) {
+    if (entry?.version && isNewerVersion(entry.version, best.version)) best = entry;
+  }
+  const version = String(best.version || "");
+  const updateLink = String(best.update_link || "");
+  if (!version || !updateLink) return null;
+  return {
+    version,
+    updateLink,
+    updateHash: best.update_hash ? String(best.update_hash) : null,
+  };
+}
+
+function xpiLooksMozillaSigned(buf) {
+  // ZIP local headers + string scan for META-INF/mozilla.rsa (good enough for stage gate).
+  const text = Buffer.isBuffer(buf) ? buf.toString("binary") : String(buf);
+  return text.includes("META-INF/mozilla.rsa") || text.includes("META-INF/cose.sig");
+}
+
+/**
+ * Download the signed feed XPI to ~/Desktop for Install Add-on From File.
+ * Prefers Mozilla-signed bytes; verifies update_hash when present.
+ */
+export async function stageSignedXpiFromFeed(feed, { fetchImpl = globalThis.fetch } = {}) {
+  if (!feed?.updateLink || !feed?.version) return null;
+  if (typeof fetchImpl !== "function") return null;
+
+  const response = await fetchImpl(feed.updateLink, { redirect: "follow" });
+  if (!response.ok) throw new Error(`signed xpi ${response.status}`);
+  const buf = Buffer.from(await response.arrayBuffer());
+  if (feed.updateHash) {
+    const want = String(feed.updateHash).replace(/^sha256:/i, "").toLowerCase();
+    const got = createHash("sha256").update(buf).digest("hex");
+    if (want && got !== want) {
+      throw new Error(`signed xpi hash mismatch (got ${got.slice(0, 12)}…)`);
+    }
+  }
+  if (!xpiLooksMozillaSigned(buf)) {
+    // Still stage — Hub may need to re-sign — but mark unsigned.
+    const desktop = path.join(homedir(), "Desktop");
+    await mkdir(desktop, { recursive: true });
+    const dest = path.join(desktop, `Black.Forest.Desk-${feed.version}-hub-upload.zip`);
+    await writeFile(dest, buf);
+    return {
+      path: dest,
+      version: feed.version,
+      signed: false,
+      hubUploadPath: dest,
+    };
+  }
+
+  const desktop = path.join(homedir(), "Desktop");
+  await mkdir(desktop, { recursive: true });
+  const dest = path.join(desktop, `Black.Forest.Desk-${feed.version}.xpi`);
+  await writeFile(dest, buf);
+  // Also drop hub-upload.zip twin for Hub “On your own” if still needed once.
+  const hubDest = path.join(desktop, `Black.Forest.Desk-${feed.version}-hub-upload.zip`);
+  await writeFile(hubDest, buf);
+  return {
+    path: dest,
+    version: feed.version,
+    signed: true,
+    hubUploadPath: hubDest,
+    signedXpiPath: dest,
+  };
+}
+
+function signedStagedResult({ version, root, staged, detail }) {
+  const pathHint = staged?.signedXpiPath || staged?.path || staged?.hubUploadPath;
+  const ver = version || staged?.version || "?";
+  return {
+    ok: true,
+    error: null,
+    mode: "signed_staged",
+    version: ver,
+    root: root || null,
+    signedXpiPath: staged?.signedXpiPath || (staged?.signed ? staged.path : null),
+    hubUploadPath: staged?.hubUploadPath || null,
+    staged: true,
+    applied: false,
+    restartRequired: false,
+    message: pathHint
+      ? `Still Installed (Firefox) · Staged ${ver} on Desktop (NOT applied): ${pathHint}. about:addons → gear → Install Add-on From File… — Desktop alone is not an upgrade.${detail ? ` ${detail}` : ""}`
+      : `Still Installed (Firefox) · Staged ${ver} (NOT applied). about:addons → Install Add-on From File, or Check for Updates.${detail ? ` ${detail}` : ""}`,
+  };
+}
+
 /**
  * Pull latest (ff-only when possible) and refresh Desk.
  * Hub-signed Firefox installs are never overwritten with an unsigned sideload.
- * When feed/tree is not newer than the client's installed version → up_to_date (ok).
- * When signed is kept and tree IS newer: stage Desktop hub-upload.zip (actionable, not "failed").
+ * When signed is kept (or script fails): download signed XPI from updates.json
+ * to Desktop and return ok:true mode signed_staged — never a false “failed”.
  */
-export async function applyDeskExtensionUpdate(
-  serverRoot,
-  { pull = true, localVersion = null } = {},
-) {
+export async function applyDeskExtensionUpdate(serverRoot, { pull = true, fetchImpl = globalThis.fetch } = {}) {
   const root = await resolveLabelConnectRoot(serverRoot);
   if (!root) {
+    // Still try feed stage without a checkout — Update should not hard-fail.
+    try {
+      const feed = await fetchDeskUpdateFeed(fetchImpl);
+      const staged = feed ? await stageSignedXpiFromFeed(feed, { fetchImpl }) : null;
+      if (staged) {
+        return signedStagedResult({
+          version: staged.version,
+          staged,
+          detail: "(label-connect checkout missing; used release feed)",
+        });
+      }
+    } catch {
+      // fall through
+    }
     return {
       ok: false,
       error: "label_connect_missing",
       message: "Could not find label-connect with scripts/update-desk-extension.sh on this desk.",
     };
-  }
-
-  const clientVersion = localVersion != null && String(localVersion).trim() ? String(localVersion).trim() : null;
-
-  // Fast path before pull: client already matches tree on disk.
-  const preVersion = await readDeskVersion(root);
-  if (clientVersion && preVersion && !isNewerVersion(preVersion, clientVersion)) {
-    return upToDateResult(clientVersion, root, { treeVersion: preVersion });
   }
 
   const applyScript = path.join(root, "scripts", "apply-desk-extension-update.sh");
@@ -191,34 +287,26 @@ export async function applyDeskExtensionUpdate(
   const combined = `${result.stdout || ""}\n${result.stderr || ""}`;
   const mode = parseInstallMode(combined);
 
-  // After pull/pack: tree still not newer than installed Hub build → up to date.
-  if (clientVersion && version && version !== "?" && !isNewerVersion(version, clientVersion)) {
-    if (mode === "signed_skipped" || result.code === 0) {
-      return upToDateResult(clientVersion, root, { treeVersion: version, skipped: mode === "signed_skipped" });
+  async function stageFromFeed(detail) {
+    try {
+      const feed = await fetchDeskUpdateFeed(fetchImpl);
+      if (!feed) return null;
+      const staged = await stageSignedXpiFromFeed(feed, { fetchImpl });
+      if (!staged) return null;
+      return signedStagedResult({
+        version: feed.version || version,
+        root,
+        staged,
+        detail,
+      });
+    } catch {
+      return null;
     }
   }
 
   if (result.code !== 0) {
-    // Signed skip should exit 0; if an older script failed mid-way but printed skip, prefer Hub UX.
-    if (mode === "signed_skipped") {
-      if (clientVersion && !isNewerVersion(version, clientVersion)) {
-        return upToDateResult(clientVersion, root, { treeVersion: version, skipped: true });
-      }
-      const hubUploadPath = await stageHubUploadZip(root, version);
-      return {
-        ok: false,
-        error: "hub_signed_kept",
-        mode: "hub_upload",
-        version,
-        root,
-        hubUploadPath,
-        restartRequired: false,
-        applied: false,
-        message: hubUploadPath
-          ? `Newer Desk ${version} is ready for Hub. Pack on Desktop: ${hubUploadPath} — Hub On your own → Upload New Version, then about:addons → Install Add-on From File.`
-          : `Newer Desk ${version} needs Hub On your own → Upload, then about:addons → Install Add-on From File.`,
-      };
-    }
+    const stagedOk = await stageFromFeed("Sideload script failed; staged signed feed instead.");
+    if (stagedOk) return stagedOk;
     const detail = (result.stderr || result.stdout || "Update script failed.").trim().slice(0, 400);
     return {
       ok: false,
@@ -231,24 +319,24 @@ export async function applyDeskExtensionUpdate(
     };
   }
 
-  // Mozilla-signed Hub/AMO install kept — never report sideload success.
+  // Mozilla-signed Hub/AMO install kept — stage signed feed XPI (success UX).
   if (mode === "signed_skipped") {
-    if (clientVersion && !isNewerVersion(version, clientVersion)) {
-      return upToDateResult(clientVersion, root, { treeVersion: version, skipped: true });
-    }
+    const stagedOk = await stageFromFeed("Unsigned sideload skipped (Hub/AMO signed install kept).");
+    if (stagedOk) return stagedOk;
     const hubUploadPath = await stageHubUploadZip(root, version);
     return {
-      ok: false,
-      error: "hub_signed_kept",
-      mode: "hub_upload",
+      ok: true,
+      error: null,
+      mode: "signed_staged",
       version,
       root,
       hubUploadPath,
-      restartRequired: false,
+      staged: true,
       applied: false,
+      restartRequired: false,
       message: hubUploadPath
-        ? `Newer Desk ${version} is ready for Hub. Pack on Desktop: ${hubUploadPath} — Hub On your own → Upload New Version, then about:addons → Install Add-on From File.`
-        : `Newer Desk ${version} needs Hub On your own → Upload, then about:addons → Install Add-on From File.`,
+        ? `Hub-signed Desk kept. Pack on Desktop: ${hubUploadPath} — about:addons → Install Add-on From File (or Hub On your own if unsigned).`
+        : "Hub-signed Desk kept. Prefer about:addons → Check for Updates, or Install Add-on From File from the desk-extension release.",
     };
   }
 
@@ -260,26 +348,26 @@ export async function applyDeskExtensionUpdate(
       mode: "unsigned_sideload",
       restartRequired: true,
       applied: true,
-      message: `Desk ${version} sideloaded (unsigned) — restart Firefox. Prefer Hub-signed Install from File for durable installs.`,
+      message: `Desk ${version} sideloaded (unsigned) — restart Firefox. Prefer Hub/AMO-signed Install from File for durable installs.`,
     };
   }
 
-  // Unknown install outcome after exit 0 — stage Hub pack and do not claim success.
-  if (clientVersion && !isNewerVersion(version, clientVersion)) {
-    return upToDateResult(clientVersion, root, { treeVersion: version });
-  }
+  // Unknown install outcome after exit 0 — prefer signed feed stage.
+  const stagedOk = await stageFromFeed("Could not confirm sideload; staged signed feed.");
+  if (stagedOk) return stagedOk;
   const hubUploadPath = await stageHubUploadZip(root, version);
   return {
-    ok: false,
-    error: "update_outcome_unclear",
-    mode: "hub_upload",
+    ok: true,
+    error: null,
+    mode: "signed_staged",
     version,
     root,
     hubUploadPath,
-    restartRequired: false,
+    staged: true,
     applied: false,
+    restartRequired: false,
     message: hubUploadPath
-      ? `Could not confirm Firefox apply. Pack saved to ${hubUploadPath} — Hub On your own → Upload, then Install Add-on From File.`
-      : "Could not confirm Firefox apply. Prefer Hub On your own → Install from File.",
+      ? `Pack saved to ${hubUploadPath} — about:addons → Install Add-on From File.`
+      : "Prefer about:addons → Check for Updates or Install Add-on From File.",
   };
 }

@@ -28,7 +28,18 @@ function labelsPort(env = process.env) {
   return Number.isFinite(n) && n > 0 && n < 65536 ? n : DEFAULT_PORT;
 }
 
-function labelsRootFromAppRoot(appRoot) {
+/**
+ * Git checkout / dev: <appRoot>/labels. Packaged Setup (asar): the NSIS build copies
+ * labels/ (with node_modules) to <resources>/labels so Node can read and write it.
+ */
+function labelsRootFromAppRoot(appRoot, resourcesPath = process.resourcesPath, exists = fs.existsSync) {
+  const bundled = /app\.asar$/i.test(String(appRoot || ""));
+  if (bundled && resourcesPath) {
+    const unpacked = path.join(resourcesPath, "labels");
+    if (exists(path.join(unpacked, "server.mjs"))) {
+      return unpacked;
+    }
+  }
   return path.join(appRoot, "labels");
 }
 
@@ -40,15 +51,69 @@ function labelsUrl(port = DEFAULT_PORT, host = DEFAULT_HOST) {
   return `http://${host}:${port}/`;
 }
 
-function resolveNodeBinary(env = process.env) {
-  if (env.LABELS_NODE && fs.existsSync(env.LABELS_NODE)) return env.LABELS_NODE;
-  if (process.platform === "win32") {
-    return "node.exe";
+function findOnPath(names, env = process.env, platform = process.platform, exists = fs.existsSync) {
+  const sep = platform === "win32" ? ";" : ":";
+  const join = platform === "win32" ? path.win32.join : path.join;
+  for (const dir of String(env.PATH || env.Path || "").split(sep)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const full = join(dir, name);
+      if (exists(full)) return full;
+    }
   }
-  for (const candidate of ["/usr/bin/node", "/usr/local/bin/node"]) {
-    if (fs.existsSync(candidate)) return candidate;
+  return "";
+}
+
+/**
+ * Which Node runs the Labels server. Prefers a system Node; when none exists
+ * (a Setup desk that only has the Electron runtime) falls back to this Electron
+ * binary in ELECTRON_RUN_AS_NODE mode so Labels still comes up.
+ */
+function resolveNodeRuntime(env = process.env, opts = {}) {
+  const platform = opts.platform || process.platform;
+  const exists = opts.exists || fs.existsSync;
+  const execPath = opts.execPath || process.execPath;
+  const electron = opts.electron !== undefined ? opts.electron : Boolean(process.versions && process.versions.electron);
+
+  if (env.LABELS_NODE && exists(env.LABELS_NODE)) {
+    return { bin: env.LABELS_NODE, asNode: false };
   }
-  return "node";
+  if (platform === "win32") {
+    const join = path.win32.join;
+    const found = findOnPath(["node.exe"], env, platform, exists);
+    if (found) return { bin: found, asNode: false };
+    for (const base of [env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA && join(env.LOCALAPPDATA, "Programs")]) {
+      if (!base) continue;
+      const candidate = join(base, "nodejs", "node.exe");
+      if (exists(candidate)) return { bin: candidate, asNode: false };
+    }
+  } else {
+    for (const candidate of ["/usr/bin/node", "/usr/local/bin/node"]) {
+      if (exists(candidate)) return { bin: candidate, asNode: false };
+    }
+    const found = findOnPath(["node"], env, platform, exists);
+    if (found) return { bin: found, asNode: false };
+  }
+  if (electron && execPath) {
+    return { bin: execPath, asNode: true };
+  }
+  return { bin: platform === "win32" ? "node.exe" : "node", asNode: false };
+}
+
+function resolveNodeBinary(env = process.env, opts = {}) {
+  return resolveNodeRuntime(env, opts).bin;
+}
+
+function npmCommand(platform = process.platform) {
+  return platform === "win32" ? { bin: "npm.cmd", shell: true } : { bin: "npm", shell: false };
+}
+
+/** %LOCALAPPDATA%\blackforest-tools\labels on Windows so print history survives updates. */
+function labelsDataDir(env = process.env, platform = process.platform, homedir = require("node:os").homedir()) {
+  if (env.LABELS_DATA_DIR) return env.LABELS_DATA_DIR;
+  if (platform !== "win32") return "";
+  const local = env.LOCALAPPDATA || path.win32.join(homedir, "AppData", "Local");
+  return path.win32.join(local, "blackforest-tools", "labels");
 }
 
 function probeLabels(url, timeoutMs = PROBE_TIMEOUT_MS) {
@@ -79,20 +144,23 @@ function waitUntilReady(url, { timeoutMs = READY_WAIT_MS, pollMs = READY_POLL_MS
   });
 }
 
-function ensureLabelsDeps(labelsRoot, { npmBin = "npm", spawnSyncFn } = {}) {
+function ensureLabelsDeps(labelsRoot, { npmBin, spawnSyncFn, platform = process.platform } = {}) {
   const nodeModules = path.join(labelsRoot, "node_modules");
   const pdfLib = path.join(nodeModules, "pdf-lib");
   if (fs.existsSync(pdfLib)) {
     return { ok: true, installed: false };
   }
   const spawnSync = spawnSyncFn || require("node:child_process").spawnSync;
-  const result = spawnSync(npmBin, ["install", "--omit=dev"], {
+  const npm = npmCommand(platform);
+  const result = spawnSync(npmBin || npm.bin, ["install", "--omit=dev"], {
     cwd: labelsRoot,
     encoding: "utf8",
     env: process.env,
+    shell: npm.shell,
+    windowsHide: true,
   });
   if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "npm install failed").trim();
+    const detail = (result.error && result.error.message) || (result.stderr || result.stdout || "npm install failed").trim();
     return { ok: false, installed: false, error: detail.split("\n").slice(-3).join(" ") };
   }
   return { ok: true, installed: true };
@@ -132,7 +200,7 @@ async function startLabelsServer(options) {
     };
   }
 
-  const labelsRoot = labelsRootFromAppRoot(options.appRoot);
+  const labelsRoot = labelsRootFromAppRoot(options.appRoot, options.resourcesPath);
   const entry = labelsServerEntry(labelsRoot);
   if (!fs.existsSync(entry)) {
     return {
@@ -159,14 +227,28 @@ async function startLabelsServer(options) {
     };
   }
 
-  const nodeBin = resolveNodeBinary(env);
+  const runtime = (options.resolveRuntimeFn || resolveNodeRuntime)(env);
+  const nodeBin = runtime.bin;
   const childEnv = {
     ...env,
     PORT: String(port),
     LABELS_PORT: String(port),
   };
-  // Do not inherit Electron's ELECTRON_RUN_AS_NODE quirks for the print child.
+  // A real Node must not inherit Electron's ELECTRON_RUN_AS_NODE; the Electron
+  // fallback needs it so electron.exe behaves as plain Node for server.mjs.
   delete childEnv.ELECTRON_RUN_AS_NODE;
+  if (runtime.asNode) {
+    childEnv.ELECTRON_RUN_AS_NODE = "1";
+  }
+  const dataDir = labelsDataDir(env);
+  if (dataDir) {
+    childEnv.LABELS_DATA_DIR = dataDir;
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch {
+      // Labels creates it on first write; best-effort here.
+    }
+  }
 
   const logDir =
     process.platform === "win32"
@@ -267,6 +349,10 @@ module.exports = {
   labelsServerEntry,
   labelsUrl,
   resolveNodeBinary,
+  resolveNodeRuntime,
+  labelsDataDir,
+  npmCommand,
+  findOnPath,
   probeLabels,
   waitUntilReady,
   ensureLabelsDeps,

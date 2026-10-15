@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"
+    />
+    <title>Black Forest Shop</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #efe9dc;
+        --bg-deep: #e4dccb;
+        --fg: #1c1915;
+        --muted: #5c564c;
+        --brand: #0058b8;
+        --brand-bright: #0582ff;
+        --brand-ink: #f4efe4;
+        --danger: #9b2c2c;
+        --ok: #2f6b3a;
+        --line: rgba(28, 25, 21, 0.12);
+        --shadow: 0 1px 0 rgba(28, 25, 21, 0.06);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background:
+          radial-gradient(120% 80% at 0% 0%, rgba(5, 130, 255, 0.08), transparent 55%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+        color: var(--fg);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      header {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 12px 12px 8px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.35);
+      }
+      header h1 {
+        margin: 0;
+        flex: 1;
+        font-family: "IBM Plex Sans Condensed", "Segoe UI", sans-serif;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .toolbar {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.55);
+        border-radius: 4px;
+        padding: 6px 8px;
+        min-height: 32px;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--brand-bright);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.primary {
+        background: var(--brand);
+        color: var(--brand-ink);
+        border-color: transparent;
+      }
+      button.primary:hover:not(:disabled) {
+        background: var(--brand-bright);
+      }
+      button.ghost {
+        background: transparent;
+      }
+      main {
+        flex: 1;
+        overflow: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .status {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .error {
+        color: var(--danger);
+        white-space: pre-wrap;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      select,
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.7);
+        padding: 8px 10px;
+        min-height: 36px;
+      }
+      textarea {
+        min-height: 88px;
+        resize: vertical;
+      }
+      .summary {
+        font-weight: 650;
+      }
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .item {
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .item .label {
+        font-weight: 650;
+      }
+      .item .detail {
+        color: var(--fg);
+        opacity: 0.92;
+      }
+      .item .meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 24px 8px;
+      }
+      footer {
+        padding: 8px 12px 10px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.25);
+      }
+      .hidden {
+        display: none !important;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .check input {
+        width: auto;
+        min-height: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="title">Black Forest Shop</h1>
+      <div class="toolbar">
+        <button type="button" class="ghost" id="btn-refresh" title="Refresh" disabled>↻</button>
+        <button type="button" class="ghost" id="btn-tools" title="Open Tools">▣</button>
+        <button type="button" class="ghost" id="btn-lock" title="Lock widgets" disabled>⊘</button>
+      </div>
+    </header>
+
+    <main>
+      <p class="status" id="status-line">Black Forest Shop</p>
+      <p class="error hidden" id="error-line"></p>
+
+      <div class="row">
+        <label for="view-select">View</label>
+        <select id="view-select"></select>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="always-on-top" checked />
+        Always on top
+      </label>
+
+      <section id="unlock-panel" class="stack">
+        <p class="status">
+          Unlock with your shop person and PIN. This session is shared by every
+          Black Forest Shop widget on this computer.
+        </p>
+        <div class="row">
+          <label for="person">Person</label>
+          <select id="person"></select>
+        </div>
+        <div class="row">
+          <label for="pin">PIN</label>
+          <input id="pin" type="password" inputmode="numeric" autocomplete="off" />
+        </div>
+        <button type="button" class="primary" id="btn-unlock">Unlock</button>
+      </section>
+
+      <p class="summary hidden" id="summary"></p>
+
+      <section id="notes-compose" class="stack hidden">
+        <p class="status" id="notes-hint"></p>
+        <div class="row" id="recipient-row">
+          <label for="recipient">Leave a note for</label>
+          <select id="recipient"></select>
+        </div>
+        <div class="row" id="note-text-row">
+          <label for="note-text">Note</label>
+          <textarea id="note-text" placeholder="Keys are on the bench…"></textarea>
+        </div>
+        <button type="button" class="primary" id="btn-send-note">Send note</button>
+        <p class="ok hidden" id="note-status"></p>
+      </section>
+
+      <div id="list" class="list"></div>
+      <p class="empty hidden" id="empty">Nothing to show.</p>
+    </main>
+
+    <footer>
+      <span id="footer-view">View: lot</span>
+      <button type="button" class="ghost" id="btn-update">Updates</button>
+    </footer>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let state = null;
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function render(next) {
+        state = next;
+        const signedIn = !!next.session;
+        const payload = next.viewPayload;
+
+        $("title").textContent =
+          (payload && payload.title) || "Black Forest Shop";
+        $("status-line").textContent = signedIn
+          ? `Signed in as ${next.session.person || "…"}${
+              payload && payload.summary ? " · " + payload.summary : ""
+            }`
+          : "Locked";
+
+        const err = $("error-line");
+        if (next.errorText) {
+          err.textContent = next.errorText;
+          err.classList.remove("hidden");
+        } else {
+          err.textContent = "";
+          err.classList.add("hidden");
+        }
+
+        const viewSelect = $("view-select");
+        const viewIds = (next.views || []).map((v) => v.id).join("|");
+        if (viewSelect.dataset.ids !== viewIds) {
+          viewSelect.innerHTML = (next.views || [])
+            .map(
+              (v) =>
+                `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label)}</option>`,
+            )
+            .join("");
+          viewSelect.dataset.ids = viewIds;
+        }
+        viewSelect.value = next.viewId;
+
+        $("always-on-top").checked = !!next.alwaysOnTop;
+        $("btn-refresh").disabled = !signedIn || next.busy;
+        $("btn-lock").disabled = !signedIn;
+        $("btn-unlock").disabled = next.busy;
+        $("btn-unlock").textContent = next.busy ? "Checking…" : "Unlock";
+
+        $("unlock-panel").classList.toggle("hidden", signedIn);
+
+        const person = $("person");
+        const people = next.unlockPeople || [];
+        if (person.dataset.ids !== people.join("|")) {
+          person.innerHTML = people
+            .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+            .join("");
+          person.dataset.ids = people.join("|");
+        }
+
+        const summary = $("summary");
+        if (signedIn && payload && payload.summary) {
+          summary.textContent = payload.summary;
+          summary.classList.remove("hidden");
+        } else {
+          summary.classList.add("hidden");
+        }
+
+        const notes = $("notes-compose");
+        const isNotes = next.viewId === "notes";
+        notes.classList.toggle("hidden", !(signedIn && isNotes));
+        if (signedIn && isNotes) {
+          $("notes-hint").textContent = next.canCreateNotes
+            ? ""
+            : "This unlock can read notes. Desk or bot can leave a note for someone.";
+          $("recipient-row").classList.toggle("hidden", !next.canCreateNotes);
+          $("note-text-row").classList.toggle("hidden", !next.canCreateNotes);
+          $("btn-send-note").classList.toggle("hidden", !next.canCreateNotes);
+          $("btn-send-note").disabled = next.busy;
+          $("btn-send-note").textContent = next.busy ? "Sending…" : "Send note";
+
+          const recipient = $("recipient");
+          const desk = next.deskPeople || [];
+          if (recipient.dataset.ids !== desk.join("|")) {
+            recipient.innerHTML = desk
+              .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+              .join("");
+            recipient.dataset.ids = desk.join("|");
+            const me = (next.session.person || "").toLowerCase();
+            const idx = desk.indexOf(me);
+            recipient.selectedIndex = idx >= 0 ? idx : 0;
+          }
+
+          const noteStatus = $("note-status");
+          if (next.noteStatus) {
+            noteStatus.textContent = next.noteStatus;
+            noteStatus.classList.remove("hidden");
+          } else {
+            noteStatus.classList.add("hidden");
+          }
+        }
+
+        const items = (payload && payload.items) || [];
+        const list = $("list");
+        list.classList.toggle("hidden", !signedIn);
+        if (signedIn) {
+          list.innerHTML = items
+            .map(
+              (item) => `<article class="item">
+                <div class="label">${escapeHtml(item.label || "")}</div>
+                <div class="detail">${escapeHtml(item.detail || "")}</div>
+                <div class="meta">${escapeHtml(item.meta || "")}</div>
+              </article>`,
+            )
+            .join("");
+          $("empty").classList.toggle(
+            "hidden",
+            items.length > 0 || next.busy || !!next.errorText,
+          );
+        } else {
+          list.innerHTML = "";
+          $("empty").classList.add("hidden");
+        }
+
+        $("footer-view").textContent = `View: ${next.viewId}`;
+      }
+
+      async function boot() {
+        if (!window.shopWidget) {
+          $("error-line").textContent = "Widget bridge missing.";
+          $("error-line").classList.remove("hidden");
+          return;
+        }
+        window.shopWidget.onState(render);
+        render(await window.shopWidget.getState());
+
+        $("view-select").addEventListener("change", (e) => {
+          window.shopWidget.setView(e.target.value);
+        });
+        $("always-on-top").addEventListener("change", (e) => {
+          window.shopWidget.setAlwaysOnTop(e.target.checked);
+        });
+        $("btn-refresh").addEventListener("click", () => window.shopWidget.refresh());
+        $("btn-tools").addEventListener("click", () => window.shopWidget.openTools());
+        $("btn-lock").addEventListener("click", () => window.shopWidget.logout());
+        $("btn-update").addEventListener("click", () => window.shopWidget.checkUpdate());
+        $("btn-unlock").addEventListener("click", async () => {
+          const person = $("person").value;
+          const pin = $("pin").value;
+          $("pin").value = "";
+          await window.shopWidget.login(person, pin);
+        });
+        $("pin").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("btn-unlock").click();
+        });
+        $("btn-send-note").addEventListener("click", async () => {
+          const ok = await window.shopWidget.sendNote(
+            $("recipient").value,
+            $("note-text").value,
+          );
+          if (ok && ok.ok) $("note-text").value = "";
+        });
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

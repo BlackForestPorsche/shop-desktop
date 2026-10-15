@@ -86,6 +86,9 @@ function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
     encoding: "utf8",
     timeout: 600_000,
     env,
+    // Node refuses to spawn .cmd files directly on Windows (EINVAL since 20.12).
+    shell: process.platform === "win32",
+    windowsHide: true,
   });
   if (install.error) throw install.error;
   if (install.status !== 0) {

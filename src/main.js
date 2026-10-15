@@ -32,6 +32,7 @@ const {
   SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
+const { firefoxLaunchPlan } = require("./firefox-launch");
 const {
   readLatch,
   setLatch,
@@ -342,7 +343,7 @@ async function checkForShellUpdate({ interactive }) {
           message: "This desktop app is up to date.",
           detail:
             info.mode === "git"
-              ? "Your Manjaro install already matches the latest shop-desktop on GitHub."
+              ? `Your ${process.platform === "win32" ? "Windows" : "Manjaro"} install already matches the latest shop-desktop on GitHub.`
               : `You are on version ${app.getVersion()}.`,
         });
       }
@@ -390,7 +391,7 @@ async function checkForShellUpdate({ interactive }) {
             error instanceof Error ? error.message : "The update failed.",
             "",
             "You can update by hand:",
-            "cd ~/shop-desktop",
+            process.platform === "win32" ? "cd %USERPROFILE%\\shop-desktop" : "cd ~/shop-desktop",
             "git pull",
             "npm install",
           ].join("\n"),
@@ -534,7 +535,9 @@ async function ensureLabelsRunning({ interactive = false } = {}) {
           labelsServerHandle.reason || "Unknown error",
           "",
           "Desk Create RO still needs http://127.0.0.1:8080.",
-          "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
+          process.platform === "win32"
+            ? "On Windows, confirm Node.js is installed and re-run Setup (it installs the Labels dependencies), then use Labels → restart."
+            : "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
         ].join("\n"),
       });
     }
@@ -658,7 +661,7 @@ function shopMenu() {
             "Publishing the site updates this window. Shop data is not a separate copy.",
             "",
             "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
-            "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
+            "A git install (Manjaro, or Windows Setup) pulls those and restarts. Portable builds offer the new download instead.",
             "",
             "Check for desktop updates from Settings → Check for updates.",
             "",
@@ -667,7 +670,7 @@ function shopMenu() {
               : "Labels service: starts with Tools (Labels → status / restart)"),
             "LabelWriter print UX belongs on the shop site; Tools owns localhost :8080.",
             "",
-            "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
+            `Unlock is shared with the shop widgets and Black Forest Desk via ${path.dirname(sessionFilePath())}.`,
             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
             "While Tools is open, Desk can import the same session from http://127.0.0.1:8788 without re-typing the PIN.",
             "Lock shop (menu or SPA Lock) clears the shared file, revokes the widget Bearer, and this window — Desk Sync Tools then has nothing to import. Firefox’s own shop cookie may still need Lock or expiry.",
@@ -1155,26 +1158,37 @@ async function maybeExchangeWhileOnUnlock(url) {
 }
 
 function launchFirefox(url) {
+  const plan = firefoxLaunchPlan(url);
   return new Promise((resolve, reject) => {
-    const tryOpen = (cmd, args) => {
-      const child = spawn(cmd, args, {
+    const attempt = (index) => {
+      const step = plan[index];
+      if (!step) {
+        reject(new Error("Could not open a browser for the Firefox handoff."));
+        return;
+      }
+      if (step.external) {
+        shell.openExternal(step.external).then(() => resolve("default-browser"), reject);
+        return;
+      }
+      const child = spawn(step.cmd, step.args, {
         detached: true,
         stdio: "ignore",
+        windowsHide: true,
       });
       child.on("error", (error) => {
-        if (cmd === "firefox" && error && error.code === "ENOENT") {
-          tryOpen("xdg-open", [url]);
+        if (error && error.code === "ENOENT" && index + 1 < plan.length) {
+          attempt(index + 1);
           return;
         }
         reject(error);
       });
       child.on("spawn", () => {
         child.unref();
-        resolve(cmd);
+        resolve(step.cmd);
       });
     };
     // --new-tab keeps Logan's default Firefox profile (never create a new one).
-    tryOpen("firefox", ["--new-tab", url]);
+    attempt(0);
   });
 }
 
@@ -1192,7 +1206,7 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
         title: "Open in Firefox",
         message: "Unlock the shop first.",
         detail:
-          "Sign in with a Plasma widget or this window so ~/.local/share/blackforest-tools/widget-session.json exists, then try again.",
+          `Sign in with a shop widget or this window so ${sessionFilePath()} exists, then try again.`,
       });
     }
     return { ok: false, reason: "no_session" };
