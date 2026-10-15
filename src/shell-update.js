@@ -4,12 +4,22 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
+const {
+  ensureElectronBinary,
+  cleanEnv: cleanUpdateEnv,
+} = require("../scripts/electron-binary");
 
 const DEFAULT_REPO = "BlackForestPorsche/shop-desktop";
 const DEFAULT_BRANCH = "main";
+/** Written by applyGitUpdate; launcher runs npm install after Electron has quit. */
+const PENDING_NPM_FLAG = ".bf-pending-npm";
 
 function appRootFromMain(mainDir = __dirname) {
   return path.join(mainDir, "..");
+}
+
+function pendingNpmFlagPath(root) {
+  return path.join(root, PENDING_NPM_FLAG);
 }
 
 function isGitInstall(root) {
@@ -52,6 +62,53 @@ function pickPortableAsset(assets) {
     /portable/i.test(asset.name || "") && /\.exe$/i.test(asset.name || ""),
   );
   return portable || assets.find((asset) => /\.exe$/i.test(asset.name || "")) || null;
+}
+
+function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const install = spawnSync(npm, ["install"], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 600_000,
+    env,
+  });
+  if (install.error) throw install.error;
+  if (install.status !== 0) {
+    const detail = (install.stderr || install.stdout || "").trim();
+    throw new Error(detail || "npm install failed after pulling the update");
+  }
+  ensureElectronBinary(root, { env });
+  return { ok: true };
+}
+
+function markPendingNpmInstall(root) {
+  fs.writeFileSync(pendingNpmFlagPath(root), `${new Date().toISOString()}\n`, "utf8");
+}
+
+function clearPendingNpmInstall(root) {
+  try {
+    fs.unlinkSync(pendingNpmFlagPath(root));
+  } catch (error) {
+    if (error && error.code !== "ENOENT") throw error;
+  }
+}
+
+function hasPendingNpmInstall(root) {
+  return fs.existsSync(pendingNpmFlagPath(root));
+}
+
+/**
+ * Finish a deferred post-update npm install (called from the Linux launcher after
+ * Electron has exited so the running binary is not overwritten mid-flight).
+ */
+function finishPendingNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
+  if (!hasPendingNpmInstall(root)) {
+    ensureElectronBinary(root, { env });
+    return { ran: false };
+  }
+  runNpmInstall(root, { env });
+  clearPendingNpmInstall(root);
+  return { ran: true };
 }
 
 function runGit(root, args) {
@@ -189,49 +246,63 @@ async function checkShellUpdate({
   return checkReleaseUpdate(currentVersion, { repo });
 }
 
+/**
+ * Apply a git-checkout update.
+ * On Linux, only pull + flag pending npm — the launcher runs npm after quit so the
+ * live Electron binary is not deleted mid-download (that produced "Could not download
+ * the window runtime" on relaunch). Windows still installs before relaunch.
+ */
 function applyGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
   runGit(root, ["pull", "--ff-only", remote, branch]);
 
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const install = spawnSync(npm, ["install"], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 600_000,
-    env: process.env,
-  });
-  if (install.error) throw install.error;
-  if (install.status !== 0) {
-    const detail = (install.stderr || install.stdout || "").trim();
-    throw new Error(detail || "npm install failed after pulling the update");
+  if (process.platform === "linux") {
+    markPendingNpmInstall(root);
+    return {
+      mode: "git",
+      applied: true,
+      deferredNpm: true,
+    };
   }
 
-  // Lazy: scripts/ is not shipped in packaged builds, only in git checkouts.
-  const { ensureElectronBinary } = require("../scripts/electron-binary");
-  const runtime = ensureElectronBinary(root);
-  if (!runtime.ok && runtime.state !== "missing-package") {
-    throw new Error(
-      "The update was pulled but the window runtime is not ready. " +
-        "Run: bash scripts/ensure-electron.sh",
-    );
-  }
-
+  runNpmInstall(root);
   return {
     mode: "git",
     applied: true,
+    deferredNpm: false,
+  };
+}
+
+/** Linux: relaunch argv so ensure-electron / pending npm run before Electron starts. */
+function linuxRelaunchSpec(root) {
+  const launcher = path.join(root, "scripts", "blackforest-tools.sh");
+  if (!fs.existsSync(launcher)) return null;
+  return {
+    execPath: "/bin/bash",
+    args: [launcher],
   };
 }
 
 module.exports = {
   DEFAULT_REPO,
   DEFAULT_BRANCH,
+  PENDING_NPM_FLAG,
   appRootFromMain,
   isGitInstall,
   parseSemver,
   compareSemver,
   versionFromReleaseAssetName,
   pickPortableAsset,
+  cleanUpdateEnv,
+  ensureElectronBinary,
+  runNpmInstall,
+  markPendingNpmInstall,
+  clearPendingNpmInstall,
+  hasPendingNpmInstall,
+  finishPendingNpmInstall,
+  pendingNpmFlagPath,
   checkGitUpdate,
   checkReleaseUpdate,
   checkShellUpdate,
   applyGitUpdate,
+  linuxRelaunchSpec,
 };
