@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ELECTRON_BIN="$ROOT/node_modules/electron/dist/electron"
 
+chmod +x "$ROOT"/scripts/*.sh "$ROOT/scripts/blackforest-widget-session" 2>/dev/null || true
+
 if [[ -x "$ELECTRON_BIN" ]] && [[ -s "$ELECTRON_BIN" ]] && [[ -f "$ROOT/node_modules/electron/path.txt" ]]; then
   exit 0
 fi

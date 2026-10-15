@@ -6,6 +6,7 @@ const https = require("node:https");
 const path = require("node:path");
 const {
   ensureElectronBinary,
+  ensureLauncherScriptsExecutable,
   cleanEnv: cleanElectronEnv,
 } = require("../scripts/electron-binary");
 
@@ -268,6 +269,7 @@ async function checkShellUpdate({
  */
 function applyGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
   runGit(root, ["pull", "--ff-only", remote, branch]);
+  ensureLauncherScriptsExecutable(root);
 
   if (process.platform === "linux") {
     markPendingNpmInstall(root);

@@ -10,6 +10,7 @@ const {
   inspectElectron,
   ensureElectronBinary,
   cleanEnv,
+  ensureLauncherScriptsExecutable,
 } = require("../scripts/electron-binary");
 
 const POSIX = process.platform !== "win32";
@@ -121,4 +122,20 @@ test("cleanEnv drops skip/platform overrides", () => {
     PATH: "/usr/bin",
   });
   assert.deepEqual(env, { PATH: "/usr/bin" });
+});
+
+test("ensureLauncherScriptsExecutable restores +x on launcher scripts only", { skip: !POSIX }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bf-launcher-test-"));
+  const dir = path.join(root, "scripts");
+  fs.mkdirSync(dir);
+  for (const name of ["blackforest-tools.sh", "blackforest-widget-session", "notes.js"]) {
+    fs.writeFileSync(path.join(dir, name), "#!/usr/bin/env bash\n");
+    fs.chmodSync(path.join(dir, name), 0o644);
+  }
+  const fixed = ensureLauncherScriptsExecutable(root, "linux");
+  assert.deepEqual(fixed.sort(), ["blackforest-tools.sh", "blackforest-widget-session"]);
+  assert.ok(fs.statSync(path.join(dir, "blackforest-tools.sh")).mode & 0o100);
+  assert.ok(fs.statSync(path.join(dir, "blackforest-widget-session")).mode & 0o100);
+  assert.equal(fs.statSync(path.join(dir, "notes.js")).mode & 0o111, 0);
+  assert.deepEqual(ensureLauncherScriptsExecutable(root, "linux"), []);
 });
