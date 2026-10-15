@@ -77,7 +77,12 @@ function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
     const detail = (install.stderr || install.stdout || "").trim();
     throw new Error(detail || "npm install failed after pulling the update");
   }
-  ensureElectronBinary(root, { env });
+  const runtime = ensureElectronBinary(root, { env });
+  if (!runtime.ok && runtime.state !== "missing-package") {
+    throw new Error(
+      "npm install finished but the window runtime is not ready. Run: bash scripts/ensure-electron.sh",
+    );
+  }
   return { ok: true };
 }
 
@@ -99,7 +104,12 @@ function hasPendingNpmInstall(root) {
 
 function finishPendingNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
   if (!hasPendingNpmInstall(root)) {
-    ensureElectronBinary(root, { env });
+    const runtime = ensureElectronBinary(root, { env });
+    if (!runtime.ok && runtime.state !== "missing-package") {
+      throw new Error(
+        "The window runtime is not ready. Run: bash scripts/ensure-electron.sh",
+      );
+    }
     return { ran: false };
   }
   runNpmInstall(root, { env });
