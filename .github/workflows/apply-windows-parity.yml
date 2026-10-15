@@ -44,7 +44,7 @@ jobs:
           bash scripts/sync-labels-vendor.sh "$PWD/_lc"
           git checkout -- labels/package-lock.json
           git apply --ignore-whitespace tmp/windows-parity.patch
-          node --test
+          node --test test/*.test.js
           git rm -q -f tmp/windows-parity.patch
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
