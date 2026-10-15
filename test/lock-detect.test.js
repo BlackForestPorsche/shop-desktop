@@ -22,6 +22,14 @@ test("looksLikeLockRequest matches lockShop and widget logout", () => {
     true,
   );
   assert.equal(looksLikeLockRequest("/_server/lockShop", "POST", ""), true);
+  assert.equal(
+    looksLikeLockRequest(
+      "https://shop.blackforestautomotive.com/_serverFn/462df016712e9460dba3b3206037fe5482e55863b0e6af87f8c2b89dff89fc9a",
+      "POST",
+      "{}",
+    ),
+    true,
+  );
 });
 
 test("looksLikeLockRequest rejects unlock and session mint/exchange", () => {
