@@ -1,10 +1,10 @@
 {
   "name": "blackforest-tools",
   "productName": "Black Forest Tools",
-  "version": "1.5.15",
+  "version": "1.5.16",
   "private": true,
   "description": "Desktop window for the Black Forest Automotive shop tools site.",
-  "main": "src/main.js",
+  "main": "src/entry.js",
   "author": "Black Forest Automotive",
   "license": "UNLICENSED",
   "engines": {
@@ -13,11 +13,13 @@
   "scripts": {
     "postinstall": "node scripts/postinstall-electron.js && node scripts/postinstall-labels.js",
     "start": "electron .",
+    "widget": "electron . --widget",
     "test": "node --test",
     "install-menu": "bash scripts/install-manjaro.sh",
     "install-plasma": "bash scripts/install-plasma-widget.sh",
     "install-windows": "powershell -ExecutionPolicy Bypass -File scripts/install-windows.ps1",
     "bootstrap-windows": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap-windows.ps1",
+    "setup-windows": "powershell -ExecutionPolicy Bypass -File scripts/compile-windows-setup.ps1",
     "enable-autostart": "bash scripts/enable-tools-autostart.sh",
     "disable-autostart": "bash scripts/disable-tools-autostart.sh",
     "firefox-signed-in": "bash scripts/open-firefox-signed-in.sh",
@@ -40,7 +42,6 @@
     "files": [
       "src/**/*",
       "assets/**/*",
-      "labels/**/*",
       "package.json"
     ],
     "linux": {
@@ -69,14 +70,25 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Black Forest Tools"
+      "shortcutName": "Black Forest Tools",
+      "include": "build/installer.nsh",
+      "oneClick": false,
+      "artifactName": "${productName}-Packaged-Installer-${version}.${ext}"
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "labels",
+        "to": "labels",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

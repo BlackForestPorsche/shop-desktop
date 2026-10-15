@@ -1,0 +1,666 @@
+diff --git a/README.md b/README.md
+index eab638f..f87c467 100644
+--- a/README.md
++++ b/README.md
+@@ -63,7 +63,7 @@ The window keeps a normal Electron menu bar: **Shop**, **Labels**, **Settings**,
+ 
+ - **Shop** — home, back/forward, reload, site-update check, quit
+ - **Labels** — thin service controls only: **Labels service status…** / **Restart Labels service** (also under Settings). Not a second Labels app; print buttons live on the shop site.
+-- **Settings → Check for updates** — desktop app updater (git pull on Manjaro; portable download on Windows)
++- **Settings → Check for updates** — desktop app updater (git pull on Manjaro and Windows Setup; portable download for portable builds)
+ - **Help → About** — version info; About dialog also offers **Check for updates**
+ 
+ There is no in-page **Check for updates** button next to the avatar/header.
+@@ -91,9 +91,9 @@ Shop publishes do not require an update of this project — the window reloads t
+ 
+ **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
+ 
+-- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
++- **Manjaro and Windows Setup (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
+ - **Check for updates:** **Settings → Check for updates** (or **Help → About → Check for updates**). Same updater path.
+-- **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
++- **Windows portable (secondary):** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+ 
+ ## Pirate idle overlay
+ 
+@@ -109,21 +109,30 @@ npm install
+ 
+ ## Windows
+ 
+-**Setup (preferred on shop desks):** run `scripts/bootstrap-windows.ps1` (or the compiled Setup.exe from Releases when published). That clones `%USERPROFILE%\shop-desktop`, installs shortcuts, arms the 30-minute git update task, **starts Tools at login** (Startup folder + Run key), and launches Tools. Opt out of login start: `install-windows.ps1 -NoAutostart`, or later `scripts/disable-tools-autostart.ps1`.
++**Setup is the Windows desk.** It is a git checkout of this repo at `%USERPROFILE%\shop-desktop` — the same shape as the Manjaro install — so it behaves like Linux: git auto-update, login autostart, Tools-owned Labels, shared widget session.
+ 
+-GitHub Actions also builds a portable Windows `.exe` on every push to `main`.
++Run `scripts\bootstrap-windows.ps1` (or the compiled `Black.Forest.Tools-Setup.exe`, built by `npm run setup-windows`). It needs Git and Node on PATH (it tries `winget` when they are missing), then:
+ 
+-1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
+-2. Download **Black Forest Tools-Portable-…exe**
+-3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
++- clones / fast-forwards the checkout and runs `npm install` (this also installs the Labels print server dependencies);
++- creates Start Menu + Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**. They launch `electron.exe` directly (no npm window); `--widget` selects the widget process through `src/entry.js`;
++- registers the `BlackForestShopDesktopUpdate` scheduled task (every 30 minutes, hidden) that fast-forwards `main`, plus Shop → Check for desktop updates inside the app;
++- turns on **start at login** (Startup folder + `HKCU\...\Run`). Opt out with `install-windows.ps1 -NoAutostart` or `scripts\disable-tools-autostart.ps1`.
+ 
+-Same live shop site as Manjaro. Unlock with your PIN. Portable builds do not register login autostart; use Setup / `install-windows.ps1` for that.
++What Tools does on Windows, matching Manjaro:
+ 
+-To build the Windows app yourself (on Windows):
++- **Login / lock bridge:** the shared session lives in `%LOCALAPPDATA%\blackforest-tools\` (`widget-session.json`, `lock-latch.json`; Linux uses `$XDG_DATA_HOME/blackforest-tools`). Desk imports it from Tools' loopback bridge on `http://127.0.0.1:8788` — gate / lock never goes through Labels `:8080`. Writes retry on `EPERM`/`EBUSY` so a widget reading the file does not break a save.
++- **Labels (Create RO print):** Tools starts the vendored `labels/` server on `127.0.0.1:8080` (or adopts one already running). It uses system Node, or falls back to Electron-as-Node when the desk has none. Print history is kept in `%LOCALAPPDATA%\blackforest-tools\labels`. Printing goes through Windows.Data.Pdf + `PrintDocument` to the LabelWriter/DYMO queue, then SumatraPDF, then shell `PrintTo` (details in label-connect's README; override with `LABELS_PRINTER`, `LABELS_WIN_ROTATE`, `LABELS_WIN_DPI`, `LABELS_WIN_PRINT`, `LABELS_SUMATRA`).
++- **Shop Widget:** `npm run widget` / the Shop Widget shortcut (lot, book-today, notes) shares the same session file.
++- **Open in Firefox signed in:** uses `firefox.exe` from Program Files when installed, otherwise the default browser.
++
++**Portable (secondary):** GitHub Actions also builds a portable `.exe`. It is only a bootstrap for a machine that cannot run Setup yet — it has no git auto-update, no login autostart and no widget shortcut. Do not treat it as the day-to-day desk; run Setup.
++
++To build the Windows packages yourself (on Windows):
+ 
+ ```bash
+ npm install
+-npm run dist:win
++npm run dist:win        # NSIS + Portable, labels/ shipped under resources/
++npm run setup-windows   # dist/Black.Forest.Tools-Setup.exe (git Setup)
+ ```
+ 
+ Outputs land in `dist/`.
+diff --git a/scripts/bootstrap-windows.ps1 b/scripts/bootstrap-windows.ps1
+index 25f93a6..f3427ad 100644
+--- a/scripts/bootstrap-windows.ps1
++++ b/scripts/bootstrap-windows.ps1
+@@ -74,15 +74,21 @@ try {
+   Write-Host ""
+   Write-Host "Setup finished."
+   Write-Host "  Tools:  Start Menu -> Black Forest Automotive -> Black Forest Tools"
++  Write-Host "  Widget: Start Menu -> Black Forest Automotive -> Black Forest Shop Widget"
+   Write-Host "  Folder: $Target"
+   Write-Host "  Updates: task BlackForestShopDesktopUpdate (every 30 min)"
+   Write-Host "  Login:  Startup folder + Run key (BlackForestTools)"
+   Write-Host "  Disable login start: scripts\disable-tools-autostart.ps1"
+   Write-Host ""
+   Write-Host "Launching Black Forest Tools..."
+-  $npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
+-  if (-not $npmCmd) { $npmCmd = Get-Command npm }
+-  Start-Process -FilePath $npmCmd.Source -ArgumentList "start" -WorkingDirectory $Target
++  $electronExe = Join-Path $Target "node_modules\electron\dist\electron.exe"
++  if (Test-Path $electronExe) {
++    Start-Process -FilePath $electronExe -ArgumentList "`"$Target`"" -WorkingDirectory $Target
++  } else {
++    $npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
++    if (-not $npmCmd) { $npmCmd = Get-Command npm }
++    Start-Process -FilePath $npmCmd.Source -ArgumentList "start" -WorkingDirectory $Target
++  }
+ } finally {
+   Pop-Location
+ }
+diff --git a/scripts/install-windows.ps1 b/scripts/install-windows.ps1
+index d0924ee..8676f50 100644
+--- a/scripts/install-windows.ps1
++++ b/scripts/install-windows.ps1
+@@ -74,48 +74,54 @@ Ensure-Packages
+ 
+ New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
+ 
+-$npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
+-if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm }
+-$npmCmd = $npmCmdInfo.Source
+-
+ $electronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
+ $iconLocation = if (Test-Path $electronExe) { "$electronExe,0" } else { "" }
+ 
++# Launch electron.exe directly: no npm.cmd, no console window flash at login.
++# entry.js routes "--widget" to the Shop Widget process and everything else to Tools.
++if (Test-Path $electronExe) {
++  $launchTarget = $electronExe
++  $toolsArgs = "`"$Root`""
++  $widgetArgs = "`"$Root`" --widget"
++} else {
++  $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
++  if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm }
++  $launchTarget = $npmCmdInfo.Source
++  $toolsArgs = "start"
++  $widgetArgs = "run widget"
++}
++
+ New-Shortcut `
+   -Path (Join-Path $StartMenu "Black Forest Tools.lnk") `
+-  -TargetPath $npmCmd `
+-  -Arguments "start" `
++  -TargetPath $launchTarget `
++  -Arguments $toolsArgs `
+   -WorkingDirectory $Root `
+   -IconLocation $iconLocation `
+   -Description "Live window for shop.blackforestautomotive.com"
+ 
+ New-Shortcut `
+   -Path (Join-Path $Desktop "Black Forest Tools.lnk") `
+-  -TargetPath $npmCmd `
+-  -Arguments "start" `
++  -TargetPath $launchTarget `
++  -Arguments $toolsArgs `
+   -WorkingDirectory $Root `
+   -IconLocation $iconLocation `
+   -Description "Live window for shop.blackforestautomotive.com"
+ 
+-# Optional widget shortcuts when this checkout has npm run widget (Setup / widgets branch).
+-$packageJson = Get-Content (Join-Path $Root "package.json") -Raw
+-if ($packageJson -match '"widget"\s*:') {
+-  New-Shortcut `
+-    -Path (Join-Path $StartMenu "Black Forest Shop Widget.lnk") `
+-    -TargetPath $npmCmd `
+-    -Arguments "run widget" `
+-    -WorkingDirectory $Root `
+-    -IconLocation $iconLocation `
+-    -Description "Shop widget windows (lot / book-today / notes)"
+-
+-  New-Shortcut `
+-    -Path (Join-Path $Desktop "Black Forest Shop Widget.lnk") `
+-    -TargetPath $npmCmd `
+-    -Arguments "run widget" `
+-    -WorkingDirectory $Root `
+-    -IconLocation $iconLocation `
+-    -Description "Shop widget windows (lot / book-today / notes)"
+-}
++New-Shortcut `
++  -Path (Join-Path $StartMenu "Black Forest Shop Widget.lnk") `
++  -TargetPath $launchTarget `
++  -Arguments $widgetArgs `
++  -WorkingDirectory $Root `
++  -IconLocation $iconLocation `
++  -Description "Shop widget windows (lot / book-today / notes)"
++
++New-Shortcut `
++  -Path (Join-Path $Desktop "Black Forest Shop Widget.lnk") `
++  -TargetPath $launchTarget `
++  -Arguments $widgetArgs `
++  -WorkingDirectory $Root `
++  -IconLocation $iconLocation `
++  -Description "Shop widget windows (lot / book-today / notes)"
+ 
+ # 30-minute user task that fast-forwards this git checkout (same spirit as Plasma timer).
+ $updateScript = Join-Path $Root "scripts\update-git-checkout.ps1"
+@@ -127,7 +133,7 @@ if (Test-Path $updateScript) {
+   }
+   $action = New-ScheduledTaskAction `
+     -Execute "powershell.exe" `
+-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updateScript`"" `
++    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$updateScript`"" `
+     -WorkingDirectory $Root
+   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
+   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+@@ -158,5 +164,5 @@ Write-Host "Black Forest Tools shortcuts are ready."
+ Write-Host "Start Menu: $StartMenu"
+ Write-Host "Widget session folder: $sessionDir"
+ Write-Host ""
+-Write-Host "Run Tools:  npm start"
++Write-Host "Run Tools:  npm start   (widget: npm run widget)"
+ Write-Host "Disable login start: scripts\disable-tools-autostart.ps1"
+diff --git a/src/labels-server.js b/src/labels-server.js
+index 2412acd..0d546b4 100644
+--- a/src/labels-server.js
++++ b/src/labels-server.js
+@@ -28,7 +28,18 @@ function labelsPort(env = process.env) {
+   return Number.isFinite(n) && n > 0 && n < 65536 ? n : DEFAULT_PORT;
+ }
+ 
+-function labelsRootFromAppRoot(appRoot) {
++/**
++ * Git checkout / dev: <appRoot>/labels. Packaged Setup (asar): the NSIS build copies
++ * labels/ (with node_modules) to <resources>/labels so Node can read and write it.
++ */
++function labelsRootFromAppRoot(appRoot, resourcesPath = process.resourcesPath, exists = fs.existsSync) {
++  const bundled = /app\.asar$/i.test(String(appRoot || ""));
++  if (bundled && resourcesPath) {
++    const unpacked = path.join(resourcesPath, "labels");
++    if (exists(path.join(unpacked, "server.mjs"))) {
++      return unpacked;
++    }
++  }
+   return path.join(appRoot, "labels");
+ }
+ 
+@@ -40,15 +51,69 @@ function labelsUrl(port = DEFAULT_PORT, host = DEFAULT_HOST) {
+   return `http://${host}:${port}/`;
+ }
+ 
+-function resolveNodeBinary(env = process.env) {
+-  if (env.LABELS_NODE && fs.existsSync(env.LABELS_NODE)) return env.LABELS_NODE;
+-  if (process.platform === "win32") {
+-    return "node.exe";
++function findOnPath(names, env = process.env, platform = process.platform, exists = fs.existsSync) {
++  const sep = platform === "win32" ? ";" : ":";
++  const join = platform === "win32" ? path.win32.join : path.join;
++  for (const dir of String(env.PATH || env.Path || "").split(sep)) {
++    if (!dir) continue;
++    for (const name of names) {
++      const full = join(dir, name);
++      if (exists(full)) return full;
++    }
++  }
++  return "";
++}
++
++/**
++ * Which Node runs the Labels server. Prefers a system Node; when none exists
++ * (a Setup desk that only has the Electron runtime) falls back to this Electron
++ * binary in ELECTRON_RUN_AS_NODE mode so Labels still comes up.
++ */
++function resolveNodeRuntime(env = process.env, opts = {}) {
++  const platform = opts.platform || process.platform;
++  const exists = opts.exists || fs.existsSync;
++  const execPath = opts.execPath || process.execPath;
++  const electron = opts.electron !== undefined ? opts.electron : Boolean(process.versions && process.versions.electron);
++
++  if (env.LABELS_NODE && exists(env.LABELS_NODE)) {
++    return { bin: env.LABELS_NODE, asNode: false };
++  }
++  if (platform === "win32") {
++    const join = path.win32.join;
++    const found = findOnPath(["node.exe"], env, platform, exists);
++    if (found) return { bin: found, asNode: false };
++    for (const base of [env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA && join(env.LOCALAPPDATA, "Programs")]) {
++      if (!base) continue;
++      const candidate = join(base, "nodejs", "node.exe");
++      if (exists(candidate)) return { bin: candidate, asNode: false };
++    }
++  } else {
++    for (const candidate of ["/usr/bin/node", "/usr/local/bin/node"]) {
++      if (exists(candidate)) return { bin: candidate, asNode: false };
++    }
++    const found = findOnPath(["node"], env, platform, exists);
++    if (found) return { bin: found, asNode: false };
+   }
+-  for (const candidate of ["/usr/bin/node", "/usr/local/bin/node"]) {
+-    if (fs.existsSync(candidate)) return candidate;
++  if (electron && execPath) {
++    return { bin: execPath, asNode: true };
+   }
+-  return "node";
++  return { bin: platform === "win32" ? "node.exe" : "node", asNode: false };
++}
++
++function resolveNodeBinary(env = process.env, opts = {}) {
++  return resolveNodeRuntime(env, opts).bin;
++}
++
++function npmCommand(platform = process.platform) {
++  return platform === "win32" ? { bin: "npm.cmd", shell: true } : { bin: "npm", shell: false };
++}
++
++/** %LOCALAPPDATA%\blackforest-tools\labels on Windows so print history survives updates. */
++function labelsDataDir(env = process.env, platform = process.platform, homedir = require("node:os").homedir()) {
++  if (env.LABELS_DATA_DIR) return env.LABELS_DATA_DIR;
++  if (platform !== "win32") return "";
++  const local = env.LOCALAPPDATA || path.win32.join(homedir, "AppData", "Local");
++  return path.win32.join(local, "blackforest-tools", "labels");
+ }
+ 
+ function probeLabels(url, timeoutMs = PROBE_TIMEOUT_MS) {
+@@ -79,20 +144,23 @@ function waitUntilReady(url, { timeoutMs = READY_WAIT_MS, pollMs = READY_POLL_MS
+   });
+ }
+ 
+-function ensureLabelsDeps(labelsRoot, { npmBin = "npm", spawnSyncFn } = {}) {
++function ensureLabelsDeps(labelsRoot, { npmBin, spawnSyncFn, platform = process.platform } = {}) {
+   const nodeModules = path.join(labelsRoot, "node_modules");
+   const pdfLib = path.join(nodeModules, "pdf-lib");
+   if (fs.existsSync(pdfLib)) {
+     return { ok: true, installed: false };
+   }
+   const spawnSync = spawnSyncFn || require("node:child_process").spawnSync;
+-  const result = spawnSync(npmBin, ["install", "--omit=dev"], {
++  const npm = npmCommand(platform);
++  const result = spawnSync(npmBin || npm.bin, ["install", "--omit=dev"], {
+     cwd: labelsRoot,
+     encoding: "utf8",
+     env: process.env,
++    shell: npm.shell,
++    windowsHide: true,
+   });
+   if (result.status !== 0) {
+-    const detail = (result.stderr || result.stdout || "npm install failed").trim();
++    const detail = (result.error && result.error.message) || (result.stderr || result.stdout || "npm install failed").trim();
+     return { ok: false, installed: false, error: detail.split("\n").slice(-3).join(" ") };
+   }
+   return { ok: true, installed: true };
+@@ -132,7 +200,7 @@ async function startLabelsServer(options) {
+     };
+   }
+ 
+-  const labelsRoot = labelsRootFromAppRoot(options.appRoot);
++  const labelsRoot = labelsRootFromAppRoot(options.appRoot, options.resourcesPath);
+   const entry = labelsServerEntry(labelsRoot);
+   if (!fs.existsSync(entry)) {
+     return {
+@@ -159,14 +227,28 @@ async function startLabelsServer(options) {
+     };
+   }
+ 
+-  const nodeBin = resolveNodeBinary(env);
++  const runtime = (options.resolveRuntimeFn || resolveNodeRuntime)(env);
++  const nodeBin = runtime.bin;
+   const childEnv = {
+     ...env,
+     PORT: String(port),
+     LABELS_PORT: String(port),
+   };
+-  // Do not inherit Electron's ELECTRON_RUN_AS_NODE quirks for the print child.
++  // A real Node must not inherit Electron's ELECTRON_RUN_AS_NODE; the Electron
++  // fallback needs it so electron.exe behaves as plain Node for server.mjs.
+   delete childEnv.ELECTRON_RUN_AS_NODE;
++  if (runtime.asNode) {
++    childEnv.ELECTRON_RUN_AS_NODE = "1";
++  }
++  const dataDir = labelsDataDir(env);
++  if (dataDir) {
++    childEnv.LABELS_DATA_DIR = dataDir;
++    try {
++      fs.mkdirSync(dataDir, { recursive: true });
++    } catch {
++      // Labels creates it on first write; best-effort here.
++    }
++  }
+ 
+   const logDir =
+     process.platform === "win32"
+@@ -267,6 +349,10 @@ module.exports = {
+   labelsServerEntry,
+   labelsUrl,
+   resolveNodeBinary,
++  resolveNodeRuntime,
++  labelsDataDir,
++  npmCommand,
++  findOnPath,
+   probeLabels,
+   waitUntilReady,
+   ensureLabelsDeps,
+diff --git a/src/lock-latch.js b/src/lock-latch.js
+index a0e2787..a00fabe 100644
+--- a/src/lock-latch.js
++++ b/src/lock-latch.js
+@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
+ const fs = require("node:fs");
+ const path = require("node:path");
+ const { sessionDir } = require("./shared-session");
++const { renameWithRetry } = require("./fs-atomic");
+ 
+ const FILE_NAME = "lock-latch.json";
+ const MAX_REVOKED = 8;
+@@ -53,7 +54,7 @@ function writeLatch(latch, env = process.env) {
+   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+   const tmp = `${file}.tmp`;
+   fs.writeFileSync(tmp, JSON.stringify(latch), { mode: 0o600 });
+-  fs.renameSync(tmp, file);
++  renameWithRetry(tmp, file);
+ }
+ 
+ /** Record an intentional lock. `revokedSessionId` is the Bearer that was just revoked. */
+diff --git a/src/main.js b/src/main.js
+index 40e3b82..ba2d43d 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -32,6 +32,7 @@ const {
+   SHOP_BASE,
+ } = require("./shared-session");
+ const { startDeskSessionBridge } = require("./desk-session-bridge");
++const { firefoxLaunchPlan } = require("./firefox-launch");
+ const {
+   readLatch,
+   setLatch,
+@@ -342,7 +343,7 @@ async function checkForShellUpdate({ interactive }) {
+           message: "This desktop app is up to date.",
+           detail:
+             info.mode === "git"
+-              ? "Your Manjaro install already matches the latest shop-desktop on GitHub."
++              ? `Your ${process.platform === "win32" ? "Windows" : "Manjaro"} install already matches the latest shop-desktop on GitHub.`
+               : `You are on version ${app.getVersion()}.`,
+         });
+       }
+@@ -390,7 +391,7 @@ async function checkForShellUpdate({ interactive }) {
+             error instanceof Error ? error.message : "The update failed.",
+             "",
+             "You can update by hand:",
+-            "cd ~/shop-desktop",
++            process.platform === "win32" ? "cd %USERPROFILE%\\shop-desktop" : "cd ~/shop-desktop",
+             "git pull",
+             "npm install",
+           ].join("\n"),
+@@ -534,7 +535,9 @@ async function ensureLabelsRunning({ interactive = false } = {}) {
+           labelsServerHandle.reason || "Unknown error",
+           "",
+           "Desk Create RO still needs http://127.0.0.1:8080.",
+-          "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
++          process.platform === "win32"
++            ? "On Windows, confirm Node.js is installed and re-run Setup (it installs the Labels dependencies), then use Labels → restart."
++            : "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
+         ].join("\n"),
+       });
+     }
+@@ -658,7 +661,7 @@ function shopMenu() {
+             "Publishing the site updates this window. Shop data is not a separate copy.",
+             "",
+             "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
+-            "On Manjaro, the app can pull those and restart. On Windows, it offers the new portable download.",
++            "A git install (Manjaro, or Windows Setup) pulls those and restarts. Portable builds offer the new download instead.",
+             "",
+             "Check for desktop updates from Settings → Check for updates.",
+             "",
+@@ -667,7 +670,7 @@ function shopMenu() {
+               : "Labels service: starts with Tools (Labels → status / restart)"),
+             "LabelWriter print UX belongs on the shop site; Tools owns localhost :8080.",
+             "",
+-            "Unlock is shared with Plasma widgets and Black Forest Desk via ~/.local/share/blackforest-tools.",
++            `Unlock is shared with the shop widgets and Black Forest Desk via ${path.dirname(sessionFilePath())}.`,
+             "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
+             "While Tools is open, Desk can import the same session from http://127.0.0.1:8788 without re-typing the PIN.",
+             "Lock shop (menu or SPA Lock) clears the shared file, revokes the widget Bearer, and this window — Desk Sync Tools then has nothing to import. Firefox’s own shop cookie may still need Lock or expiry.",
+@@ -1155,26 +1158,37 @@ async function maybeExchangeWhileOnUnlock(url) {
+ }
+ 
+ function launchFirefox(url) {
++  const plan = firefoxLaunchPlan(url);
+   return new Promise((resolve, reject) => {
+-    const tryOpen = (cmd, args) => {
+-      const child = spawn(cmd, args, {
++    const attempt = (index) => {
++      const step = plan[index];
++      if (!step) {
++        reject(new Error("Could not open a browser for the Firefox handoff."));
++        return;
++      }
++      if (step.external) {
++        shell.openExternal(step.external).then(() => resolve("default-browser"), reject);
++        return;
++      }
++      const child = spawn(step.cmd, step.args, {
+         detached: true,
+         stdio: "ignore",
++        windowsHide: true,
+       });
+       child.on("error", (error) => {
+-        if (cmd === "firefox" && error && error.code === "ENOENT") {
+-          tryOpen("xdg-open", [url]);
++        if (error && error.code === "ENOENT" && index + 1 < plan.length) {
++          attempt(index + 1);
+           return;
+         }
+         reject(error);
+       });
+       child.on("spawn", () => {
+         child.unref();
+-        resolve(cmd);
++        resolve(step.cmd);
+       });
+     };
+     // --new-tab keeps Logan's default Firefox profile (never create a new one).
+-    tryOpen("firefox", ["--new-tab", url]);
++    attempt(0);
+   });
+ }
+ 
+@@ -1192,7 +1206,7 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
+         title: "Open in Firefox",
+         message: "Unlock the shop first.",
+         detail:
+-          "Sign in with a Plasma widget or this window so ~/.local/share/blackforest-tools/widget-session.json exists, then try again.",
++          `Sign in with a shop widget or this window so ${sessionFilePath()} exists, then try again.`,
+       });
+     }
+     return { ok: false, reason: "no_session" };
+diff --git a/src/shared-session.js b/src/shared-session.js
+index ef558f9..f7a76ae 100644
+--- a/src/shared-session.js
++++ b/src/shared-session.js
+@@ -7,17 +7,23 @@ const {
+   parseSessionJson,
+   isSessionExpired,
+ } = require("./widget-helpers");
++const { widgetSessionDir } = require("./widget-session-path");
++const { renameWithRetry } = require("./fs-atomic");
+ 
+ const DIR_NAME = "blackforest-tools";
+ const FILE_NAME = "widget-session.json";
+ const SHOP_BASE = "https://shop.blackforestautomotive.com";
+ 
+-function dataHome(env = process.env) {
++function dataHome(env = process.env, platform = process.platform) {
++  if (platform === "win32") {
++    return env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
++  }
+   return env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+ }
+ 
+-function sessionDir(env = process.env) {
+-  return path.join(dataHome(env), DIR_NAME);
++/** Linux: $XDG_DATA_HOME/blackforest-tools. Windows: %LOCALAPPDATA%\blackforest-tools. */
++function sessionDir(env = process.env, platform = process.platform) {
++  return widgetSessionDir(env, platform, os.homedir());
+ }
+ 
+ function sessionFilePath(env = process.env) {
+@@ -83,7 +89,7 @@ function writeSession(session, env = process.env) {
+   });
+   const tmp = `${file}.tmp`;
+   fs.writeFileSync(tmp, payload, { mode: 0o600 });
+-  fs.renameSync(tmp, file);
++  renameWithRetry(tmp, file);
+   try {
+     fs.chmodSync(file, 0o600);
+   } catch {
+diff --git a/src/shell-update.js b/src/shell-update.js
+index fc1ddef..5a1c33c 100644
+--- a/src/shell-update.js
++++ b/src/shell-update.js
+@@ -86,6 +86,9 @@ function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
+     encoding: "utf8",
+     timeout: 600_000,
+     env,
++    // Node refuses to spawn .cmd files directly on Windows (EINVAL since 20.12).
++    shell: process.platform === "win32",
++    windowsHide: true,
+   });
+   if (install.error) throw install.error;
+   if (install.status !== 0) {
+diff --git a/src/widget-main.js b/src/widget-main.js
+index bfe6456..64f13dc 100644
+--- a/src/widget-main.js
++++ b/src/widget-main.js
+@@ -35,6 +35,7 @@ const {
+   widgetSessionFile,
+ } = require("./widget-session");
+ const Api = require("./widget-api");
++const { electronLaunchSpec } = require("./widget-launch");
+ const {
+   appRootFromMain,
+   applyGitUpdate,
+@@ -406,19 +407,28 @@ async function doSendNote(recipient, text) {
+   }
+ }
+ 
++function spawnElectron(options) {
++  const spec = electronLaunchSpec({
++    execPath: process.execPath,
++    appRoot: APP_ROOT,
++    packaged: app.isPackaged,
++    ...options,
++  });
++  try {
++    const child = spawn(spec.command, spec.args, spec.options);
++    child.on("error", (error) => console.error("Could not launch Electron:", error));
++    child.unref();
++    return true;
++  } catch (error) {
++    console.error("Could not launch Electron:", error);
++    return false;
++  }
++}
++
+ function openTools() {
+-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+-  if (isGitInstall(APP_ROOT) && fs.existsSync(path.join(APP_ROOT, "package.json"))) {
+-    spawn(npm, ["start"], {
+-      cwd: APP_ROOT,
+-      detached: true,
+-      stdio: "ignore",
+-      shell: process.platform === "win32",
+-      env: process.env,
+-    }).unref();
+-    return;
++  if (!spawnElectron({ widget: false })) {
++    shell.openExternal(SHOP_HOME).catch(() => {});
+   }
+-  shell.openExternal(SHOP_HOME).catch(() => {});
+ }
+ 
+ async function checkForShellUpdate({ interactive }) {
+@@ -552,14 +562,7 @@ function buildMenu() {
+           label: "New widget window",
+           accelerator: "CmdOrCtrl+N",
+           click: () => {
+-            const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+-            spawn(npm, ["run", "widget", "--", `--view=${viewId}`], {
+-              cwd: APP_ROOT,
+-              detached: true,
+-              stdio: "ignore",
+-              shell: process.platform === "win32",
+-              env: process.env,
+-            }).unref();
++            spawnElectron({ widget: true, view: viewId });
+           },
+         },
+         { type: "separator" },
+@@ -658,14 +661,7 @@ function setupTray() {
+         {
+           label: "New widget window",
+           click: () => {
+-            const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+-            spawn(npm, ["run", "widget"], {
+-              cwd: APP_ROOT,
+-              detached: true,
+-              stdio: "ignore",
+-              shell: process.platform === "win32",
+-              env: process.env,
+-            }).unref();
++            spawnElectron({ widget: true });
+           },
+         },
+         { type: "separator" },
+diff --git a/src/widget-session.js b/src/widget-session.js
+index e513b21..3bcb7df 100644
+--- a/src/widget-session.js
++++ b/src/widget-session.js
+@@ -7,6 +7,7 @@ const {
+   isSessionExpired,
+ } = require("./widget-helpers");
+ const { widgetSessionDir, widgetSessionFile } = require("./widget-session-path");
++const { renameWithRetry } = require("./fs-atomic");
+ 
+ function ensureSessionDir(dir = widgetSessionDir()) {
+   fs.mkdirSync(dir, { recursive: true });
+@@ -47,7 +48,7 @@ function writeSession(session, file = widgetSessionFile()) {
+   });
+   const tmp = `${file}.tmp`;
+   fs.writeFileSync(tmp, payload, { encoding: "utf8", mode: 0o600 });
+-  fs.renameSync(tmp, file);
++  renameWithRetry(tmp, file);
+   if (process.platform !== "win32") {
+     try {
+       fs.chmodSync(file, 0o600);
