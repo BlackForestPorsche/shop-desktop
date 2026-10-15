@@ -1,8 +1,23 @@
 [
   {
+    "path": "src/shell-update.js",
+    "prefix": "src__shell-update.js.gz.b64",
+    "chunks": 1,
+    "sha256": "3ca0367ff4292ec12af9b0a44d9d44b6f403dd2413978c64695c746b1d309438",
+    "bytes": 11492
+  },
+  {
     "path": "src/main.js",
-    "prefix": "src__main.js",
-    "chunks": 5,
-    "sha256": "83e6ecdc6920a32009df70080ede2ee1206ed602dfab63c5b81a3e0a46fde209"
+    "prefix": "src__main.js.gz.b64",
+    "chunks": 3,
+    "sha256": "f0722bff484ea7efaebf97a8a48cdddcfc7613eea030c8bdc19012a58d1fc6c5",
+    "bytes": 49710
+  },
+  {
+    "path": "README.md",
+    "prefix": "README.md.gz.b64",
+    "chunks": 1,
+    "sha256": "e7a7f7383d8661748adffcd07a799d708f01723818048ab3d68e1daba8345bb1",
+    "bytes": 10395
   }
 ]
