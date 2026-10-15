@@ -1,0 +1,693 @@
+diff --git a/package.json b/package.json
+index ac138ef..8f3c0d0 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "blackforest-tools",
+   "productName": "Black Forest Tools",
+-  "version": "1.5.14",
++  "version": "1.5.15",
+   "private": true,
+   "description": "Desktop window for the Black Forest Automotive shop tools site.",
+   "main": "src/main.js",
+diff --git a/src/desk-session-bridge.js b/src/desk-session-bridge.js
+index 8301d61..bae9905 100644
+--- a/src/desk-session-bridge.js
++++ b/src/desk-session-bridge.js
+@@ -28,6 +28,7 @@ const DEFAULT_PORT = 8788;
+ const PATH_HEALTH = "/health";
+ const PATH_SESSION = "/v1/widget-session";
+ const PATH_LOCK = "/v1/lock";
++const HEALTH_REMINT_MS = 4_000;
+ 
+ function bridgePort(env = process.env) {
+   const raw = env.BLACKFOREST_DESK_BRIDGE_PORT || env.BF_DESK_BRIDGE_PORT;
+@@ -201,28 +202,49 @@ function startDeskSessionBridge(opts = {}) {
+         json(res, 405, { ok: false, error: "method_not_allowed" });
+         return;
+       }
++      const respondHealth = (session) => {
++        const meta = session && session.token
++          ? {
++              hasSession: true,
++              sessionExpired: false,
++              person: session.person || "",
++              hint: "session_ready",
++            }
++          : {
++              hasSession: false,
++              ...missMeta(peek),
++            };
++        json(res, 200, {
++          ok: true,
++          service: "blackforest-tools-desk-bridge",
++          hasSession: meta.hasSession,
++          sessionExpired: Boolean(meta.sessionExpired),
++          person: meta.person || "",
++          hint: meta.hint,
++          sessionId: session && session.token ? sessionId(session) : "",
++          ...(typeof opts.lockInfo === "function" ? opts.lockInfo() : {}),
++        });
++      };
+       const session = read();
+-      const meta = session && session.token
+-        ? {
+-            hasSession: true,
+-            sessionExpired: false,
+-            person: session.person || "",
+-            hint: "session_ready",
+-          }
+-        : {
+-            hasSession: false,
+-            ...missMeta(peek),
+-          };
+-      json(res, 200, {
+-        ok: true,
+-        service: "blackforest-tools-desk-bridge",
+-        hasSession: meta.hasSession,
+-        sessionExpired: Boolean(meta.sessionExpired),
+-        person: meta.person || "",
+-        hint: meta.hint,
+-        sessionId: session && session.token ? sessionId(session) : "",
+-        ...(typeof opts.lockInfo === "function" ? opts.lockInfo() : {}),
+-      });
++      if (session && session.token) {
++        respondHealth(session);
++        return;
++      }
++      // An expired Bearer must not read as "Tools signed out" to Desk (which would
++      // clear the site gate). Give Tools one chance to re-mint from the live gate first.
++      const stale = missMeta(peek);
++      if (stale.sessionExpired && typeof opts.onSessionMiss === "function") {
++        const bounded = Promise.race([
++          Promise.resolve(opts.onSessionMiss({ sessionExpired: true })),
++          new Promise((resolve) => setTimeout(resolve, HEALTH_REMINT_MS)),
++        ]);
++        bounded.then(
++          () => respondHealth(read()),
++          () => respondHealth(read()),
++        );
++        return;
++      }
++      respondHealth(session);
+       return;
+     }
+ 
+diff --git a/src/main.js b/src/main.js
+index e1595c7..40e3b82 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -24,6 +24,7 @@ const {
+   extractUnlockWidgetSession,
+   mintWidgetSession,
+   mintWidgetSessionFromGate,
++  refreshWidgetSession,
+   revokeWidgetSession,
+   exchangeWidgetSession,
+   requestFirefoxHandoff,
+@@ -50,6 +51,12 @@ const {
+   unlockAutoExchangeAction,
+   shouldClearLocalLockOnSharedPublish,
+ } = require("./session-sync-guards");
++const {
++  SESSION_VANISH_SETTLE_MS,
++  classifySessionVanish,
++  classifyGateRemoval,
++  sessionTimerAction,
++} = require("./session-lifecycle");
+ 
+ const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
+ const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
+@@ -92,6 +99,12 @@ let pendingUnlockCreds = null;
+ let pendingUnlockUntil = 0;
+ let sharedSessionWatcher = null;
+ let lastSharedFingerprint = "";
++let lastSharedSession = null;
++let sessionVanishTimer = null;
++function trackShared(session) {
++  lastSharedSession = session && session.token ? session : null;
++  lastSharedFingerprint = sessionFingerprint(lastSharedSession);
++}
+ let applyingRemoteLock = false;
+ let mintingWidgetSession = false;
+ let exchangingGate = false;
+@@ -765,7 +778,7 @@ function applyUnlockWidgetSession(raw) {
+     return null;
+   }
+   writeSession(next);
+-  lastSharedFingerprint = sessionFingerprint(next);
++  trackShared(next);
+   pendingUnlockCreds = null;
+   pendingUnlockUntil = 0;
+   return next;
+@@ -789,7 +802,7 @@ async function mintSharedSessionFromPending({ force = false } = {}) {
+   mintingWidgetSession = true;
+   try {
+     const next = await mintWidgetSession(creds.person, creds.pin);
+-    lastSharedFingerprint = sessionFingerprint(next);
++    trackShared(next);
+     return { ok: true, reason: "minted", person: next.person || "" };
+   } catch {
+     console.error("Could not mint shared widget session from desktop unlock.");
+@@ -835,7 +848,7 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
+   mintingWidgetSession = true;
+   try {
+     const next = await mintWidgetSessionFromGate(partitionFetch);
+-    lastSharedFingerprint = sessionFingerprint(next);
++    trackShared(next);
+     return { ok: true, reason: "from_gate", person: next.person || "" };
+   } catch (error) {
+     console.error("Could not mint shared widget session from shop gate cookie:", error);
+@@ -978,6 +991,7 @@ async function exchangeSharedSessionToGate({
+   force = false,
+   reload = true,
+   fromGateRetry = false,
++  renew = false,
+ } = {}) {
+   if (exchangingGate || applyingRemoteLock) {
+     return { ok: false, reason: "busy" };
+@@ -991,11 +1005,12 @@ async function exchangeSharedSessionToGate({
+   }
+   const hadGate = await shopGateCookiesPresent();
+   const onUnlock = spaIsOnUnlock();
+-  if (hadGate && !onUnlock) {
++  if (hadGate && !onUnlock && !renew) {
+     // Jar already good and SPA not on unlock — do not force-exchange/reload (flash).
+     return { ok: true, reason: "already" };
+   }
+   if (
++    !renew &&
+     !onUnlock &&
+     hadGate === false &&
+     lastGateExchangeAt &&
+@@ -1003,7 +1018,7 @@ async function exchangeSharedSessionToGate({
+   ) {
+     return { ok: true, reason: "cooldown" };
+   }
+-  if (!force && hadGate) {
++  if (!force && !renew && hadGate) {
+     return { ok: true, reason: "already" };
+   }
+   exchangingGate = true;
+@@ -1037,7 +1052,7 @@ async function exchangeSharedSessionToGate({
+     if (error && error.code === "unauthorized") {
+       console.error("Shared widget session rejected during exchange; clearing local file.");
+       clearSession();
+-      lastSharedFingerprint = "";
++      trackShared(null);
+       exchangingGate = false;
+       // Gate cookie may still be valid — recover Bearer for Desk bridge instead of
+       // leaving Tools "unlocked" with an empty widget-session.json (Desk 404).
+@@ -1255,7 +1270,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
+     } else {
+       clearSession();
+     }
+-    lastSharedFingerprint = "";
++    trackShared(null);
+     await clearShopGateCookies();
+     // Desk :8788 reads the same file — after clear, /health hasSession:false so
+     // "Use Tools session" / Sync Tools no longer offers a live unlock.
+@@ -1270,10 +1285,94 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
+   }
+ }
+ 
++/**
++ * widget-session.json went away. Running out of time is not a lock: renew from the
++ * shop gate while the site is still signed in. Anything else (Plasma Lock, manual rm)
++ * latches after a short settle so a non-atomic rewrite by another writer is not a lock.
++ */
++function handleSharedSessionVanished(previousSession) {
++  if (classifySessionVanish(previousSession) === "expired") {
++    renewExpiredSharedSession().catch((error) => {
++      console.error(error);
++    });
++    return;
++  }
++  if (sessionVanishTimer) {
++    clearTimeout(sessionVanishTimer);
++  }
++  sessionVanishTimer = setTimeout(() => {
++    sessionVanishTimer = null;
++    if (lockLatched || applyingRemoteLock || mintingWidgetSession || exchangingGate) {
++      return;
++    }
++    if (readSession()) {
++      return;
++    }
++    lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
++      console.error(error);
++    });
++  }, SESSION_VANISH_SETTLE_MS);
++}
++
++/** Bearer expired but the SPA gate cookie is still good: mint a fresh one, no lock. */
++async function renewExpiredSharedSession() {
++  if (lockLatched || spaIsOnUnlock()) {
++    return { ok: false, reason: "locked_or_unlock" };
++  }
++  const minted = await ensureSharedSessionFromGate({ force: true });
++  if (minted.ok && minted.reason === "from_gate") {
++    return exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
++  }
++  return minted;
++}
++
++/**
++ * Rotate a Bearer that is about to expire and push the new expiry into the gate cookie,
++ * so Tools and the Firefox site both stay signed in without a lock or a PIN.
++ */
++let renewingSession = false;
++async function renewSharedSessionIfDue() {
++  const live = readSession();
++  const action = sessionTimerAction({
++    session: live,
++    locked: lockLatched,
++    busy: renewingSession || mintingWidgetSession || exchangingGate || applyingRemoteLock,
++  });
++  if (action !== "renew") {
++    return { ok: true, reason: "not_due" };
++  }
++  renewingSession = true;
++  try {
++    let next = null;
++    try {
++      next = await refreshWidgetSession(live, partitionFetch);
++    } catch (error) {
++      if (error && error.code === "unauthorized") {
++        // Server dropped the Bearer (restart, revoke). The gate cookie may still be good.
++        if (!lockLatched && !spaIsOnUnlock() && (await shopGateCookiesPresent())) {
++          return await ensureSharedSessionFromGate({ force: true });
++        }
++      }
++      console.error("Could not renew shared widget session:", error);
++      return { ok: false, reason: error && error.code ? error.code : "failed" };
++    }
++    // A lock or a different unlock that raced the refresh wins.
++    const now = readSession();
++    if (lockLatched || applyingRemoteLock || !now || now.token !== live.token) {
++      return { ok: false, reason: "raced" };
++    }
++    writeSession(next);
++    trackShared(next);
++    return await exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
++  } finally {
++    renewingSession = false;
++  }
++}
++
+ function watchSharedSessionFile() {
+   const file = sessionFilePath();
+   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+-  lastSharedFingerprint = sessionFingerprint(readSession());
++  trackShared(readSession());
+ 
+   const onChange = () => {
+     if (applyingRemoteLock || mintingWidgetSession || exchangingGate) {
+@@ -1285,12 +1384,15 @@ function watchSharedSessionFile() {
+       return;
+     }
+     const previous = lastSharedFingerprint;
++    const previousSession = lastSharedSession;
+     const had = Boolean(previous);
+-    lastSharedFingerprint = fp;
++    trackShared(next);
++    if (fp && sessionVanishTimer) {
++      clearTimeout(sessionVanishTimer);
++      sessionVanishTimer = null;
++    }
+     if (!fp && had) {
+-      lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
+-        console.error(error);
+-      });
++      handleSharedSessionVanished(previousSession);
+       return;
+     }
+     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
+@@ -1303,7 +1405,7 @@ function watchSharedSessionFile() {
+       } catch {
+         // ignore
+       }
+-      lastSharedFingerprint = "";
++      trackShared(null);
+       return;
+     }
+     if (shouldClearLocalLockOnSharedPublish({ previousFingerprint: previous, nextFingerprint: fp })) {
+@@ -1357,11 +1459,12 @@ function configureSession() {
+       callback({ requestHeaders });
+     },
+   );
+-  shopSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
++  shopSession.cookies.on("changed", (_event, cookie, cause, removed) => {
+     if (!cookie || cookie.name !== GATE_COOKIE) {
+       return;
+     }
+     if (removed) {
++      const removal = classifyGateRemoval(cause, cookie.expirationDate);
+       // Cookie replace during exchange often fires removed→set. Wait; if the jar
+       // stays empty, treat it as SPA Lock and clear Desk's shared Bearer too.
+       if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
+@@ -1380,6 +1483,10 @@ function configureSession() {
+             if (present) {
+               return null;
+             }
++            // The cookie only ran out and the Bearer is still good: renew, never latch.
++            if (removal === "expired" && readSession() && !lockLatched) {
++              return exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
++            }
+             return lockSharedSurfaces({ revokeRemote: true });
+           })
+           .catch((error) => {
+@@ -1506,7 +1613,7 @@ if (gotLock) {
+           // so exchange cannot return local_lock (1.5.12 race fix).
+           unlockLatch();
+           exchangedGateThisSession = false;
+-          lastSharedFingerprint = sessionFingerprint(session);
++          trackShared(session);
+           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
+             console.error(error);
+           });
+@@ -1555,9 +1662,11 @@ if (gotLock) {
+       checkForShellUpdate({ interactive: false });
+     }, SHELL_UPDATE_EVERY_MS);
+     sessionRefreshTimer = setInterval(() => {
+-      ensureSharedSessionFromGate().catch((error) => {
+-        console.error(error);
+-      });
++      ensureSharedSessionFromGate()
++        .then(() => renewSharedSessionIfDue())
++        .catch((error) => {
++          console.error(error);
++        });
+     }, SESSION_REFRESH_EVERY_MS);
+     setTimeout(() => {
+       checkForShellUpdate({ interactive: false });
+diff --git a/src/session-lifecycle.js b/src/session-lifecycle.js
+new file mode 100644
+index 0000000..6d8f959
+--- /dev/null
++++ b/src/session-lifecycle.js
+@@ -0,0 +1,85 @@
++"use strict";
++
++const { isSessionExpired, shouldRefreshToken } = require("./widget-helpers");
++
++/**
++ * A Bearer session that runs out of time is not a lock. Only an intentional lock
++ * (menu, SPA Lock, Desk DELETE /v1/lock) may latch Tools; natural expiry must renew
++ * quietly while the website gate is still good.
++ */
++
++/** Wait this long before treating a vanished widget-session.json as a lock. */
++const SESSION_VANISH_SETTLE_MS = 1_500;
++
++/**
++ * widget-session.json disappeared. "expired" when the last live session was already
++ * past expiresAt (purge by Desk bridge / refresh timer), otherwise "cleared".
++ */
++function classifySessionVanish(previous, nowMs = Date.now()) {
++  if (previous && previous.expiresAt && isSessionExpired(previous, nowMs, 0)) {
++    return "expired";
++  }
++  return "cleared";
++}
++
++const LOCK_TIME_ZONE = "America/Los_Angeles";
++const LOCK_HOUR = 20;
++
++/** True when `ms` is the site's 8pm shop-time lock boundary (the gate's own expiry), +/- 90s. */
++function isLockHourExpiry(ms) {
++  if (!Number.isFinite(ms)) {
++    return false;
++  }
++  const fmt = new Intl.DateTimeFormat("en-US", {
++    timeZone: LOCK_TIME_ZONE,
++    hour: "numeric",
++    minute: "numeric",
++    hourCycle: "h23",
++  });
++  for (const delta of [0, 90_000, -90_000]) {
++    const parts = fmt.formatToParts(new Date(ms + delta));
++    const hour = Number(parts.find((p) => p.type === "hour").value);
++    const minute = Number(parts.find((p) => p.type === "minute").value);
++    if (hour === LOCK_HOUR && minute === 0) {
++      return true;
++    }
++  }
++  return false;
++}
++
++/**
++ * Why did bf_shop_gate leave the jar?
++ * - "expired": the cookie simply ran out (its expiry was the Bearer's, not the 8pm lock) — renew it.
++ * - "lock": anything deliberate (explicit/expired_overwrite/overwrite/evicted keep the old
++ *   present-check; 8pm expiry is the real lock).
++ */
++function classifyGateRemoval(cause, expirationDateSec, nowMs = Date.now()) {
++  if (String(cause || "").toLowerCase() !== "expired") {
++    return "lock";
++  }
++  const expMs = Number(expirationDateSec) * 1000;
++  if (!Number.isFinite(expMs) || expMs > nowMs + 5_000) {
++    return "lock";
++  }
++  return isLockHourExpiry(expMs) ? "lock" : "expired";
++}
++
++function sessionTimerAction({
++  session = null,
++  nowMs = Date.now(),
++  locked = false,
++  busy = false,
++} = {}) {
++  if (locked || busy || !session || !session.token) {
++    return "none";
++  }
++  return shouldRefreshToken(session, nowMs) ? "renew" : "none";
++}
++
++module.exports = {
++  SESSION_VANISH_SETTLE_MS,
++  classifySessionVanish,
++  classifyGateRemoval,
++  isLockHourExpiry,
++  sessionTimerAction,
++};
+diff --git a/src/shared-session.js b/src/shared-session.js
+index 48982f0..ef558f9 100644
+--- a/src/shared-session.js
++++ b/src/shared-session.js
+@@ -231,6 +231,50 @@ async function mintWidgetSession(person, pin, fetchImpl = fetch) {
+   return next;
+ }
+ 
++/**
++ * Rotate a live Bearer before it expires (POST /api/widget/session/refresh).
++ * Keeps the original loginAt so the server's 12h ceiling stays honest. Returns the
++ * new session without writing it; the caller decides whether a lock raced the refresh.
++ */
++async function refreshWidgetSession(current, fetchImpl = fetch) {
++  if (!current || !current.token) {
++    throw apiError("no_token", 0, "no widget token");
++  }
++  let res;
++  try {
++    res = await fetchImpl(`${SHOP_BASE}/api/widget/session/refresh`, {
++      method: "POST",
++      headers: {
++        Accept: "application/json",
++        Authorization: `Bearer ${current.token}`,
++        "Content-Type": "application/json",
++      },
++      body: "{}",
++    });
++  } catch (error) {
++    const err = apiError("network", 0, error instanceof Error ? error.message : "network");
++    err.cause = error;
++    throw err;
++  }
++  const body = await readJsonBody(res);
++  if (res.status === 401 || res.status === 403) {
++    throw apiError("unauthorized", res.status, "widget token rejected");
++  }
++  if (res.status === 429) {
++    throw apiError("rate_limited", res.status, "refresh rate limited");
++  }
++  if (res.status !== 200 || !body || !body.token || !body.expiresAt) {
++    throw apiError("refresh_failed", res.status, `refresh failed (HTTP ${res.status})`);
++  }
++  return {
++    token: String(body.token),
++    expiresAt: String(body.expiresAt),
++    person: body.person ? String(body.person).trim().toLowerCase() : current.person || "",
++    role: body.role ? String(body.role) : current.role || "",
++    loginAt: current.loginAt || new Date().toISOString(),
++  };
++}
++
+ async function revokeWidgetSession(token, fetchImpl = fetch) {
+   if (!token) {
+     clearSession();
+@@ -506,6 +550,7 @@ module.exports = {
+   extractUnlockWidgetSession,
+   mintWidgetSession,
+   mintWidgetSessionFromGate,
++  refreshWidgetSession,
+   revokeWidgetSession,
+   exchangeWidgetSession,
+   requestFirefoxHandoff,
+diff --git a/test/desk-session-bridge.test.js b/test/desk-session-bridge.test.js
+index 21162e6..4e4e192 100644
+--- a/test/desk-session-bridge.test.js
++++ b/test/desk-session-bridge.test.js
+@@ -79,6 +79,52 @@ test("GET /v1/widget-session is 404 without session", async () => {
+   }
+ });
+ 
++test("GET /health re-mints an expired session before telling Desk Tools is signed out", async () => {
++  let live = null;
++  const bridge = startDeskSessionBridge({
++    port: 0,
++    readSession: () => live,
++    peekSession: () =>
++      live || { token: "stale", expiresAt: "2000-01-01T00:00:00.000Z", person: "logan" },
++    onSessionMiss: async () => {
++      live = { token: "fresh", expiresAt: "2099-01-01T00:00:00.000Z", person: "logan" };
++    },
++  });
++  await new Promise((resolve, reject) => {
++    bridge.server.once("listening", resolve);
++    bridge.server.once("error", reject);
++  });
++  const { port } = bridge.server.address();
++  try {
++    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
++    assert.equal(health.hasSession, true);
++    assert.equal(health.hint, "session_ready");
++  } finally {
++    await bridge.close();
++  }
++});
++
++test("GET /health still reports expired when the re-mint cannot recover", async () => {
++  const bridge = startDeskSessionBridge({
++    port: 0,
++    readSession: () => null,
++    peekSession: () => ({ token: "stale", expiresAt: "2000-01-01T00:00:00.000Z" }),
++    onSessionMiss: async () => ({ ok: false, reason: "spa_on_unlock" }),
++  });
++  await new Promise((resolve, reject) => {
++    bridge.server.once("listening", resolve);
++    bridge.server.once("error", reject);
++  });
++  const { port } = bridge.server.address();
++  try {
++    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
++    assert.equal(health.hasSession, false);
++    assert.equal(health.hint, "bridge_up_session_expired");
++  } finally {
++    await bridge.close();
++  }
++});
++
+ test("GET /v1/widget-session reports expired and refreshes via onSessionMiss", async () => {
+   let live = null;
+   let missCalls = 0;
+@@ -110,11 +156,6 @@ test("GET /v1/widget-session reports expired and refreshes via onSessionMiss", a
+   });
+   const { port } = bridge.server.address();
+   try {
+-    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+-    assert.equal(health.hasSession, false);
+-    assert.equal(health.sessionExpired, true);
+-    assert.equal(health.hint, "bridge_up_session_expired");
+-
+     const res = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`);
+     assert.equal(res.status, 200);
+     assert.equal(missCalls, 1);
+diff --git a/test/session-lifecycle.test.js b/test/session-lifecycle.test.js
+new file mode 100644
+index 0000000..3689e3f
+--- /dev/null
++++ b/test/session-lifecycle.test.js
+@@ -0,0 +1,80 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const {
++  SESSION_VANISH_SETTLE_MS,
++  classifySessionVanish,
++  classifyGateRemoval,
++  isLockHourExpiry,
++  sessionTimerAction,
++} = require("../src/session-lifecycle");
++const { refreshWidgetSession } = require("../src/shared-session");
++
++const NOW = Date.parse("2026-10-15T18:00:00.000Z");
++const iso = (ms) => new Date(ms).toISOString();
++
++test("a vanished session past its expiry is expiry, not a lock", () => {
++  assert.equal(classifySessionVanish({ token: "t", expiresAt: iso(NOW - 1000) }, NOW), "expired");
++  assert.equal(classifySessionVanish({ token: "t", expiresAt: iso(NOW + 60_000) }, NOW), "cleared");
++  assert.equal(classifySessionVanish(null, NOW), "cleared");
++  assert.ok(SESSION_VANISH_SETTLE_MS > 0);
++});
++
++test("a gate that merely ran out is renewed; deliberate removals and 8pm stay locks", () => {
++  const sec = (ms) => ms / 1000;
++  const noon = Date.parse("2026-10-15T19:00:00.000Z"); // 12:00 PDT
++  const eightPm = Date.parse("2026-10-16T03:00:00.000Z"); // 20:00 PDT
++  assert.equal(classifyGateRemoval("expired", sec(noon), noon + 1000), "expired");
++  assert.equal(classifyGateRemoval("expired", sec(eightPm), eightPm + 500), "lock");
++  assert.equal(classifyGateRemoval("explicit", sec(noon), noon), "lock");
++  assert.equal(classifyGateRemoval("expired_overwrite", sec(noon), noon), "lock");
++  assert.equal(classifyGateRemoval("expired", sec(noon + 3_600_000), noon), "lock");
++  assert.equal(classifyGateRemoval("expired", undefined, noon), "lock");
++  assert.equal(isLockHourExpiry(eightPm), true);
++  assert.equal(isLockHourExpiry(noon), false);
++});
++
++test("timer renews a session near expiry but never while locked or busy", () => {
++  const nearEnd = { token: "t", expiresAt: iso(NOW + 10 * 60_000), loginAt: iso(NOW - 3_600_000) };
++  const fresh = { token: "t", expiresAt: iso(NOW + 6 * 3_600_000), loginAt: iso(NOW) };
++  assert.equal(sessionTimerAction({ session: nearEnd, nowMs: NOW }), "renew");
++  assert.equal(sessionTimerAction({ session: fresh, nowMs: NOW }), "none");
++  assert.equal(sessionTimerAction({ session: nearEnd, nowMs: NOW, locked: true }), "none");
++  assert.equal(sessionTimerAction({ session: nearEnd, nowMs: NOW, busy: true }), "none");
++  assert.equal(sessionTimerAction({ session: null, nowMs: NOW }), "none");
++});
++
++function fakeRes(status, body) {
++  return { status, headers: new Headers(), text: async () => JSON.stringify(body), json: async () => body };
++}
++
++test("refreshWidgetSession returns the rotated Bearer without writing it", async () => {
++  let seen;
++  const next = await refreshWidgetSession(
++    { token: "old", person: "logan", role: "desk", loginAt: "2026-10-15T08:00:00.000Z" },
++    async (url, init) => {
++      seen = { url, init };
++      return fakeRes(200, { token: "new", expiresAt: "2099-01-01T00:00:00.000Z", person: "Logan" });
++    },
++  );
++  assert.match(seen.url, /\/api\/widget\/session\/refresh$/);
++  assert.equal(seen.init.headers.Authorization, "Bearer old");
++  assert.equal(next.token, "new");
++  assert.equal(next.person, "logan");
++  assert.equal(next.loginAt, "2026-10-15T08:00:00.000Z");
++});
++
++test("refreshWidgetSession maps rejections to stable codes", async () => {
++  const cur = { token: "old" };
++  await assert.rejects(refreshWidgetSession(cur, async () => fakeRes(401, {})), { code: "unauthorized" });
++  await assert.rejects(refreshWidgetSession(cur, async () => fakeRes(429, {})), { code: "rate_limited" });
++  await assert.rejects(refreshWidgetSession(cur, async () => fakeRes(500, {})), { code: "refresh_failed" });
++  await assert.rejects(
++    refreshWidgetSession(cur, async () => {
++      throw new Error("down");
++    }),
++    { code: "network" },
++  );
++  await assert.rejects(refreshWidgetSession(null), { code: "no_token" });
++});
