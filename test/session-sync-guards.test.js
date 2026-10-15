@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   shouldHandleGateCookieSet,
+  shouldMintAfterLeavingUnlock,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
 } = require("../src/session-sync-guards");
@@ -95,4 +96,20 @@ test("shouldClearLocalLockOnSharedPublish when Bearer fingerprint changes", () =
     }),
     false,
   );
+});
+
+test("shouldMintAfterLeavingUnlock mints Bearer after a PIN unlock, even inside the lock cooldown", () => {
+  const base = {
+    url: "https://shop.blackforestautomotive.com/",
+    gatePresent: true,
+    hasSession: false,
+  };
+  assert.equal(shouldMintAfterLeavingUnlock(base), true);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, url: "https://shop.blackforestautomotive.com/unlock" }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, hasSession: true }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, gatePresent: false }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, isShopUrl: false }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, applyingRemoteLock: true }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, exchangingGate: true }), false);
+  assert.equal(shouldMintAfterLeavingUnlock({ ...base, mintingWidgetSession: true }), false);
 });
