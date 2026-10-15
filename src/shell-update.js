@@ -205,6 +205,16 @@ function applyGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {
     throw new Error(detail || "npm install failed after pulling the update");
   }
 
+  // Lazy: scripts/ is not shipped in packaged builds, only in git checkouts.
+  const { ensureElectronBinary } = require("../scripts/electron-binary");
+  const runtime = ensureElectronBinary(root);
+  if (!runtime.ok && runtime.state !== "missing-package") {
+    throw new Error(
+      "The update was pulled but the window runtime is not ready. " +
+        "Run: bash scripts/ensure-electron.sh",
+    );
+  }
+
   return {
     mode: "git",
     applied: true,

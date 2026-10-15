@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
-# Make sure the Electron binary is on disk. npm can leave the package installed
-# without running electron's download script.
+# Make sure the Electron binary is on disk and executable. npm can leave the
+# package installed without a runnable binary (skipped download, partial
+# extract, or mode 644 after an in-app update).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ELECTRON_DIR="$ROOT/node_modules/electron"
-ELECTRON_BIN="$ELECTRON_DIR/dist/electron"
-INSTALL_JS="$ELECTRON_DIR/install.js"
+ELECTRON_BIN="$ROOT/node_modules/electron/dist/electron"
 
-if [[ -x "$ELECTRON_BIN" ]]; then
+if [[ -x "$ELECTRON_BIN" ]] && [[ -s "$ELECTRON_BIN" ]] && [[ -f "$ROOT/node_modules/electron/path.txt" ]]; then
   exit 0
 fi
 
-if [[ ! -f "$INSTALL_JS" ]]; then
-  echo "Electron is not installed. From $ROOT run: npm install" >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js is required. From $ROOT run: npm install" >&2
   exit 1
 fi
 
-echo "Downloading the Black Forest Tools window runtime..."
-(
-  cd "$ROOT"
-  # npm 12 can skip package install scripts; call Electron's downloader directly.
-  node "$INSTALL_JS"
-)
+node "$ROOT/scripts/ensure-electron-run.js"
 
 if [[ ! -x "$ELECTRON_BIN" ]]; then
   echo "Could not download Electron." >&2
