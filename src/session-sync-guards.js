@@ -82,7 +82,33 @@ function shouldClearLocalLockOnSharedPublish({
   return Boolean(nextFingerprint && nextFingerprint !== previousFingerprint);
 }
 
+/**
+ * SPA left /unlock onto a shop page (PIN just worked) but no shared Bearer exists.
+ * The gate cookie SET fires while the URL is still /unlock, and ensureSharedSession
+ * refuses on spa_on_unlock, so this navigation is where Desk gets its Bearer.
+ * A lock clears the jar first, so a gate in the jar after a lock means a new unlock
+ * and must beat the lock cooldown.
+ */
+function shouldMintAfterLeavingUnlock({
+  url = "",
+  isShopUrl = true,
+  exchangingGate = false,
+  mintingWidgetSession = false,
+  applyingRemoteLock = false,
+  hasSession = false,
+  gatePresent = false,
+} = {}) {
+  if (!url || String(url).includes("/unlock") || !isShopUrl) {
+    return false;
+  }
+  if (exchangingGate || mintingWidgetSession || applyingRemoteLock) {
+    return false;
+  }
+  return !hasSession && gatePresent;
+}
+
 module.exports = {
+  shouldMintAfterLeavingUnlock,
   shouldHandleGateCookieSet,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
