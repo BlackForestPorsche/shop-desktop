@@ -1,205 +1,208 @@
 "use strict";
 
-/**
- * Ensure the platform Electron binary is present and executable.
- *
- * electron/install.js soft-skips when path.txt + dist/version + a file at the
- * binary path exist — it does NOT require +x. After Settings → Update
- * (npm install while Electron is live), dist/electron can be mode 644 so
- * ensure-electron.sh fails with "Could not download the window runtime".
- */
+// Keeps node_modules/electron launchable. Electron's own install.js treats the
+// runtime as installed when path.txt, dist/version and *a file* at the binary
+// path exist, even if that file is not executable (mode 644 after an in-app
+// update) or path.txt points at nothing. ensure-electron.sh then fails its -x
+// check and the launcher shows "Could not download the window runtime".
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-function defaultRoot() {
-  return path.join(__dirname, "..");
+const ENV_KEYS_TO_DROP = [
+  "ELECTRON_SKIP_BINARY_DOWNLOAD",
+  "ELECTRON_RUN_AS_NODE",
+  "ELECTRON_OVERRIDE_DIST_PATH",
+  "npm_config_platform",
+  "npm_config_arch",
+  "npm_config_target_platform",
+  "npm_config_target_arch",
+];
+
+function platformBinaryName(platform = process.platform) {
+  if (platform === "win32") return "electron.exe";
+  if (platform === "darwin") return path.join("Electron.app", "Contents", "MacOS", "Electron");
+  return "electron";
 }
 
-function electronDir(root) {
-  return path.join(root, "node_modules", "electron");
+function electronPaths(root, platform = process.platform) {
+  const pkgDir = path.join(root, "node_modules", "electron");
+  const dist = path.join(pkgDir, "dist");
+  return {
+    pkgDir,
+    dist,
+    installJs: path.join(pkgDir, "install.js"),
+    pathTxt: path.join(pkgDir, "path.txt"),
+    versionFile: path.join(dist, "version"),
+    binary: path.join(dist, platformBinaryName(platform)),
+  };
 }
 
-function binaryName(platform = process.platform) {
-  return platform === "win32" ? "electron.exe" : "electron";
-}
-
-function binaryPath(root, platform = process.platform) {
-  return path.join(electronDir(root), "dist", binaryName(platform));
-}
-
-function installScript(root) {
-  return path.join(electronDir(root), "install.js");
-}
-
-function pathTxt(root) {
-  return path.join(electronDir(root), "path.txt");
-}
-
-function isExecutable(filePath) {
+function isExecutable(file, platform = process.platform) {
   try {
-    fs.accessSync(filePath, fs.constants.X_OK);
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size === 0) return false;
+    if (platform === "win32") return true;
+    fs.accessSync(file, fs.constants.X_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-function looksLikeElf(filePath) {
+function readPathTxt(pathTxt) {
   try {
-    const fd = fs.openSync(filePath, "r");
-    const buf = Buffer.alloc(4);
-    fs.readSync(fd, buf, 0, 4, 0);
-    fs.closeSync(fd);
-    return buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+    return fs.readFileSync(pathTxt, "utf8").trim();
   } catch {
-    return false;
+    return null;
   }
 }
 
-function cleanEnv(base = process.env) {
-  const env = { ...base };
-  for (const key of [
-    "ELECTRON_SKIP_BINARY_DOWNLOAD",
-    "ELECTRON_RUN_AS_NODE",
-    "ELECTRON_OVERRIDE_DIST_PATH",
-    "npm_config_platform",
-    "npm_config_arch",
-    "npm_config_target_platform",
-    "npm_config_target_arch",
-  ]) {
-    delete env[key];
+/**
+ * state:
+ *   missing-package   node_modules/electron/install.js is absent
+ *   ok                binary exists, is runnable and metadata agrees
+ *   not-executable    binary file exists but lacks the exec bit (chmod fixes it)
+ *   stale-metadata    path.txt / dist/version missing or pointing elsewhere
+ *   missing-binary    nothing usable at dist/<binary>
+ */
+function inspectElectron(root, platform = process.platform) {
+  const p = electronPaths(root, platform);
+  if (!fs.existsSync(p.installJs)) return { state: "missing-package", paths: p };
+
+  const exists = fs.existsSync(p.binary);
+  if (!exists) return { state: "missing-binary", paths: p };
+
+  const recorded = readPathTxt(p.pathTxt);
+  const expected = platformBinaryName(platform);
+  if (!recorded || recorded !== expected || !fs.existsSync(p.versionFile)) {
+    return { state: "stale-metadata", paths: p };
   }
-  env.npm_config_ignore_scripts = "false";
-  return env;
+
+  if (!isExecutable(p.binary, platform)) return { state: "not-executable", paths: p };
+  return { state: "ok", paths: p };
 }
 
-function systemNode(env = process.env) {
-  if (env.BF_SYSTEM_NODE && fs.existsSync(env.BF_SYSTEM_NODE)) return env.BF_SYSTEM_NODE;
+function cleanEnv(env = process.env) {
+  const next = { ...env };
+  for (const key of ENV_KEYS_TO_DROP) delete next[key];
+  return next;
+}
+
+function findNode() {
+  if (!process.versions.electron) return { command: process.execPath, env: {} };
+  // Inside Electron, process.execPath is the very binary we may be replacing.
   const which = spawnSync(process.platform === "win32" ? "where" : "which", ["node"], {
     encoding: "utf8",
-    env,
   });
   const first = (which.stdout || "")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean);
-  if (first && fs.existsSync(first)) return first;
-  if (process.versions.electron) {
-    throw new Error("Need system Node on PATH to download the window runtime.");
-  }
-  return process.execPath;
+  if (first) return { command: first, env: {} };
+  return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: "1" } };
 }
 
-function wipeDist(root) {
-  const dir = path.join(electronDir(root), "dist");
-  fs.rmSync(dir, { recursive: true, force: true });
-  try {
-    fs.unlinkSync(pathTxt(root));
-  } catch (error) {
-    if (error && error.code !== "ENOENT") throw error;
-  }
-}
-
-function runInstallJs(root, { env = cleanEnv(), clearCache = false } = {}) {
-  const script = installScript(root);
-  if (!fs.existsSync(script)) {
-    throw new Error(`Electron package missing under ${root}. Run: npm install`);
-  }
-  if (clearCache) {
-    const cache = path.join(os.homedir(), ".cache", "electron");
-    fs.rmSync(cache, { recursive: true, force: true });
-  }
-  // Drop soft metadata so install.js cannot soft-skip a bad binary.
-  wipeDist(root);
-  const result = spawnSync(systemNode(env), [script], {
+function defaultRunInstall(root, installJs) {
+  const node = findNode();
+  const env = { ...cleanEnv(), ...node.env };
+  const result = spawnSync(node.command, [installJs], {
     cwd: root,
-    encoding: "utf8",
-    timeout: 600_000,
+    stdio: "inherit",
     env,
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "").trim();
-    throw new Error(detail || "electron/install.js failed");
+  return result.status === 0;
+}
+
+function wipeDist(paths) {
+  fs.rmSync(paths.dist, { recursive: true, force: true });
+  fs.rmSync(paths.pathTxt, { force: true });
+}
+
+function chmodBinary(file) {
+  try {
+    fs.chmodSync(file, 0o755);
+    return true;
+  } catch {
+    return false;
   }
 }
 
 /**
- * @returns {{ ok: true, path: string, repaired: 'none'|'chmod'|'download' }}
+ * Make node_modules/electron/dist/<binary> runnable.
+ * Returns { ok, state, action } where action is what was done:
+ *   none | chmod | install | reinstall | skipped
  */
-function ensureElectronBinary(root = defaultRoot(), options = {}) {
+function ensureElectronBinary(root, options = {}) {
   const platform = options.platform || process.platform;
-  const env = options.env || cleanEnv();
-  const bin = binaryPath(root, platform);
+  const runInstall = options.runInstall || defaultRunInstall;
+  const log = options.log || (() => {});
 
-  if (fs.existsSync(bin)) {
-    const usable = platform === "win32" || looksLikeElf(bin);
-    if (usable && isExecutable(bin)) {
-      return { ok: true, path: bin, repaired: "none" };
-    }
-    if (usable && !isExecutable(bin)) {
-      try {
-        fs.chmodSync(bin, 0o755);
-      } catch {
-        // fall through to re-download
-      }
-      if (isExecutable(bin)) {
-        return { ok: true, path: bin, repaired: "chmod" };
-      }
+  let inspected = inspectElectron(root, platform);
+  const { paths } = inspected;
+
+  if (inspected.state === "ok") return { ok: true, state: "ok", action: "none" };
+  if (inspected.state === "missing-package") {
+    return { ok: false, state: "missing-package", action: "skipped" };
+  }
+
+  if (inspected.state === "not-executable" && platform !== "win32") {
+    log("Electron binary is not executable; fixing permissions.");
+    if (chmodBinary(paths.binary) && inspectElectron(root, platform).state === "ok") {
+      return { ok: true, state: "ok", action: "chmod" };
     }
   }
 
-  // Windows artifact left on Linux, or non-ELF / non-executable junk.
-  const winBin = binaryPath(root, "win32");
-  if (platform !== "win32" && fs.existsSync(winBin) && !fs.existsSync(bin)) {
-    wipeDist(root);
+  const hadDist = fs.existsSync(paths.dist);
+  log("Downloading the Black Forest Tools window runtime...");
+  wipeDist(paths);
+  runInstall(root, paths.installJs);
+  if (inspectElectron(root, platform).state === "not-executable" && platform !== "win32") {
+    chmodBinary(paths.binary);
+  }
+  const after = inspectElectron(root, platform);
+  if (after.state === "ok") {
+    return { ok: true, state: "ok", action: hadDist ? "reinstall" : "install" };
   }
 
-  runInstallJs(root, { env, clearCache: false });
-  if (fs.existsSync(bin) && !isExecutable(bin)) {
-    fs.chmodSync(bin, 0o755);
+  // Cached zip can be the broken part; retry once with a fresh cache dir.
+  log("Retrying the runtime download with a clean cache...");
+  wipeDist(paths);
+  const retryCache = fs.mkdtempSync(path.join(os.tmpdir(), "bf-electron-cache-"));
+  const retryEnv = options.retryEnv || { ELECTRON_CACHE: retryCache };
+  const previous = {};
+  for (const [key, value] of Object.entries(retryEnv)) {
+    previous[key] = process.env[key];
+    process.env[key] = value;
   }
-  if (!fs.existsSync(bin) || !isExecutable(bin)) {
-    runInstallJs(root, { env, clearCache: true });
-    if (fs.existsSync(bin) && !isExecutable(bin)) {
-      fs.chmodSync(bin, 0o755);
-    }
-  }
-
-  if (!fs.existsSync(bin) || !isExecutable(bin)) {
-    throw new Error(
-      `Could not download the window runtime (missing or non-executable ${bin}).`,
-    );
-  }
-  return { ok: true, path: bin, repaired: "download" };
-}
-
-function main() {
-  const root = process.argv[2] ? path.resolve(process.argv[2]) : defaultRoot();
   try {
-    const result = ensureElectronBinary(root);
-    console.log(`Window runtime ready (${result.repaired}): ${result.path}`);
-    process.exit(0);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
-    process.exit(1);
+    runInstall(root, paths.installJs);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(retryCache, { recursive: true, force: true });
   }
-}
-
-if (require.main === module) {
-  main();
+  if (platform !== "win32" && inspectElectron(root, platform).state === "not-executable") {
+    chmodBinary(paths.binary);
+  }
+  const final = inspectElectron(root, platform);
+  return {
+    ok: final.state === "ok",
+    state: final.state,
+    action: "reinstall",
+  };
 }
 
 module.exports = {
-  defaultRoot,
-  binaryPath,
-  binaryName,
+  ENV_KEYS_TO_DROP,
+  platformBinaryName,
+  electronPaths,
   isExecutable,
-  looksLikeElf,
+  inspectElectron,
   cleanEnv,
-  wipeDist,
   ensureElectronBinary,
 };

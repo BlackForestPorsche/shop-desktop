@@ -6,54 +6,119 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
-  binaryPath,
-  isExecutable,
-  looksLikeElf,
-  wipeDist,
+  electronPaths,
+  inspectElectron,
   ensureElectronBinary,
+  cleanEnv,
 } = require("../scripts/electron-binary");
 
-test("binaryPath uses electron on linux and electron.exe on win32", () => {
-  assert.match(binaryPath("/app", "linux"), /dist\/electron$/);
-  assert.match(binaryPath("/app", "win32"), /dist\/electron\.exe$/);
+const POSIX = process.platform !== "win32";
+
+function makeRoot({ binary = true, mode = 0o755, pathTxt = "electron", version = true, dist = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bf-electron-test-"));
+  const p = electronPaths(root, "linux");
+  fs.mkdirSync(p.pkgDir, { recursive: true });
+  fs.writeFileSync(p.installJs, "");
+  if (dist) fs.mkdirSync(p.dist, { recursive: true });
+  if (binary) fs.writeFileSync(p.binary, "#!/bin/sh\nexit 0\n", { mode });
+  if (binary) fs.chmodSync(p.binary, mode);
+  if (pathTxt !== null) fs.writeFileSync(p.pathTxt, pathTxt);
+  if (version && dist) fs.writeFileSync(p.versionFile, "38.2.1");
+  return { root, p };
+}
+
+function fakeInstall(calls) {
+  return (root, installJs) => {
+    calls.push(installJs);
+    const p = electronPaths(root, "linux");
+    fs.mkdirSync(p.dist, { recursive: true });
+    fs.writeFileSync(p.binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    fs.chmodSync(p.binary, 0o755);
+    fs.writeFileSync(p.versionFile, "38.2.1");
+    fs.writeFileSync(p.pathTxt, "electron");
+    return true;
+  };
+}
+
+test("healthy install is left alone", { skip: !POSIX }, () => {
+  const { root } = makeRoot();
+  const calls = [];
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: fakeInstall(calls) });
+  assert.deepEqual([result.ok, result.action], [true, "none"]);
+  assert.equal(calls.length, 0);
 });
 
-test("ensureElectronBinary chmod-repairs a non-executable linux binary", () => {
-  const root = path.join(__dirname, "..");
-  const bin = binaryPath(root, process.platform);
-  if (process.platform === "win32" || !fs.existsSync(bin)) {
-    return; // skip when electron dist is not installed in CI/checkout
-  }
-  const modeBefore = fs.statSync(bin).mode;
-  fs.chmodSync(bin, 0o644);
-  assert.equal(isExecutable(bin), false);
-  const result = ensureElectronBinary(root);
+test("non-executable binary (mode 644) is repaired with chmod, not a download", { skip: !POSIX }, () => {
+  const { root, p } = makeRoot({ mode: 0o644 });
+  assert.equal(inspectElectron(root, "linux").state, "not-executable");
+  const calls = [];
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: fakeInstall(calls) });
+  assert.deepEqual([result.ok, result.action], [true, "chmod"]);
+  assert.equal(calls.length, 0);
+  fs.accessSync(p.binary, fs.constants.X_OK);
+});
+
+test("missing binary triggers a clean install", { skip: !POSIX }, () => {
+  const { root, p } = makeRoot({ binary: false });
+  fs.writeFileSync(path.join(p.dist, "locales"), "partial");
+  const calls = [];
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: fakeInstall(calls) });
   assert.equal(result.ok, true);
-  assert.equal(isExecutable(bin), true);
-  assert.ok(result.repaired === "chmod" || result.repaired === "none" || result.repaired === "download");
-  // leave executable for later tests
-  fs.chmodSync(bin, modeBefore | 0o111);
+  assert.equal(calls.length, 1);
+  assert.equal(fs.existsSync(path.join(p.dist, "locales")), false);
 });
 
-test("looksLikeElf recognizes a real electron binary when present", () => {
-  const root = path.join(__dirname, "..");
-  const bin = binaryPath(root, process.platform);
-  if (process.platform === "linux" && fs.existsSync(bin)) {
-    assert.equal(looksLikeElf(bin), true);
-  }
+test("stale path.txt is wiped and reinstalled", { skip: !POSIX }, () => {
+  const { root } = makeRoot({ pathTxt: "electron.exe" });
+  assert.equal(inspectElectron(root, "linux").state, "stale-metadata");
+  const calls = [];
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: fakeInstall(calls) });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
 });
 
-test("wipeDist removes dist and path.txt", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bf-elec-"));
-  try {
-    const electronDir = path.join(tmp, "node_modules", "electron");
-    fs.mkdirSync(path.join(electronDir, "dist"), { recursive: true });
-    fs.writeFileSync(path.join(electronDir, "dist", "electron"), "x");
-    fs.writeFileSync(path.join(electronDir, "path.txt"), "electron");
-    wipeDist(tmp);
-    assert.equal(fs.existsSync(path.join(electronDir, "dist")), false);
-    assert.equal(fs.existsSync(path.join(electronDir, "path.txt")), false);
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
+test("missing path.txt counts as stale", { skip: !POSIX }, () => {
+  const { root } = makeRoot({ pathTxt: null });
+  assert.equal(inspectElectron(root, "linux").state, "stale-metadata");
+});
+
+test("failed first install is retried once with a fresh cache", { skip: !POSIX }, () => {
+  const { root } = makeRoot({ binary: false });
+  const caches = [];
+  let n = 0;
+  const runInstall = (r, installJs) => {
+    n += 1;
+    caches.push(process.env.ELECTRON_CACHE);
+    return n === 1 ? false : fakeInstall([])(r, installJs);
+  };
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall });
+  assert.equal(result.ok, true);
+  assert.equal(n, 2);
+  assert.equal(caches[0], process.env.ELECTRON_CACHE);
+  assert.ok(caches[1]);
+  assert.notEqual(caches[1], caches[0]);
+  assert.equal(process.env.ELECTRON_CACHE, caches[0]);
+});
+
+test("gives up (ok=false) when install never produces a binary", { skip: !POSIX }, () => {
+  const { root } = makeRoot({ binary: false });
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: () => false });
+  assert.equal(result.ok, false);
+});
+
+test("missing electron package is reported, not installed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bf-electron-test-"));
+  const calls = [];
+  const result = ensureElectronBinary(root, { platform: "linux", runInstall: fakeInstall(calls) });
+  assert.deepEqual([result.ok, result.state], [false, "missing-package"]);
+  assert.equal(calls.length, 0);
+});
+
+test("cleanEnv drops skip/platform overrides", () => {
+  const env = cleanEnv({
+    ELECTRON_SKIP_BINARY_DOWNLOAD: "1",
+    npm_config_platform: "win32",
+    PATH: "/usr/bin",
+  });
+  assert.deepEqual(env, { PATH: "/usr/bin" });
 });

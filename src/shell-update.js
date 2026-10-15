@@ -6,8 +6,22 @@ const https = require("node:https");
 const path = require("node:path");
 const {
   ensureElectronBinary,
-  cleanEnv: cleanUpdateEnv,
+  cleanEnv: cleanElectronEnv,
 } = require("../scripts/electron-binary");
+
+function cleanUpdateEnv(env = process.env) {
+  return { ...cleanElectronEnv(env), npm_config_ignore_scripts: "false" };
+}
+
+function assertRuntimeReady(root) {
+  const runtime = ensureElectronBinary(root);
+  if (!runtime.ok && runtime.state !== "missing-package") {
+    throw new Error(
+      "npm install finished but the window runtime is not ready. Run: bash scripts/ensure-electron.sh",
+    );
+  }
+  return runtime;
+}
 
 const DEFAULT_REPO = "BlackForestPorsche/shop-desktop";
 const DEFAULT_BRANCH = "main";
@@ -77,7 +91,7 @@ function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
     const detail = (install.stderr || install.stdout || "").trim();
     throw new Error(detail || "npm install failed after pulling the update");
   }
-  ensureElectronBinary(root, { env });
+  assertRuntimeReady(root);
   return { ok: true };
 }
 
@@ -103,7 +117,7 @@ function hasPendingNpmInstall(root) {
  */
 function finishPendingNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
   if (!hasPendingNpmInstall(root)) {
-    ensureElectronBinary(root, { env });
+    assertRuntimeReady(root);
     return { ran: false };
   }
   runNpmInstall(root, { env });
