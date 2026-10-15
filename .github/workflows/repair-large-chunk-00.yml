@@ -1,8 +1,0 @@
-name: MUTED — repair
-on:
-  workflow_dispatch:
-jobs:
-  muted:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo Muted
