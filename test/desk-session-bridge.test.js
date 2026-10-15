@@ -79,6 +79,52 @@ test("GET /v1/widget-session is 404 without session", async () => {
   }
 });
 
+test("GET /health re-mints an expired session before telling Desk Tools is signed out", async () => {
+  let live = null;
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => live,
+    peekSession: () =>
+      live || { token: "stale", expiresAt: "2000-01-01T00:00:00.000Z", person: "logan" },
+    onSessionMiss: async () => {
+      live = { token: "fresh", expiresAt: "2099-01-01T00:00:00.000Z", person: "logan" };
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    assert.equal(health.hasSession, true);
+    assert.equal(health.hint, "session_ready");
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("GET /health still reports expired when the re-mint cannot recover", async () => {
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => null,
+    peekSession: () => ({ token: "stale", expiresAt: "2000-01-01T00:00:00.000Z" }),
+    onSessionMiss: async () => ({ ok: false, reason: "spa_on_unlock" }),
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
+    assert.equal(health.hasSession, false);
+    assert.equal(health.hint, "bridge_up_session_expired");
+  } finally {
+    await bridge.close();
+  }
+});
+
 test("GET /v1/widget-session reports expired and refreshes via onSessionMiss", async () => {
   let live = null;
   let missCalls = 0;
@@ -110,11 +156,6 @@ test("GET /v1/widget-session reports expired and refreshes via onSessionMiss", a
   });
   const { port } = bridge.server.address();
   try {
-    const health = await (await fetch(`http://127.0.0.1:${port}/health`)).json();
-    assert.equal(health.hasSession, false);
-    assert.equal(health.sessionExpired, true);
-    assert.equal(health.hint, "bridge_up_session_expired");
-
     const res = await fetch(`http://127.0.0.1:${port}${PATH_SESSION}`);
     assert.equal(res.status, 200);
     assert.equal(missCalls, 1);

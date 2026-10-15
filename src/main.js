@@ -24,6 +24,7 @@ const {
   extractUnlockWidgetSession,
   mintWidgetSession,
   mintWidgetSessionFromGate,
+  refreshWidgetSession,
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,
@@ -50,6 +51,12 @@ const {
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
 } = require("./session-sync-guards");
+const {
+  SESSION_VANISH_SETTLE_MS,
+  classifySessionVanish,
+  classifyGateRemoval,
+  sessionTimerAction,
+} = require("./session-lifecycle");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
@@ -92,6 +99,12 @@ let pendingUnlockCreds = null;
 let pendingUnlockUntil = 0;
 let sharedSessionWatcher = null;
 let lastSharedFingerprint = "";
+let lastSharedSession = null;
+let sessionVanishTimer = null;
+function trackShared(session) {
+  lastSharedSession = session && session.token ? session : null;
+  lastSharedFingerprint = sessionFingerprint(lastSharedSession);
+}
 let applyingRemoteLock = false;
 let mintingWidgetSession = false;
 let exchangingGate = false;
@@ -765,7 +778,7 @@ function applyUnlockWidgetSession(raw) {
     return null;
   }
   writeSession(next);
-  lastSharedFingerprint = sessionFingerprint(next);
+  trackShared(next);
   pendingUnlockCreds = null;
   pendingUnlockUntil = 0;
   return next;
@@ -789,7 +802,7 @@ async function mintSharedSessionFromPending({ force = false } = {}) {
   mintingWidgetSession = true;
   try {
     const next = await mintWidgetSession(creds.person, creds.pin);
-    lastSharedFingerprint = sessionFingerprint(next);
+    trackShared(next);
     return { ok: true, reason: "minted", person: next.person || "" };
   } catch {
     console.error("Could not mint shared widget session from desktop unlock.");
@@ -835,7 +848,7 @@ async function ensureSharedSessionFromGate({ force = false } = {}) {
   mintingWidgetSession = true;
   try {
     const next = await mintWidgetSessionFromGate(partitionFetch);
-    lastSharedFingerprint = sessionFingerprint(next);
+    trackShared(next);
     return { ok: true, reason: "from_gate", person: next.person || "" };
   } catch (error) {
     console.error("Could not mint shared widget session from shop gate cookie:", error);
@@ -978,6 +991,7 @@ async function exchangeSharedSessionToGate({
   force = false,
   reload = true,
   fromGateRetry = false,
+  renew = false,
 } = {}) {
   if (exchangingGate || applyingRemoteLock) {
     return { ok: false, reason: "busy" };
@@ -991,11 +1005,12 @@ async function exchangeSharedSessionToGate({
   }
   const hadGate = await shopGateCookiesPresent();
   const onUnlock = spaIsOnUnlock();
-  if (hadGate && !onUnlock) {
+  if (hadGate && !onUnlock && !renew) {
     // Jar already good and SPA not on unlock — do not force-exchange/reload (flash).
     return { ok: true, reason: "already" };
   }
   if (
+    !renew &&
     !onUnlock &&
     hadGate === false &&
     lastGateExchangeAt &&
@@ -1003,7 +1018,7 @@ async function exchangeSharedSessionToGate({
   ) {
     return { ok: true, reason: "cooldown" };
   }
-  if (!force && hadGate) {
+  if (!force && !renew && hadGate) {
     return { ok: true, reason: "already" };
   }
   exchangingGate = true;
@@ -1037,7 +1052,7 @@ async function exchangeSharedSessionToGate({
     if (error && error.code === "unauthorized") {
       console.error("Shared widget session rejected during exchange; clearing local file.");
       clearSession();
-      lastSharedFingerprint = "";
+      trackShared(null);
       exchangingGate = false;
       // Gate cookie may still be valid — recover Bearer for Desk bridge instead of
       // leaving Tools "unlocked" with an empty widget-session.json (Desk 404).
@@ -1255,7 +1270,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     } else {
       clearSession();
     }
-    lastSharedFingerprint = "";
+    trackShared(null);
     await clearShopGateCookies();
     // Desk :8788 reads the same file — after clear, /health hasSession:false so
     // "Use Tools session" / Sync Tools no longer offers a live unlock.
@@ -1270,10 +1285,94 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
   }
 }
 
+/**
+ * widget-session.json went away. Running out of time is not a lock: renew from the
+ * shop gate while the site is still signed in. Anything else (Plasma Lock, manual rm)
+ * latches after a short settle so a non-atomic rewrite by another writer is not a lock.
+ */
+function handleSharedSessionVanished(previousSession) {
+  if (classifySessionVanish(previousSession) === "expired") {
+    renewExpiredSharedSession().catch((error) => {
+      console.error(error);
+    });
+    return;
+  }
+  if (sessionVanishTimer) {
+    clearTimeout(sessionVanishTimer);
+  }
+  sessionVanishTimer = setTimeout(() => {
+    sessionVanishTimer = null;
+    if (lockLatched || applyingRemoteLock || mintingWidgetSession || exchangingGate) {
+      return;
+    }
+    if (readSession()) {
+      return;
+    }
+    lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
+      console.error(error);
+    });
+  }, SESSION_VANISH_SETTLE_MS);
+}
+
+/** Bearer expired but the SPA gate cookie is still good: mint a fresh one, no lock. */
+async function renewExpiredSharedSession() {
+  if (lockLatched || spaIsOnUnlock()) {
+    return { ok: false, reason: "locked_or_unlock" };
+  }
+  const minted = await ensureSharedSessionFromGate({ force: true });
+  if (minted.ok && minted.reason === "from_gate") {
+    return exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
+  }
+  return minted;
+}
+
+/**
+ * Rotate a Bearer that is about to expire and push the new expiry into the gate cookie,
+ * so Tools and the Firefox site both stay signed in without a lock or a PIN.
+ */
+let renewingSession = false;
+async function renewSharedSessionIfDue() {
+  const live = readSession();
+  const action = sessionTimerAction({
+    session: live,
+    locked: lockLatched,
+    busy: renewingSession || mintingWidgetSession || exchangingGate || applyingRemoteLock,
+  });
+  if (action !== "renew") {
+    return { ok: true, reason: "not_due" };
+  }
+  renewingSession = true;
+  try {
+    let next = null;
+    try {
+      next = await refreshWidgetSession(live, partitionFetch);
+    } catch (error) {
+      if (error && error.code === "unauthorized") {
+        // Server dropped the Bearer (restart, revoke). The gate cookie may still be good.
+        if (!lockLatched && !spaIsOnUnlock() && (await shopGateCookiesPresent())) {
+          return await ensureSharedSessionFromGate({ force: true });
+        }
+      }
+      console.error("Could not renew shared widget session:", error);
+      return { ok: false, reason: error && error.code ? error.code : "failed" };
+    }
+    // A lock or a different unlock that raced the refresh wins.
+    const now = readSession();
+    if (lockLatched || applyingRemoteLock || !now || now.token !== live.token) {
+      return { ok: false, reason: "raced" };
+    }
+    writeSession(next);
+    trackShared(next);
+    return await exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
+  } finally {
+    renewingSession = false;
+  }
+}
+
 function watchSharedSessionFile() {
   const file = sessionFilePath();
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  lastSharedFingerprint = sessionFingerprint(readSession());
+  trackShared(readSession());
 
   const onChange = () => {
     if (applyingRemoteLock || mintingWidgetSession || exchangingGate) {
@@ -1285,12 +1384,15 @@ function watchSharedSessionFile() {
       return;
     }
     const previous = lastSharedFingerprint;
+    const previousSession = lastSharedSession;
     const had = Boolean(previous);
-    lastSharedFingerprint = fp;
+    trackShared(next);
+    if (fp && sessionVanishTimer) {
+      clearTimeout(sessionVanishTimer);
+      sessionVanishTimer = null;
+    }
     if (!fp && had) {
-      lockSharedSurfaces({ revokeRemote: false }).catch((error) => {
-        console.error(error);
-      });
+      handleSharedSessionVanished(previousSession);
       return;
     }
     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
@@ -1303,7 +1405,7 @@ function watchSharedSessionFile() {
       } catch {
         // ignore
       }
-      lastSharedFingerprint = "";
+      trackShared(null);
       return;
     }
     if (shouldClearLocalLockOnSharedPublish({ previousFingerprint: previous, nextFingerprint: fp })) {
@@ -1357,11 +1459,12 @@ function configureSession() {
       callback({ requestHeaders });
     },
   );
-  shopSession.cookies.on("changed", (_event, cookie, _cause, removed) => {
+  shopSession.cookies.on("changed", (_event, cookie, cause, removed) => {
     if (!cookie || cookie.name !== GATE_COOKIE) {
       return;
     }
     if (removed) {
+      const removal = classifyGateRemoval(cause, cookie.expirationDate);
       // Cookie replace during exchange often fires removed→set. Wait; if the jar
       // stays empty, treat it as SPA Lock and clear Desk's shared Bearer too.
       if (applyingRemoteLock || exchangingGate || mintingWidgetSession) {
@@ -1379,6 +1482,10 @@ function configureSession() {
           .then((present) => {
             if (present) {
               return null;
+            }
+            // The cookie only ran out and the Bearer is still good: renew, never latch.
+            if (removal === "expired" && readSession() && !lockLatched) {
+              return exchangeSharedSessionToGate({ force: true, reload: false, renew: true });
             }
             return lockSharedSurfaces({ revokeRemote: true });
           })
@@ -1506,7 +1613,7 @@ if (gotLock) {
           // so exchange cannot return local_lock (1.5.12 race fix).
           unlockLatch();
           exchangedGateThisSession = false;
-          lastSharedFingerprint = sessionFingerprint(session);
+          trackShared(session);
           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
             console.error(error);
           });
@@ -1555,9 +1662,11 @@ if (gotLock) {
       checkForShellUpdate({ interactive: false });
     }, SHELL_UPDATE_EVERY_MS);
     sessionRefreshTimer = setInterval(() => {
-      ensureSharedSessionFromGate().catch((error) => {
-        console.error(error);
-      });
+      ensureSharedSessionFromGate()
+        .then(() => renewSharedSessionIfDue())
+        .catch((error) => {
+          console.error(error);
+        });
     }, SESSION_REFRESH_EVERY_MS);
     setTimeout(() => {
       checkForShellUpdate({ interactive: false });

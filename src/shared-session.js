@@ -231,6 +231,50 @@ async function mintWidgetSession(person, pin, fetchImpl = fetch) {
   return next;
 }
 
+/**
+ * Rotate a live Bearer before it expires (POST /api/widget/session/refresh).
+ * Keeps the original loginAt so the server's 12h ceiling stays honest. Returns the
+ * new session without writing it; the caller decides whether a lock raced the refresh.
+ */
+async function refreshWidgetSession(current, fetchImpl = fetch) {
+  if (!current || !current.token) {
+    throw apiError("no_token", 0, "no widget token");
+  }
+  let res;
+  try {
+    res = await fetchImpl(`${SHOP_BASE}/api/widget/session/refresh`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${current.token}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (error) {
+    const err = apiError("network", 0, error instanceof Error ? error.message : "network");
+    err.cause = error;
+    throw err;
+  }
+  const body = await readJsonBody(res);
+  if (res.status === 401 || res.status === 403) {
+    throw apiError("unauthorized", res.status, "widget token rejected");
+  }
+  if (res.status === 429) {
+    throw apiError("rate_limited", res.status, "refresh rate limited");
+  }
+  if (res.status !== 200 || !body || !body.token || !body.expiresAt) {
+    throw apiError("refresh_failed", res.status, `refresh failed (HTTP ${res.status})`);
+  }
+  return {
+    token: String(body.token),
+    expiresAt: String(body.expiresAt),
+    person: body.person ? String(body.person).trim().toLowerCase() : current.person || "",
+    role: body.role ? String(body.role) : current.role || "",
+    loginAt: current.loginAt || new Date().toISOString(),
+  };
+}
+
 async function revokeWidgetSession(token, fetchImpl = fetch) {
   if (!token) {
     clearSession();
@@ -506,6 +550,7 @@ module.exports = {
   extractUnlockWidgetSession,
   mintWidgetSession,
   mintWidgetSessionFromGate,
+  refreshWidgetSession,
   revokeWidgetSession,
   exchangeWidgetSession,
   requestFirefoxHandoff,
