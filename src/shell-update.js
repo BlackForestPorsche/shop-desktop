@@ -4,6 +4,10 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
+const {
+  ensureElectronBinary,
+  cleanEnv: cleanUpdateEnv,
+} = require("../scripts/electron-binary");
 
 const DEFAULT_REPO = "BlackForestPorsche/shop-desktop";
 const DEFAULT_BRANCH = "main";
@@ -58,109 +62,6 @@ function pickPortableAsset(assets) {
     /portable/i.test(asset.name || "") && /\.exe$/i.test(asset.name || ""),
   );
   return portable || assets.find((asset) => /\.exe$/i.test(asset.name || "")) || null;
-}
-
-/**
- * Env for npm / electron install spawned from inside Electron.
- * Drop skip-download and platform overrides that leave Linux without a usable binary
- * (launcher then shows "Could not download the window runtime").
- */
-function cleanUpdateEnv(baseEnv = process.env) {
-  const env = { ...baseEnv };
-  const drop = [
-    "ELECTRON_SKIP_BINARY_DOWNLOAD",
-    "ELECTRON_RUN_AS_NODE",
-    "ELECTRON_OVERRIDE_DIST_PATH",
-    "npm_config_platform",
-    "npm_config_arch",
-    "npm_config_target_platform",
-    "npm_config_target_arch",
-    "npm_config_electron_mirror",
-  ];
-  for (const key of drop) {
-    delete env[key];
-  }
-  for (const key of Object.keys(env)) {
-    const lower = key.toLowerCase();
-    if (
-      lower === "electron_skip_binary_download" ||
-      lower === "npm_config_platform" ||
-      lower === "npm_config_arch"
-    ) {
-      delete env[key];
-    }
-  }
-  env.npm_config_ignore_scripts = "false";
-  return env;
-}
-
-function electronBinaryPath(root, platform = process.platform) {
-  const name = platform === "win32" ? "electron.exe" : "electron";
-  return path.join(root, "node_modules", "electron", "dist", name);
-}
-
-function electronInstallScript(root) {
-  return path.join(root, "node_modules", "electron", "install.js");
-}
-
-function systemNodePath() {
-  const fromEnv = process.env.BF_SYSTEM_NODE;
-  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
-  const which = spawnSync(process.platform === "win32" ? "where" : "which", ["node"], {
-    encoding: "utf8",
-  });
-  if (which.status === 0) {
-    const first = (which.stdout || "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean);
-    if (first && fs.existsSync(first) && path.basename(first).toLowerCase() !== "electron") {
-      return first;
-    }
-  }
-  if (process.versions.electron) {
-    throw new Error(
-      "Could not find system Node to download the window runtime. Install Node.js and ensure `node` is on PATH.",
-    );
-  }
-  return process.execPath;
-}
-
-function ensureElectronBinary(root, { env = cleanUpdateEnv(), platform = process.platform } = {}) {
-  const bin = electronBinaryPath(root, platform);
-  if (fs.existsSync(bin)) {
-    try {
-      fs.accessSync(bin, fs.constants.X_OK);
-      return { ok: true, path: bin, downloaded: false };
-    } catch {
-      // fall through and re-download
-    }
-  }
-
-  const installJs = electronInstallScript(root);
-  if (!fs.existsSync(installJs)) {
-    throw new Error(`Electron is not installed under ${root}. Run: npm install`);
-  }
-
-  const node = systemNodePath();
-  const result = spawnSync(node, [installJs], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 600_000,
-    env,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout || "").trim();
-    throw new Error(detail || "Could not download the Electron window runtime");
-  }
-
-  if (!fs.existsSync(bin)) {
-    throw new Error(
-      `Electron download finished but ${bin} is missing (wrong platform binary?). Run: bash scripts/ensure-electron.sh`,
-    );
-  }
-  return { ok: true, path: bin, downloaded: true };
 }
 
 function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
@@ -381,7 +282,6 @@ module.exports = {
   versionFromReleaseAssetName,
   pickPortableAsset,
   cleanUpdateEnv,
-  electronBinaryPath,
   ensureElectronBinary,
   runNpmInstall,
   markPendingNpmInstall,
