@@ -10,6 +10,7 @@ const {
   appRootFromMain,
   applyGitUpdate,
   checkShellUpdate,
+  linuxRelaunchSpec,
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
@@ -334,7 +335,14 @@ async function checkForShellUpdate({ interactive }) {
         return;
       }
 
-      app.relaunch();
+      // Linux: restart via the menu launcher so pending npm + ensure-electron run
+      // after this process exits (avoids wiping the live Electron binary mid-update).
+      const linuxRelaunch = process.platform === "linux" ? linuxRelaunchSpec(APP_ROOT) : null;
+      if (linuxRelaunch) {
+        app.relaunch({ execPath: linuxRelaunch.execPath, args: linuxRelaunch.args });
+      } else {
+        app.relaunch();
+      }
       app.exit(0);
       return;
     }
