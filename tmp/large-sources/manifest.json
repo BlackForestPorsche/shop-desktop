@@ -1,8 +1,32 @@
 [
   {
-    "path": "src/main.js",
-    "prefix": "src__main.js",
-    "chunks": 5,
-    "sha256": "83e6ecdc6920a32009df70080ede2ee1206ed602dfab63c5b81a3e0a46fde209"
+    "path": "src/idle-fleet.js",
+    "prefix": "src__idle-fleet.js",
+    "chunks": 1,
+    "sha256": "8eb10b5ad949b0aa3c623ebd229db8bd5c85be112cd5eae515e59cd38433ba54"
+  },
+  {
+    "path": "src/shell-chrome.js",
+    "prefix": "src__shell-chrome.js",
+    "chunks": 3,
+    "sha256": "003356167ee9d7c422c6ea7293a17d29b442268334cb3de832804314db56b4f7"
+  },
+  {
+    "path": "test/idle-fleet.test.js",
+    "prefix": "test__idle-fleet.test.js",
+    "chunks": 1,
+    "sha256": "88e409c2242e58fdd9703cc8b7d7f99c2fd40317d16de534b4c30523db5c0337"
+  },
+  {
+    "path": "test/shell-chrome.test.js",
+    "prefix": "test__shell-chrome.test.js",
+    "chunks": 1,
+    "sha256": "00c2e6f0b93359a6341d1db8adce4a2805820947f80445a04b9ec6c5340a47cb"
+  },
+  {
+    "path": "README.md",
+    "prefix": "README.md",
+    "chunks": 2,
+    "sha256": "49fee7ba983454736ec55ffb38c15042f966c2713aa42aa0d5ecd6cab0d81e58"
   }
 ]
