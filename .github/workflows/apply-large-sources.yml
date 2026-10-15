@@ -1,11 +1,10 @@
 name: Apply large desktop sources
-# Soft-skip incomplete — exit 0 mid-upload.
+# Template for agent large-file uploads. Incomplete chunks exit green
+# (wait for the rest) so mid-upload pushes do not spam failure email.
+# Prefer workflow_dispatch after all parts are on the branch; avoid
+# merging this file to main with a push trigger on a live cursor/* branch.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - tmp/large-sources/**
-      - .github/workflows/apply-large-sources.yml
 permissions:
   contents: write
 concurrency:
@@ -19,24 +18,49 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Decode (soft-skip incomplete)
+      - name: Decode sources from large-sources chunks
         shell: bash
         run: |
           python3 <<'PY'
-          import pathlib, gzip, base64, hashlib, json, sys
+          import pathlib, gzip, base64, hashlib, json, sys, subprocess
           root = pathlib.Path("tmp/large-sources")
-          mp = root / "manifest.json"
-          if not mp.exists():
-              print("No manifest — green"); sys.exit(0)
-          for item in json.loads(mp.read_text()):
+          manifest_path = root / "manifest.json"
+          if not manifest_path.exists():
+              print("No manifest — nothing to apply (green).")
+              sys.exit(0)
+          manifest = json.loads(manifest_path.read_text())
+          changed = []
+          for item in manifest:
+              parts = []
+              missing = False
               for i in range(item["chunks"]):
-                  if not (root / f"{item['prefix']}.{i:02d}").exists():
-                      print("incomplete green"); sys.exit(0)
-              try:
-                  data = gzip.decompress(base64.b64decode("".join((root / f"{item['prefix']}.{i:02d}").read_text().strip() for i in range(item["chunks"]))))
-              except Exception as e:
-                  print(e, "green"); sys.exit(0)
+                  p = root / f"{item['prefix']}.{i:02d}"
+                  if not p.exists():
+                      print(f"incomplete payload, waiting for {p} (green)")
+                      missing = True
+                      break
+                  parts.append(p.read_text().strip())
+              if missing:
+                  # Mid-upload: do not fail the job (avoids Actions failure email).
+                  sys.exit(0)
+              data = gzip.decompress(base64.b64decode("".join(parts)))
               if item.get("sha256") and hashlib.sha256(data).hexdigest() != item["sha256"]:
-                  print("sha green"); sys.exit(0)
-              pathlib.Path(item["path"]).write_bytes(data)
+                  print(f"sha mismatch {item['path']}", file=sys.stderr)
+                  sys.exit(1)
+              path = pathlib.Path(item["path"])
+              path.parent.mkdir(parents=True, exist_ok=True)
+              if path.exists() and path.read_bytes() == data:
+                  print(f"unchanged {item['path']}")
+                  continue
+              path.write_bytes(data)
+              changed.append(item["path"])
+              print(f"wrote {item['path']} {len(data)} bytes")
+          if not changed:
+              print("No changes")
+              sys.exit(0)
+          subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
+          subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
+          subprocess.check_call(["git", "add", "--"] + changed)
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply sources from large-sources chunks"])
+          subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY
