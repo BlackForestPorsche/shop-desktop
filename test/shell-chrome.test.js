@@ -20,6 +20,30 @@ test("shell chrome idle clock does not require window focus", () => {
   assert.match(source, /function idleRunning\(\) \{\s*return appActive;/);
 });
 
+test("idle overlay dismisses on click only — not mousemove or hover", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.match(source, /function onSoftActivity/);
+  assert.match(source, /function onDismissClick/);
+  assert.match(source, /if \(fleet\.length\) return;/);
+  assert.match(source, /Click to return to the shop/);
+  // Soft activity must include move events but must not dismiss.
+  assert.match(source, /"mousemove"/);
+  assert.match(source, /"pointermove"/);
+  assert.match(source, /dismissEvents = \["click", "auxclick"\]/);
+  // Old "any input dismisses" path must be gone.
+  assert.equal(/function onActivity\(\)/.test(source), false);
+  assert.equal(/Move the mouse or press a key/.test(source), false);
+});
+
+test("idle overlay sails, sinks, and respawns toward the idle target", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.match(source, /stepShipSail/);
+  assert.match(source, /applyCannonHit/);
+  assert.match(source, /shipsCollide/);
+  assert.match(source, /stepShipSink/);
+  assert.match(source, /syncFleet\(\)/);
+});
+
 test("preload wires BF_IDLE_MS into mountShellChrome", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
   assert.match(source, /resolveIdleIntervalMs/);
