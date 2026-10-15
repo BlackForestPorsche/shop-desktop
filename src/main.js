@@ -39,6 +39,7 @@ const {
 } = require("./labels-server");
 const {
   shouldHandleGateCookieSet,
+  shouldMintAfterLeavingUnlock,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
 } = require("./session-sync-guards");
@@ -676,9 +677,11 @@ function createWindow(startUrl) {
     });
     // Shared Bearer present but SPA still on /unlock (TanStack Set-Cookie miss) → exchange.
     maybeExchangeWhileOnUnlock(win.webContents.getURL());
+    maybeMintAfterLeavingUnlock(win.webContents.getURL());
   });
   win.webContents.on("did-navigate", (_event, url) => {
     maybeExchangeWhileOnUnlock(url);
+    maybeMintAfterLeavingUnlock(url);
   });
 
   win.loadURL(startUrl, {
@@ -1012,6 +1015,29 @@ async function leaveUnlockScreen() {
     return;
   }
   await mainWindow.loadURL(SHOP_HOME);
+}
+
+/** PIN unlock in the Tools window: leaving /unlock with a gate cookie but no Bearer → mint for Desk. */
+async function maybeMintAfterLeavingUnlock(url) {
+  try {
+    if (
+      !shouldMintAfterLeavingUnlock({
+        url,
+        isShopUrl: classifyUrl(String(url || "")).kind === "shop",
+        exchangingGate,
+        mintingWidgetSession,
+        applyingRemoteLock,
+        hasSession: Boolean(readSession()),
+        gatePresent: await shopGateCookiesPresent(),
+      })
+    ) {
+      return;
+    }
+    localLockUntil = 0;
+    await ensureSharedSessionFromGate({ force: true });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 /** Shared session exists but SPA is still on /unlock — exchange once (debounced). */
