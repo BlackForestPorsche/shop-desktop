@@ -9,6 +9,12 @@ const MIN_IDLE_INTERVAL_MS = 1000;
 /** Keep the fight fun without burning CPU. */
 const MAX_SHIPS = 7;
 
+/** Hits to list a hull before it sinks. */
+const SHIP_HP = 3;
+
+/** Damage applied per cannon hit. */
+const HIT_DAMAGE = 1;
+
 /** Lottery styles for each new ship (mixed fleets are intentional). */
 const SHIP_STYLES = Object.freeze([
   "pixel",
@@ -68,14 +74,128 @@ function growFleet(fleet, targetCount, rng = Math.random) {
   return next;
 }
 
+/**
+ * Initial sail kinematics for a new hull.
+ * @param {() => number} [rng]
+ */
+function pickSailMotion(rng = Math.random) {
+  const facing = rng() < 0.5 ? -1 : 1;
+  const speed = 22 + rng() * 38;
+  return {
+    facing,
+    vx: facing * speed,
+    speed,
+    turnTimer: 2.5 + rng() * 5,
+  };
+}
+
+/**
+ * Sail a ship across the water band. Real translation (not bob-only).
+ * @param {{
+ *   x: number, y: number, vx: number, facing: number,
+ *   speed: number, turnTimer: number, sinking?: number,
+ * }} ship
+ * @param {number} dt seconds
+ * @param {{ minX: number, maxX: number, minY: number, maxY: number }} bounds
+ * @param {() => number} [rng]
+ */
+function stepShipSail(ship, dt, bounds, rng = Math.random) {
+  if (ship.sinking > 0) {
+    ship.y += 28 * dt;
+    ship.vx *= 0.92;
+    ship.x += ship.vx * dt;
+    return ship;
+  }
+
+  ship.turnTimer -= dt;
+  if (ship.turnTimer <= 0) {
+    ship.turnTimer = 2.2 + rng() * 5.5;
+    if (rng() < 0.55) {
+      ship.facing *= -1;
+      ship.vx = ship.facing * ship.speed;
+    } else {
+      const nudge = (rng() - 0.5) * 18;
+      ship.y = Math.min(bounds.maxY, Math.max(bounds.minY, ship.y + nudge));
+    }
+  }
+
+  ship.x += ship.vx * dt;
+  // Gentle drift on the Y band so lanes mix.
+  ship.y += Math.sin((ship.x + ship.speed) * 0.01) * 6 * dt;
+
+  if (ship.x < bounds.minX) {
+    ship.x = bounds.minX;
+    ship.facing = 1;
+    ship.vx = ship.speed;
+    ship.turnTimer = 1.5 + rng() * 2;
+  } else if (ship.x > bounds.maxX) {
+    ship.x = bounds.maxX;
+    ship.facing = -1;
+    ship.vx = -ship.speed;
+    ship.turnTimer = 1.5 + rng() * 2;
+  }
+
+  if (ship.y < bounds.minY) ship.y = bounds.minY;
+  if (ship.y > bounds.maxY) ship.y = bounds.maxY;
+  return ship;
+}
+
+/**
+ * Apply a cannon hit. Returns whether the hull should start sinking.
+ * @param {{ hp: number, list?: number, sinking?: number }} ship
+ * @param {number} [damage]
+ */
+function applyCannonHit(ship, damage = HIT_DAMAGE) {
+  if (ship.sinking > 0) return { sunk: false, hp: ship.hp };
+  ship.hp = Math.max(0, (ship.hp ?? SHIP_HP) - damage);
+  ship.list = 0.85;
+  if (ship.hp <= 0) {
+    ship.sinking = 1.35;
+    return { sunk: true, hp: 0 };
+  }
+  return { sunk: false, hp: ship.hp };
+}
+
+/**
+ * Advance sink animation; true when the ship should be removed from the fleet.
+ * @param {{ sinking?: number }} ship
+ * @param {number} dt
+ */
+function stepShipSink(ship, dt) {
+  if (!(ship.sinking > 0)) return false;
+  ship.sinking -= dt;
+  return ship.sinking <= 0;
+}
+
+/**
+ * Whether two live ships overlap enough to ram (collision sink risk).
+ * @param {{ x: number, y: number, sinking?: number, scale?: number }} a
+ * @param {{ x: number, y: number, sinking?: number, scale?: number }} b
+ * @param {number} [radius]
+ */
+function shipsCollide(a, b, radius = 42) {
+  if (a.sinking > 0 || b.sinking > 0) return false;
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const r = radius * ((a.scale || 1) + (b.scale || 1)) * 0.5;
+  return dx * dx + dy * dy < r * r;
+}
+
 module.exports = {
   IDLE_INTERVAL_MS,
   MIN_IDLE_INTERVAL_MS,
   MAX_SHIPS,
+  SHIP_HP,
+  HIT_DAMAGE,
   SHIP_STYLES,
   BRAND_BLUE,
   resolveIdleIntervalMs,
   pickShipStyle,
   shipsForIdleMs,
   growFleet,
+  pickSailMotion,
+  stepShipSail,
+  applyCannonHit,
+  stepShipSink,
+  shipsCollide,
 };

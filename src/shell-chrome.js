@@ -3,6 +3,8 @@
 /**
  * Electron-shell chrome injected into the BrowserWindow (not the hosted shop site).
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
+ * - Ships sail, fire, collide, and sink; sunk hulls respawn toward the idle target
+ * - Overlay dismisses on click only (mousemove / hover / keys do not dismiss)
  * Desktop updates live in the native Settings menu (not an in-page header button).
  *
  * Idle accumulates while the page is visible (not document.hidden). Window blur/focus
@@ -13,9 +15,15 @@
 const {
   IDLE_INTERVAL_MS,
   MAX_SHIPS,
+  SHIP_HP,
   BRAND_BLUE,
   shipsForIdleMs,
   growFleet,
+  pickSailMotion,
+  stepShipSail,
+  applyCannonHit,
+  stepShipSink,
+  shipsCollide,
 } = require("./idle-fleet");
 
 const ROOT_ID = "bf-tools-shell-root";
@@ -93,7 +101,7 @@ function mountShellChrome(options = {}) {
     </style>
     <div class="overlay" aria-hidden="true">
       <canvas></canvas>
-      <p class="hint">Move the mouse or press a key to return to the shop</p>
+      <p class="hint">Click to return to the shop</p>
     </div>
   `;
 
@@ -122,11 +130,17 @@ function mountShellChrome(options = {}) {
    *   x: number,
    *   y: number,
    *   facing: number,
+   *   vx: number,
+   *   speed: number,
+   *   turnTimer: number,
    *   bob: number,
    *   bobSpeed: number,
    *   list: number,
    *   hpTilt: number,
+   *   hp: number,
+   *   sinking: number,
    *   scale: number,
+   *   ramCool: number,
    * }} Ship
    * @typedef {{
    *   x: number, y: number,
@@ -169,27 +183,41 @@ function mountShellChrome(options = {}) {
     }
   }
 
-  function placeShip(style, index, total) {
+  function waterBounds() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const bandTop = h * 0.42;
-    const bandH = h * 0.38;
+    return {
+      minX: 70,
+      maxX: Math.max(90, w - 70),
+      minY: h * 0.42,
+      maxY: Math.max(h * 0.42 + 40, h - 70),
+    };
+  }
+
+  function placeShip(style, index) {
+    const bounds = waterBounds();
     const col = index % 4;
     const row = Math.floor(index / 4);
-    const x = w * (0.14 + col * 0.22) + (index % 2 ? 18 : -12);
-    const y = bandTop + row * (bandH * 0.35) + (index * 17) % 40;
-    const facing = x < w * 0.5 ? 1 : -1;
+    const x = bounds.minX + (bounds.maxX - bounds.minX) * (0.12 + col * 0.22);
+    const y = bounds.minY + row * ((bounds.maxY - bounds.minY) * 0.28) + (index * 17) % 36;
+    const motion = pickSailMotion();
     return {
       id: nextShipId++,
       style,
-      x: Math.min(w - 80, Math.max(80, x)),
-      y: Math.min(h - 70, Math.max(bandTop, y)),
-      facing,
+      x: Math.min(bounds.maxX, Math.max(bounds.minX, x + (index % 2 ? 18 : -12))),
+      y: Math.min(bounds.maxY, Math.max(bounds.minY, y)),
+      facing: motion.facing,
+      vx: motion.vx,
+      speed: motion.speed,
+      turnTimer: motion.turnTimer,
       bob: Math.random() * Math.PI * 2,
       bobSpeed: 1.1 + Math.random() * 0.8,
       list: 0,
       hpTilt: 0,
+      hp: SHIP_HP,
+      sinking: 0,
       scale: 0.85 + Math.random() * 0.25,
+      ramCool: 0,
     };
   }
 
@@ -205,7 +233,7 @@ function mountShellChrome(options = {}) {
       target,
     );
     for (let i = before; i < grown.length; i++) {
-      fleet.push(placeShip(grown[i].style, i, grown.length));
+      fleet.push(placeShip(grown[i].style, i));
     }
     if (fleet.length && !overlay.classList.contains("on")) {
       overlay.classList.add("on");
@@ -242,19 +270,58 @@ function mountShellChrome(options = {}) {
 
   function step(dt) {
     fireCooldown -= dt;
+    const bounds = waterBounds();
+    const survivors = [];
     for (const ship of fleet) {
       ship.bob += ship.bobSpeed * dt;
+      ship.ramCool = Math.max(0, ship.ramCool - dt);
+      stepShipSail(ship, dt, bounds);
       if (ship.list > 0) {
         ship.list = Math.max(0, ship.list - dt);
         ship.hpTilt = Math.sin(ship.list * 14) * 0.22 * (ship.list > 0.15 ? 1 : ship.list / 0.15);
+      } else if (ship.sinking > 0) {
+        ship.hpTilt = Math.min(1.1, ship.hpTilt + dt * 0.9);
       } else {
         ship.hpTilt *= 0.9;
       }
+      if (stepShipSink(ship, dt)) {
+        splashes.push({ x: ship.x, y: ship.y + 12, t: 0, style: ship.style });
+        continue;
+      }
+      survivors.push(ship);
+    }
+    fleet = survivors;
+
+    // Ramming: overlapping live hulls trade a hit (can sink).
+    for (let i = 0; i < fleet.length; i++) {
+      for (let j = i + 1; j < fleet.length; j++) {
+        const a = fleet[i];
+        const b = fleet[j];
+        if (a.ramCool > 0 || b.ramCool > 0) continue;
+        if (!shipsCollide(a, b)) continue;
+        a.ramCool = 1.8;
+        b.ramCool = 1.8;
+        applyCannonHit(a);
+        applyCannonHit(b);
+        // Bounce facing so they sail apart.
+        if (a.x <= b.x) {
+          a.facing = -1;
+          a.vx = -a.speed;
+          b.facing = 1;
+          b.vx = b.speed;
+        } else {
+          a.facing = 1;
+          a.vx = a.speed;
+          b.facing = -1;
+          b.vx = -b.speed;
+        }
+      }
     }
 
-    if (fleet.length >= 2 && fireCooldown <= 0) {
+    const live = fleet.filter((s) => !(s.sinking > 0));
+    if (live.length >= 2 && fireCooldown <= 0) {
       fireCooldown = 1.1 + Math.random() * 1.4;
-      maybeFire();
+      maybeFire(live);
     }
 
     const nextBalls = [];
@@ -270,9 +337,7 @@ function mountShellChrome(options = {}) {
       }
       if (ball.hit) {
         const target = fleet.find((s) => s.id === ball.to);
-        if (target) {
-          target.list = 0.85 + Math.random() * 0.4;
-        }
+        if (target) applyCannonHit(target);
       } else {
         splashes.push({ x: ball.x1, y: ball.y1 + 10, t: 0, style: ball.style });
       }
@@ -285,16 +350,23 @@ function mountShellChrome(options = {}) {
       if (splash.t < 0.7) nextSplash.push(splash);
     }
     splashes = nextSplash;
+
+    if (!fleet.length) {
+      stopLoop();
+      // Idle target still applies — refill so the scene stays alive until click.
+      syncFleet();
+    }
   }
 
-  function maybeFire() {
-    if (fleet.length < 2) return;
-    let a = (Math.random() * fleet.length) | 0;
-    let b = (Math.random() * fleet.length) | 0;
-    if (a === b) b = (b + 1) % fleet.length;
-    const from = fleet[a];
-    const to = fleet[b];
-    const hit = Math.random() < 0.38;
+  function maybeFire(liveFleet) {
+    const pool = liveFleet || fleet.filter((s) => !(s.sinking > 0));
+    if (pool.length < 2) return;
+    let a = (Math.random() * pool.length) | 0;
+    let b = (Math.random() * pool.length) | 0;
+    if (a === b) b = (b + 1) % pool.length;
+    const from = pool[a];
+    const to = pool[b];
+    const hit = Math.random() < 0.42;
     const x0 = from.x + from.facing * 36;
     const y0 = from.y - 8;
     const x1 = hit ? to.x - to.facing * 10 : to.x + (Math.random() - 0.5) * 90;
@@ -316,10 +388,13 @@ function mountShellChrome(options = {}) {
   }
 
   function drawShip(ship) {
-    const y = ship.y + Math.sin(ship.bob) * 4;
+    const sinkDrop = ship.sinking > 0 ? (1.35 - ship.sinking) * 26 : 0;
+    const fade = ship.sinking > 0 ? Math.max(0.15, ship.sinking / 1.35) : 1;
+    const y = ship.y + Math.sin(ship.bob) * 4 + sinkDrop;
     ctx.save();
+    ctx.globalAlpha = fade;
     ctx.translate(ship.x, y);
-    ctx.scale(ship.facing * ship.scale, ship.scale);
+    ctx.scale(ship.facing * ship.scale, ship.scale * (ship.sinking > 0 ? 0.85 : 1));
     ctx.rotate(ship.hpTilt);
 
     switch (ship.style) {
@@ -575,7 +650,17 @@ function mountShellChrome(options = {}) {
     for (const splash of splashes) drawSplash(splash);
   }
 
-  function onActivity() {
+  /**
+   * Soft activity (mouse move / keys / scroll): resets the idle clock only while
+   * the battle overlay is off. Never dismisses an active fleet — click only.
+   */
+  function onSoftActivity() {
+    if (fleet.length) return;
+    resetIdle(false);
+  }
+
+  /** Click / tap dismisses the overlay and clears the fleet. */
+  function onDismissClick() {
     resetIdle(true);
   }
 
@@ -588,7 +673,8 @@ function mountShellChrome(options = {}) {
     if (fleet.length) startLoop();
   }
 
-  const activityEvents = [
+  // Keep the idle clock honest while working — but these must NOT dismiss battles.
+  const softActivityEvents = [
     "mousemove",
     "mousedown",
     "mouseup",
@@ -597,18 +683,25 @@ function mountShellChrome(options = {}) {
     "keyup",
     "pointerdown",
     "pointermove",
+    "pointerup",
     "touchstart",
     "touchmove",
+    "touchend",
     "scroll",
   ];
 
-  for (const name of activityEvents) {
-    window.addEventListener(name, onActivity, { passive: true, capture: true });
+  // Overlay dismiss: click / tap only (not hover, not mousemove, not keys).
+  const dismissEvents = ["click", "auxclick"];
+
+  for (const name of softActivityEvents) {
+    window.addEventListener(name, onSoftActivity, { passive: true, capture: true });
+  }
+  for (const name of dismissEvents) {
+    window.addEventListener(name, onDismissClick, { passive: true, capture: true });
   }
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", resize);
-  // Clicks on the overlay also count as activity (dismiss).
-  overlay.addEventListener("pointerdown", onActivity, { capture: true });
+  overlay.addEventListener("click", onDismissClick, { capture: true });
 
   const parent = document.documentElement || document.body;
   parent.appendChild(host);
@@ -634,9 +727,13 @@ function mountShellChrome(options = {}) {
       disposed = true;
       window.clearInterval(tickTimer);
       stopLoop();
-      for (const name of activityEvents) {
-        window.removeEventListener(name, onActivity, { capture: true });
+      for (const name of softActivityEvents) {
+        window.removeEventListener(name, onSoftActivity, { capture: true });
       }
+      for (const name of dismissEvents) {
+        window.removeEventListener(name, onDismissClick, { capture: true });
+      }
+      overlay.removeEventListener("click", onDismissClick, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("resize", resize);
       host.remove();
@@ -644,6 +741,7 @@ function mountShellChrome(options = {}) {
     /** @internal test helpers */
     _test: {
       syncFleet,
+      step,
       get fleet() {
         return fleet;
       },
@@ -653,6 +751,8 @@ function mountShellChrome(options = {}) {
       get overlayOn() {
         return overlay.classList.contains("on");
       },
+      dismissWithClick: onDismissClick,
+      softActivity: onSoftActivity,
     },
   };
 }
