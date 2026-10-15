@@ -5,10 +5,6 @@ name: Apply large desktop sources
 # merging this file to main with a push trigger on a live cursor/* branch.
 on:
   workflow_dispatch:
-  push:
-    branches: [cursor/idle-ship-battles-b3f0]
-    paths:
-      - 'tmp/large-sources/**'
 permissions:
   contents: write
 concurrency:
