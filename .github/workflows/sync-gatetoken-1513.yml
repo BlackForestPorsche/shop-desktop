@@ -1,0 +1,37 @@
+name: Sync gatetoken 1.5.13 sources
+on:
+  workflow_dispatch:
+  push:
+    branches: [cursor/gatetoken-tools-1513-6e33]
+    paths: [.github/workflows/sync-gatetoken-1513.yml]
+permissions:
+  contents: write
+concurrency:
+  group: sync-gatetoken-1513-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cursor/gatetoken-tools-1513-6e33
+          fetch-depth: 0
+      - name: Copy verified sources from prefer-json tip
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin cursor/gatetoken-prefer-json-6e33
+          git checkout origin/cursor/gatetoken-prefer-json-6e33 -- \
+            package.json \
+            src/main.js \
+            src/shared-session.js \
+            test/shared-session.test.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "Already synced"
+            exit 0
+          fi
+          git commit -m "fix(tools): prefer gateToken; no remint on /unlock (1.5.13)"
+          git push origin HEAD:cursor/gatetoken-tools-1513-6e33

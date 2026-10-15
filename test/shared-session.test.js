@@ -209,6 +209,33 @@ test("exchangeWidgetSession posts Bearer and maps contract statuses", async () =
   );
 });
 
+test("exchangeWidgetSession returns gateToken when Set-Cookie headers are invisible", async () => {
+  const got = await exchangeWidgetSession("tok", async () => ({
+    status: 200,
+    headers: {
+      getSetCookie() {
+        return [];
+      },
+      get() {
+        return null;
+      },
+    },
+    async json() {
+      return {
+        ok: true,
+        person: "logan",
+        role: "desk",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        gateToken: "v2.gate.only.from.json",
+      };
+    },
+  }));
+  assert.equal(got.ok, true);
+  assert.equal(got.gateToken, "v2.gate.only.from.json");
+  assert.equal(got.setCookie.length, 0);
+  assert.equal(got.expiresAt, "2099-01-01T00:00:00.000Z");
+});
+
 test("parseGateSetCookie reads bf_shop_gate Set-Cookie details", () => {
   const details = parseGateSetCookie(
     "bf_shop_gate=v2.99.logan.desk.mac; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=120",
