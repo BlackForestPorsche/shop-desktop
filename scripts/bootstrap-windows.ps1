@@ -74,15 +74,21 @@ try {
   Write-Host ""
   Write-Host "Setup finished."
   Write-Host "  Tools:  Start Menu -> Black Forest Automotive -> Black Forest Tools"
+  Write-Host "  Widget: Start Menu -> Black Forest Automotive -> Black Forest Shop Widget"
   Write-Host "  Folder: $Target"
   Write-Host "  Updates: task BlackForestShopDesktopUpdate (every 30 min)"
   Write-Host "  Login:  Startup folder + Run key (BlackForestTools)"
   Write-Host "  Disable login start: scripts\disable-tools-autostart.ps1"
   Write-Host ""
   Write-Host "Launching Black Forest Tools..."
-  $npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
-  if (-not $npmCmd) { $npmCmd = Get-Command npm }
-  Start-Process -FilePath $npmCmd.Source -ArgumentList "start" -WorkingDirectory $Target
+  $electronExe = Join-Path $Target "node_modules\electron\dist\electron.exe"
+  if (Test-Path $electronExe) {
+    Start-Process -FilePath $electronExe -ArgumentList "`"$Target`"" -WorkingDirectory $Target
+  } else {
+    $npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
+    if (-not $npmCmd) { $npmCmd = Get-Command npm }
+    Start-Process -FilePath $npmCmd.Source -ArgumentList "start" -WorkingDirectory $Target
+  }
 } finally {
   Pop-Location
 }

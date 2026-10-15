@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { sessionDir } = require("./shared-session");
+const { renameWithRetry } = require("./fs-atomic");
 
 const FILE_NAME = "lock-latch.json";
 const MAX_REVOKED = 8;
@@ -53,7 +54,7 @@ function writeLatch(latch, env = process.env) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(latch), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  renameWithRetry(tmp, file);
 }
 
 /** Record an intentional lock. `revokedSessionId` is the Bearer that was just revoked. */

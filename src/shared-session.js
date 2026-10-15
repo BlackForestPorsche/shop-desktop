@@ -7,17 +7,23 @@ const {
   parseSessionJson,
   isSessionExpired,
 } = require("./widget-helpers");
+const { widgetSessionDir } = require("./widget-session-path");
+const { renameWithRetry } = require("./fs-atomic");
 
 const DIR_NAME = "blackforest-tools";
 const FILE_NAME = "widget-session.json";
 const SHOP_BASE = "https://shop.blackforestautomotive.com";
 
-function dataHome(env = process.env) {
+function dataHome(env = process.env, platform = process.platform) {
+  if (platform === "win32") {
+    return env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  }
   return env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
 }
 
-function sessionDir(env = process.env) {
-  return path.join(dataHome(env), DIR_NAME);
+/** Linux: $XDG_DATA_HOME/blackforest-tools. Windows: %LOCALAPPDATA%\blackforest-tools. */
+function sessionDir(env = process.env, platform = process.platform) {
+  return widgetSessionDir(env, platform, os.homedir());
 }
 
 function sessionFilePath(env = process.env) {
@@ -83,7 +89,7 @@ function writeSession(session, env = process.env) {
   });
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, payload, { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  renameWithRetry(tmp, file);
   try {
     fs.chmodSync(file, 0o600);
   } catch {

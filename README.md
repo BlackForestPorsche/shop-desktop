@@ -63,7 +63,7 @@ The window keeps a normal Electron menu bar: **Shop**, **Labels**, **Settings**,
 
 - **Shop** — home, back/forward, reload, site-update check, quit
 - **Labels** — thin service controls only: **Labels service status…** / **Restart Labels service** (also under Settings). Not a second Labels app; print buttons live on the shop site.
-- **Settings → Check for updates** — desktop app updater (git pull on Manjaro; portable download on Windows)
+- **Settings → Check for updates** — desktop app updater (git pull on Manjaro and Windows Setup; portable download for portable builds)
 - **Help → About** — version info; About dialog also offers **Check for updates**
 
 There is no in-page **Check for updates** button next to the avatar/header.
@@ -91,9 +91,9 @@ Shop publishes do not require an update of this project — the window reloads t
 
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
-- **Manjaro (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
+- **Manjaro and Windows Setup (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
 - **Check for updates:** **Settings → Check for updates** (or **Help → About → Check for updates**). Same updater path.
-- **Windows portable:** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+- **Windows portable (secondary):** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
 
 ## Pirate idle overlay
 
@@ -109,21 +109,30 @@ npm install
 
 ## Windows
 
-**Setup (preferred on shop desks):** run `scripts/bootstrap-windows.ps1` (or the compiled Setup.exe from Releases when published). That clones `%USERPROFILE%\shop-desktop`, installs shortcuts, arms the 30-minute git update task, **starts Tools at login** (Startup folder + Run key), and launches Tools. Opt out of login start: `install-windows.ps1 -NoAutostart`, or later `scripts/disable-tools-autostart.ps1`.
+**Setup is the Windows desk.** It is a git checkout of this repo at `%USERPROFILE%\shop-desktop` — the same shape as the Manjaro install — so it behaves like Linux: git auto-update, login autostart, Tools-owned Labels, shared widget session.
 
-GitHub Actions also builds a portable Windows `.exe` on every push to `main`.
+Run `scripts\bootstrap-windows.ps1` (or the compiled `Black.Forest.Tools-Setup.exe`, built by `npm run setup-windows`). It needs Git and Node on PATH (it tries `winget` when they are missing), then:
 
-1. Open [shop-desktop Releases](https://github.com/BlackForestPorsche/shop-desktop/releases)
-2. Download **Black Forest Tools-Portable-…exe**
-3. Run it. Windows may warn about an unknown publisher — choose More info → Run anyway
+- clones / fast-forwards the checkout and runs `npm install` (this also installs the Labels print server dependencies);
+- creates Start Menu + Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**. They launch `electron.exe` directly (no npm window); `--widget` selects the widget process through `src/entry.js`;
+- registers the `BlackForestShopDesktopUpdate` scheduled task (every 30 minutes, hidden) that fast-forwards `main`, plus Shop → Check for desktop updates inside the app;
+- turns on **start at login** (Startup folder + `HKCU\...\Run`). Opt out with `install-windows.ps1 -NoAutostart` or `scripts\disable-tools-autostart.ps1`.
 
-Same live shop site as Manjaro. Unlock with your PIN. Portable builds do not register login autostart; use Setup / `install-windows.ps1` for that.
+What Tools does on Windows, matching Manjaro:
 
-To build the Windows app yourself (on Windows):
+- **Login / lock bridge:** the shared session lives in `%LOCALAPPDATA%\blackforest-tools\` (`widget-session.json`, `lock-latch.json`; Linux uses `$XDG_DATA_HOME/blackforest-tools`). Desk imports it from Tools' loopback bridge on `http://127.0.0.1:8788` — gate / lock never goes through Labels `:8080`. Writes retry on `EPERM`/`EBUSY` so a widget reading the file does not break a save.
+- **Labels (Create RO print):** Tools starts the vendored `labels/` server on `127.0.0.1:8080` (or adopts one already running). It uses system Node, or falls back to Electron-as-Node when the desk has none. Print history is kept in `%LOCALAPPDATA%\blackforest-tools\labels`. Printing goes through Windows.Data.Pdf + `PrintDocument` to the LabelWriter/DYMO queue, then SumatraPDF, then shell `PrintTo` (details in label-connect's README; override with `LABELS_PRINTER`, `LABELS_WIN_ROTATE`, `LABELS_WIN_DPI`, `LABELS_WIN_PRINT`, `LABELS_SUMATRA`).
+- **Shop Widget:** `npm run widget` / the Shop Widget shortcut (lot, book-today, notes) shares the same session file.
+- **Open in Firefox signed in:** uses `firefox.exe` from Program Files when installed, otherwise the default browser.
+
+**Portable (secondary):** GitHub Actions also builds a portable `.exe`. It is only a bootstrap for a machine that cannot run Setup yet — it has no git auto-update, no login autostart and no widget shortcut. Do not treat it as the day-to-day desk; run Setup.
+
+To build the Windows packages yourself (on Windows):
 
 ```bash
 npm install
-npm run dist:win
+npm run dist:win        # NSIS + Portable, labels/ shipped under resources/
+npm run setup-windows   # dist/Black.Forest.Tools-Setup.exe (git Setup)
 ```
 
 Outputs land in `dist/`.

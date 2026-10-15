@@ -74,48 +74,54 @@ Ensure-Packages
 
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
 
-$npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm }
-$npmCmd = $npmCmdInfo.Source
-
 $electronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
 $iconLocation = if (Test-Path $electronExe) { "$electronExe,0" } else { "" }
 
+# Launch electron.exe directly: no npm.cmd, no console window flash at login.
+# entry.js routes "--widget" to the Shop Widget process and everything else to Tools.
+if (Test-Path $electronExe) {
+  $launchTarget = $electronExe
+  $toolsArgs = "`"$Root`""
+  $widgetArgs = "`"$Root`" --widget"
+} else {
+  $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
+  if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm }
+  $launchTarget = $npmCmdInfo.Source
+  $toolsArgs = "start"
+  $widgetArgs = "run widget"
+}
+
 New-Shortcut `
   -Path (Join-Path $StartMenu "Black Forest Tools.lnk") `
-  -TargetPath $npmCmd `
-  -Arguments "start" `
+  -TargetPath $launchTarget `
+  -Arguments $toolsArgs `
   -WorkingDirectory $Root `
   -IconLocation $iconLocation `
   -Description "Live window for shop.blackforestautomotive.com"
 
 New-Shortcut `
   -Path (Join-Path $Desktop "Black Forest Tools.lnk") `
-  -TargetPath $npmCmd `
-  -Arguments "start" `
+  -TargetPath $launchTarget `
+  -Arguments $toolsArgs `
   -WorkingDirectory $Root `
   -IconLocation $iconLocation `
   -Description "Live window for shop.blackforestautomotive.com"
 
-# Optional widget shortcuts when this checkout has npm run widget (Setup / widgets branch).
-$packageJson = Get-Content (Join-Path $Root "package.json") -Raw
-if ($packageJson -match '"widget"\s*:') {
-  New-Shortcut `
-    -Path (Join-Path $StartMenu "Black Forest Shop Widget.lnk") `
-    -TargetPath $npmCmd `
-    -Arguments "run widget" `
-    -WorkingDirectory $Root `
-    -IconLocation $iconLocation `
-    -Description "Shop widget windows (lot / book-today / notes)"
+New-Shortcut `
+  -Path (Join-Path $StartMenu "Black Forest Shop Widget.lnk") `
+  -TargetPath $launchTarget `
+  -Arguments $widgetArgs `
+  -WorkingDirectory $Root `
+  -IconLocation $iconLocation `
+  -Description "Shop widget windows (lot / book-today / notes)"
 
-  New-Shortcut `
-    -Path (Join-Path $Desktop "Black Forest Shop Widget.lnk") `
-    -TargetPath $npmCmd `
-    -Arguments "run widget" `
-    -WorkingDirectory $Root `
-    -IconLocation $iconLocation `
-    -Description "Shop widget windows (lot / book-today / notes)"
-}
+New-Shortcut `
+  -Path (Join-Path $Desktop "Black Forest Shop Widget.lnk") `
+  -TargetPath $launchTarget `
+  -Arguments $widgetArgs `
+  -WorkingDirectory $Root `
+  -IconLocation $iconLocation `
+  -Description "Shop widget windows (lot / book-today / notes)"
 
 # 30-minute user task that fast-forwards this git checkout (same spirit as Plasma timer).
 $updateScript = Join-Path $Root "scripts\update-git-checkout.ps1"
@@ -127,7 +133,7 @@ if (Test-Path $updateScript) {
   }
   $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updateScript`"" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$updateScript`"" `
     -WorkingDirectory $Root
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
@@ -158,5 +164,5 @@ Write-Host "Black Forest Tools shortcuts are ready."
 Write-Host "Start Menu: $StartMenu"
 Write-Host "Widget session folder: $sessionDir"
 Write-Host ""
-Write-Host "Run Tools:  npm start"
+Write-Host "Run Tools:  npm start   (widget: npm run widget)"
 Write-Host "Disable login start: scripts\disable-tools-autostart.ps1"
