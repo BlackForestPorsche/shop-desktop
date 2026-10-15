@@ -94,6 +94,12 @@ const UNLOCK_EXCHANGE_GAP_MS = 4_000;
 /** After an intentional Tools/SPA lock, do not auto-exchange back onto /unlock. */
 let localLockUntil = 0;
 const LOCAL_LOCK_COOLDOWN_MS = 45_000;
+/**
+ * Sticky intentional lock (last lock wins). Cleared only by an intentional unlock
+ * (PIN/unlock JSON / Desk POST session). Prevents Desk page-load / onSessionMiss
+ * / from-gate remint from logging Tools back in while the website stays on /unlock.
+ */
+let intentionallyLocked = false;
 /** After exchange/mint, ignore cookie-SET sync briefly (events can fire after flags clear). */
 let gateSyncQuietUntil = 0;
 const GATE_SYNC_QUIET_MS = 2_500;
@@ -750,9 +756,19 @@ async function mintSharedSessionFromPending({ force = false } = {}) {
  * is missing/expired — Desk then gets 404 from :8788. Recover via from-gate.
  * force=true remints on every unlock so Desk always gets a fresh Bearer.
  */
+function clearIntentionalLock() {
+  intentionallyLocked = false;
+  localLockUntil = 0;
+}
+
 async function ensureSharedSessionFromGate({ force = false } = {}) {
   if (mintingWidgetSession) {
     return { ok: false, reason: "busy" };
+  }
+  // Sticky lock: Desk /unlock refresh + onSessionMiss must NOT remint Tools.
+  // force=true is only for intentional unlock paths (PIN / unlock JSON).
+  if (intentionallyLocked && !force) {
+    return { ok: false, reason: "intentional_lock" };
   }
   // Website/Desk lock sets localLockUntil — never remint Bearer from a jar we are clearing.
   if (!force && Date.now() < localLockUntil) {
@@ -824,6 +840,128 @@ async function shopGateCookiesPresent() {
     return byDomain.some((cookie) => cookie && cookie.value);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Export Electron bf_shop_gate for Desk → Firefox cookies.set.
+ * Never log the value. Loopback bridge only.
+ */
+async function readShopGateForBridge() {
+  // While intentionally locked, never hand Electron gate to Desk (would unlock site).
+  if (intentionallyLocked) {
+    return { present: false, reason: "intentional_lock" };
+  }
+  try {
+    let cookies = await shopPartition().cookies.get({
+      url: `${SHOP_BASE}/`,
+      name: GATE_COOKIE,
+    });
+    if (!cookies.some((cookie) => cookie && cookie.value)) {
+      cookies = await shopPartition().cookies.get({
+        domain: "shop.blackforestautomotive.com",
+        name: GATE_COOKIE,
+      });
+    }
+    const cookie = cookies.find((entry) => entry && entry.value);
+    if (!cookie || !cookie.value) {
+      return { present: false, reason: "no_gate" };
+    }
+    const session = readSession();
+    let expiresAt = "";
+    if (typeof cookie.expirationDate === "number" && Number.isFinite(cookie.expirationDate)) {
+      expiresAt = new Date(cookie.expirationDate * 1000).toISOString();
+    } else if (session && session.expiresAt) {
+      expiresAt = String(session.expiresAt);
+    }
+    return {
+      present: true,
+      gateToken: String(cookie.value),
+      expiresAt,
+      person: (session && session.person) || "",
+    };
+  } catch {
+    return { present: false, reason: "gate_read_error" };
+  }
+}
+
+/**
+ * Export Tools SPA person settings (funMode etc.) for Desk → Firefox localStorage.
+ */
+async function readPersonSettingsForBridge() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false, reason: "no_window" };
+  }
+  try {
+    const payload = await mainWindow.webContents.executeJavaScript(
+      `(() => {
+        try {
+          const person = localStorage.getItem("bf-last-person") || "";
+          const all = JSON.parse(localStorage.getItem("bf-person-settings") || "{}");
+          const settings = person && all[person] && typeof all[person] === "object" ? all[person] : null;
+          return { person, settings };
+        } catch (error) {
+          return { person: "", settings: null, error: String(error && error.message || error) };
+        }
+      })()`,
+      true,
+    );
+    if (!payload || !payload.person || !payload.settings) {
+      return { ok: false, reason: "no_settings", person: (payload && payload.person) || "" };
+    }
+    return {
+      ok: true,
+      person: String(payload.person),
+      settings: payload.settings,
+      updatedAt: Date.now(),
+    };
+  } catch {
+    return { ok: false, reason: "settings_read_error" };
+  }
+}
+
+/**
+ * Website → Tools: apply person settings (funMode on/off) into Electron shop LS.
+ * Last writer wins; does not clear intentional lock (prefs ≠ unlock).
+ */
+async function writePersonSettingsFromBridge(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false, reason: "no_window" };
+  }
+  const person = payload && payload.person ? String(payload.person).trim().toLowerCase() : "";
+  const settings = payload && payload.settings && typeof payload.settings === "object" ? payload.settings : null;
+  if (!person || !settings) {
+    return { ok: false, reason: "bad_payload" };
+  }
+  try {
+    const result = await mainWindow.webContents.executeJavaScript(
+      `(() => {
+        const person = ${JSON.stringify(person)};
+        const settings = ${JSON.stringify(settings)};
+        try {
+          const key = "bf-person-settings";
+          let all = {};
+          try { all = JSON.parse(localStorage.getItem(key) || "{}") || {}; } catch (e) { all = {}; }
+          if (!all || typeof all !== "object") all = {};
+          const prev = all[person] && typeof all[person] === "object" ? all[person] : {};
+          all[person] = Object.assign({}, prev, settings);
+          localStorage.setItem(key, JSON.stringify(all));
+          localStorage.setItem("bf-last-person", person);
+          localStorage.setItem("bf-desk-prefs-at", String(Date.now()));
+          const mode = settings.funMode || "off";
+          const modes = ["pirate","west","alien","medieval","odyssey","tron","casino","arcade","dota","race","surfer","seasonal"];
+          for (const name of modes) document.documentElement.classList.toggle(name, name === mode);
+          if (mode === "off") for (const name of modes) document.documentElement.classList.remove(name);
+          return { ok: true, funMode: mode };
+        } catch (error) {
+          return { ok: false, error: String(error && error.message || error) };
+        }
+      })()`,
+      true,
+    );
+    return result && result.ok ? { ok: true, person, funMode: result.funMode } : { ok: false, reason: "write_failed" };
+  } catch {
+    return { ok: false, reason: "settings_write_error" };
   }
 }
 
@@ -911,6 +1049,9 @@ async function exchangeSharedSessionToGate({
 } = {}) {
   if (exchangingGate || applyingRemoteLock) {
     return { ok: false, reason: "busy" };
+  }
+  if (intentionallyLocked && !force) {
+    return { ok: false, reason: "intentional_lock" };
   }
   if (Date.now() < localLockUntil) {
     return { ok: false, reason: "local_lock" };
@@ -1004,6 +1145,7 @@ async function maybeExchangeWhileOnUnlock(url) {
     mintingWidgetSession,
     applyingRemoteLock,
     localLockUntil,
+    intentionallyLocked,
     now,
     hasSession: Boolean(readSession()),
     gatePresent: await shopGateCookiesPresent(),
@@ -1141,6 +1283,8 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     return;
   }
   applyingRemoteLock = true;
+  // Last intentional lock wins until an intentional unlock clears this.
+  intentionallyLocked = true;
   localLockUntil = Date.now() + LOCAL_LOCK_COOLDOWN_MS;
   exchangedGateThisSession = false;
   try {
@@ -1189,10 +1333,10 @@ function watchSharedSessionFile() {
       return;
     }
     // Any new/changed shared Bearer (Desk, Plasma, unlock) must unlock the Tools SPA.
-    // Clear localLockUntil here too — website unlock may write the file before
+    // Clear sticky lock here too — website unlock may write the file before
     // bridge onPublished runs (fs.watch race); do not leave exchange blocked.
     if (fp && fp !== previous) {
-      localLockUntil = 0;
+      clearIntentionalLock();
       exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
         console.error(error);
       });
@@ -1287,6 +1431,7 @@ function configureSession() {
         mintingWidgetSession,
         applyingRemoteLock,
         localLockUntil,
+        intentionallyLocked,
         now,
       })
     ) {
@@ -1309,7 +1454,7 @@ function configureSession() {
   ipcMain.on("shop-unlock-creds", (_event, text) => {
     try {
       if (rememberUnlockCredsRaw(text)) {
-        localLockUntil = 0;
+        clearIntentionalLock();
         // PIN seen in preload fetch — mint + force SPA exchange (Desk + Tools window).
         syncToolsSpaAfterUnlock().catch((error) => {
           console.error(error);
@@ -1321,7 +1466,7 @@ function configureSession() {
   });
   ipcMain.on("shop-unlock-json", (_event, text) => {
     try {
-      localLockUntil = 0;
+      clearIntentionalLock();
       if (applyUnlockWidgetSession(text)) {
         // Always force exchange after unlock JSON — do not trust a pre-existing jar entry.
         exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
@@ -1374,22 +1519,27 @@ if (gotLock) {
     try {
       deskSessionBridge = startDeskSessionBridge({
         onPublished: (session) => {
-          // Desk/website unlock published a Bearer — leave local lock cooldown.
-          localLockUntil = 0;
+          // Desk/website unlock published a Bearer — last unlock wins.
+          clearIntentionalLock();
           lastSharedFingerprint = sessionFingerprint(session);
           exchangeSharedSessionToGate({ force: true, reload: true }).catch((error) => {
             console.error(error);
           });
         },
-        // Desk probe while SPA unlocked + expired file → refresh Bearer before 404.
-        // Must NOT remint during localLockUntil (website lock → Tools lock).
+        // Desk probe on miss — NEVER remint while intentionally locked
+        // (locked site refresh / from-gate must not auto-login Tools).
         onSessionMiss: async () => {
-          await ensureSharedSessionFromGate();
+          await ensureSharedSessionFromGate({ force: false });
         },
         // DELETE /v1/widget-session or POST /v1/lock from Desk (Firefox website lock).
         onLock: async () => {
           await lockSharedSurfaces({ revokeRemote: true });
         },
+        // Tools → website unlock when exchange JSON omits gateToken / Set-Cookie invisible.
+        getShopGate: () => readShopGateForBridge(),
+        // Bidirectional funMode / person prefs (last write wins either direction).
+        getPersonSettings: () => readPersonSettingsForBridge(),
+        setPersonSettings: (payload) => writePersonSettingsFromBridge(payload),
       });
       deskSessionBridge.server.on("listening", () => {
         console.log(

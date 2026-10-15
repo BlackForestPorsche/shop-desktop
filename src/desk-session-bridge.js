@@ -10,6 +10,8 @@
  * POST   /v1/widget-session  — Desk (or site capture) publishes token into the shared file
  * DELETE /v1/widget-session  — website/Desk lock → clear shared Bearer (+ Tools SPA via onLock)
  * POST   /v1/lock            — same as DELETE (explicit lock alias)
+ * GET    /v1/shop-gate       — copy Electron bf_shop_gate into Firefox (Tools→website unlock)
+ * GET    /v1/person-settings — copy Tools SPA person prefs (funMode) into Firefox
  */
 
 const http = require("node:http");
@@ -27,6 +29,8 @@ const DEFAULT_PORT = 8788;
 const PATH_HEALTH = "/health";
 const PATH_SESSION = "/v1/widget-session";
 const PATH_LOCK = "/v1/lock";
+const PATH_SHOP_GATE = "/v1/shop-gate";
+const PATH_PERSON_SETTINGS = "/v1/person-settings";
 
 function bridgePort(env = process.env) {
   const raw = env.BLACKFOREST_DESK_BRIDGE_PORT || env.BF_DESK_BRIDGE_PORT;
@@ -138,6 +142,9 @@ function parsePublishBody(text) {
  *   onSessionMiss?: (info: { sessionExpired: boolean }) => void | Promise<void>,
  *   onLock?: (info: { source: string }) => void | Promise<void>,
  *   clearSession?: typeof clearSession,
+ *   getShopGate?: () => object | Promise<object>,
+ *   getPersonSettings?: () => object | Promise<object>,
+ *   setPersonSettings?: (payload: object) => object | Promise<object>,
  * }} [opts]
  */
 function startDeskSessionBridge(opts = {}) {
@@ -210,13 +217,22 @@ function startDeskSessionBridge(opts = {}) {
             hasSession: false,
             ...missMeta(peek),
           };
-      json(res, 200, {
-        ok: true,
-        service: "blackforest-tools-desk-bridge",
-        hasSession: meta.hasSession,
-        sessionExpired: Boolean(meta.sessionExpired),
-        person: meta.person || "",
-        hint: meta.hint,
+      // Optional hasGate for Desk: Tools SPA unlocked even when Bearer file empty.
+      const gateProbe =
+        typeof opts.getShopGate === "function"
+          ? Promise.resolve(opts.getShopGate()).catch(() => null)
+          : Promise.resolve(null);
+      gateProbe.then((gate) => {
+        const hasGate = Boolean(gate && gate.present && gate.gateToken);
+        json(res, 200, {
+          ok: true,
+          service: "blackforest-tools-desk-bridge",
+          hasSession: meta.hasSession,
+          sessionExpired: Boolean(meta.sessionExpired),
+          person: meta.person || (gate && gate.person) || "",
+          hasGate,
+          hint: meta.hasSession ? meta.hint : hasGate ? "bridge_up_gate_only" : meta.hint,
+        });
       });
       return;
     }
@@ -233,6 +249,126 @@ function startDeskSessionBridge(opts = {}) {
             ok: false,
             error: "lock_failed",
             message: error instanceof Error ? error.message : "lock failed",
+          });
+        });
+      return;
+    }
+
+    // Tools → website: Desk copies Electron bf_shop_gate when exchange Set-Cookie is invisible.
+    if (pathname === PATH_SHOP_GATE) {
+      if (method !== "GET") {
+        json(res, 405, { ok: false, error: "method_not_allowed" });
+        return;
+      }
+      if (typeof opts.getShopGate !== "function") {
+        json(res, 404, { ok: false, error: "not_supported", reason: "no_gate_reader" });
+        return;
+      }
+      Promise.resolve(opts.getShopGate())
+        .then((gate) => {
+          if (!gate || !gate.present || !gate.gateToken) {
+            json(res, 404, {
+              ok: false,
+              error: "no_gate",
+              reason: (gate && gate.reason) || "no_gate",
+              message: "Tools jar has no bf_shop_gate — unlock Tools first.",
+            });
+            return;
+          }
+          json(res, 200, {
+            ok: true,
+            gateToken: String(gate.gateToken),
+            expiresAt: gate.expiresAt ? String(gate.expiresAt) : "",
+            person: gate.person ? String(gate.person) : "",
+            source: "tools-jar",
+          });
+        })
+        .catch((error) => {
+          json(res, 500, {
+            ok: false,
+            error: "gate_read_failed",
+            message: error instanceof Error ? error.message : "gate read failed",
+          });
+        });
+      return;
+    }
+
+    // Bidirectional funMode / person prefs (Tools ↔ Firefox). Last POST/GET writer wins.
+    if (pathname === PATH_PERSON_SETTINGS) {
+      if (method === "POST") {
+        if (typeof opts.setPersonSettings !== "function") {
+          json(res, 404, { ok: false, error: "not_supported", reason: "no_settings_writer" });
+          return;
+        }
+        readBody(req)
+          .then((text) => {
+            let data;
+            try {
+              data = JSON.parse(text || "{}");
+            } catch {
+              data = null;
+            }
+            if (!data || !data.person || !data.settings) {
+              json(res, 400, {
+                ok: false,
+                error: "bad_request",
+                message: "Body needs person + settings (funMode etc.).",
+              });
+              return;
+            }
+            return Promise.resolve(opts.setPersonSettings(data)).then((result) => {
+              if (!result || !result.ok) {
+                json(res, 409, {
+                  ok: false,
+                  error: "write_failed",
+                  reason: (result && result.reason) || "write_failed",
+                });
+                return;
+              }
+              json(res, 200, {
+                ok: true,
+                person: result.person || data.person,
+                funMode: result.funMode,
+                source: "desk-push",
+              });
+            });
+          })
+          .catch(() => {
+            json(res, 400, { ok: false, error: "bad_request" });
+          });
+        return;
+      }
+      if (method !== "GET") {
+        json(res, 405, { ok: false, error: "method_not_allowed" });
+        return;
+      }
+      if (typeof opts.getPersonSettings !== "function") {
+        json(res, 404, { ok: false, error: "not_supported", reason: "no_settings_reader" });
+        return;
+      }
+      Promise.resolve(opts.getPersonSettings())
+        .then((payload) => {
+          if (!payload || !payload.ok) {
+            json(res, 404, {
+              ok: false,
+              error: "no_settings",
+              reason: (payload && payload.reason) || "no_settings",
+            });
+            return;
+          }
+          json(res, 200, {
+            ok: true,
+            person: payload.person || "",
+            settings: payload.settings || null,
+            updatedAt: payload.updatedAt || Date.now(),
+            source: "tools-spa",
+          });
+        })
+        .catch((error) => {
+          json(res, 500, {
+            ok: false,
+            error: "settings_read_failed",
+            message: error instanceof Error ? error.message : "settings read failed",
           });
         });
       return;
@@ -363,6 +499,8 @@ module.exports = {
   PATH_HEALTH,
   PATH_SESSION,
   PATH_LOCK,
+  PATH_SHOP_GATE,
+  PATH_PERSON_SETTINGS,
   bridgeHost,
   bridgePort,
   startDeskSessionBridge,
