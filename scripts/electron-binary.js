@@ -197,8 +197,39 @@ function ensureElectronBinary(root, options = {}) {
   };
 }
 
+/**
+ * Launcher scripts must stay executable: Plasma .desktop Exec= runs
+ * blackforest-tools.sh directly and fails silently on mode 644. Git tracks
+ * them as 100755, but checkouts with core.filemode=false can still leave 644.
+ */
+function ensureLauncherScriptsExecutable(root, platform = process.platform) {
+  if (platform === "win32") return [];
+  const dir = path.join(root, "scripts");
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const fixed = [];
+  for (const name of names) {
+    if (!name.endsWith(".sh") && name !== "blackforest-widget-session") continue;
+    const file = path.join(dir, name);
+    try {
+      const stat = fs.statSync(file);
+      if (!stat.isFile() || (stat.mode & 0o111) === 0o111) continue;
+      fs.chmodSync(file, stat.mode | 0o755);
+      fixed.push(name);
+    } catch {
+      // Best effort; the launcher is still run via bash by the updater.
+    }
+  }
+  return fixed;
+}
+
 module.exports = {
   ENV_KEYS_TO_DROP,
+  ensureLauncherScriptsExecutable,
   platformBinaryName,
   electronPaths,
   isExecutable,
