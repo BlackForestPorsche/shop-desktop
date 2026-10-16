@@ -7,6 +7,7 @@
  *   Idle-only people get this forever: no prompts, no pressure to play.
  * - Pirate combat (opt-in): click a ship to take the helm. WASD sails, click fires.
  *   Overlay dismisses on a click on empty water only (never hover, never keys).
+ * - Settings menu launcher (launchGame) opens the overlay and takes the helm at once.
  * Desktop updates live in the native Settings menu (not an in-page header button).
  *
  * Idle accumulates while the page is visible (not document.hidden). Window blur/focus
@@ -33,6 +34,9 @@ const fxlib = require("./idle-fx");
 const art = require("./idle-art");
 
 const ROOT_ID = "bf-tools-shell-root";
+
+/** Hulls on the water when the game is launched from Settings (one yours, the rest hostile). */
+const LAUNCH_FLEET = 3;
 
 const HINT_AMBIENT = "Click to return to the shop";
 const HINT_PLAY = "WASD sail · Click to fire · Space fires at the nearest · Esc stands down";
@@ -713,6 +717,34 @@ function mountShellChrome(options = {}) {
     hudKey = "";
     showBanner("Wave 1", "Sink the fleet");
     updateHud(true);
+  }
+
+  /**
+   * Settings menu launcher: show the overlay now and start combat, skipping
+   * the idle wait. Idle behavior is untouched when this is never called.
+   * @returns {boolean} true when a run is active afterwards
+   */
+  function launchGame() {
+    if (disposed || !appActive) return false;
+    if (mode === "play") return true;
+    const live = () => fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
+    const wanted = Math.min(maxShips, LAUNCH_FLEET);
+    if (live().length < wanted) {
+      const grown = growFleet(
+        fleet.map((s) => ({ style: s.style })),
+        fleet.length + (wanted - live().length),
+      );
+      for (let i = fleet.length; i < grown.length; i++) {
+        fleet.push(placeShip(grown[i].style, i));
+      }
+    }
+    if (!live().length) fleet.push(placeShip(pickShipStyle(), fleet.length));
+    lastActivity = now();
+    showOverlay();
+    const flagship = live()[0];
+    if (!flagship) return false;
+    takeCommand(flagship);
+    return mode === "play";
   }
 
   function takeCommand(ship) {
@@ -1455,6 +1487,7 @@ function mountShellChrome(options = {}) {
   resize();
 
   return {
+    launchGame,
     dispose() {
       disposed = true;
       window.clearInterval(tickTimer);
@@ -1496,6 +1529,7 @@ function mountShellChrome(options = {}) {
       dismissWithClick: onDismissClick,
       softActivity: onSoftActivity,
       takeCommand,
+      launchGame,
       standDown,
       playerFire,
       shipAt,
