@@ -31,6 +31,7 @@ function installedRevisionLabel() {
  *   onHardReload: () => void,
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
+ *   onLaunchPirateGame?: () => void,
  *   onOpenFirefoxSignedIn: () => void,
  *   onLabelsStatus: () => void,
  *   onRestartLabels: () => void,
@@ -97,6 +98,11 @@ function buildAppMenuTemplate(handlers) {
         {
           label: "Check for updates",
           click: handlers.onCheckAppUpdates,
+        },
+        { type: "separator" },
+        {
+          label: "Launch pirate game",
+          click: handlers.onLaunchPirateGame,
         },
         { type: "separator" },
         {

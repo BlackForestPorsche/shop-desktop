@@ -84,3 +84,17 @@ function HINT_FROM(source, name) {
   const m = new RegExp(`${name} = "([^"]*)"`).exec(source);
   return m ? m[1] : "";
 }
+
+test("Settings launch starts combat through preload IPC without changing idle rules", () => {
+  const chrome = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  assert.match(chrome, /function launchGame\(\)/);
+  assert.match(chrome, /takeCommand\(flagship\)/);
+  assert.match(preload, /ipcRenderer\.on\("shell:launch-pirate"/);
+  assert.match(main, /webContents\.send\("shell:launch-pirate"\)/);
+  // No visible in-page launcher and no change to the ambient hint / dismiss rules.
+  assert.equal(/Launch pirate game/.test(chrome), false);
+  assert.match(chrome, /HINT_AMBIENT = "Click to return to the shop"/);
+  assert.match(chrome, /dismissEvents = \["click", "auxclick"\]/);
+});

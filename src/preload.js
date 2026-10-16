@@ -161,8 +161,16 @@ XMLHttpRequest.prototype.send = function sendPatched(...args) {
 function boot() {
   // Idle fleet only — Check for updates lives in Settings → Check for updates.
   // BF_IDLE_MS (ms) shortens the interval for QA; unset → 5 minutes.
-  mountShellChrome({
+  const chrome = mountShellChrome({
     idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
+  });
+  // Settings → Launch pirate game (main sends this; never fired by idle or page code).
+  ipcRenderer.on("shell:launch-pirate", () => {
+    try {
+      if (chrome && typeof chrome.launchGame === "function") chrome.launchGame();
+    } catch {
+      // ignore
+    }
   });
 }
 

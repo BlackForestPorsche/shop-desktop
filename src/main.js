@@ -620,6 +620,12 @@ function shopMenu() {
       onHardReload: () => send("hard"),
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      onLaunchPirateGame: () => {
+        const win = mainWindow;
+        if (!win || win.isDestroyed()) return;
+        win.webContents.focus();
+        win.webContents.send("shell:launch-pirate");
+      },
       onLabelsStatus: () => {
         showLabelsStatus().catch((error) => {
           console.error(error);

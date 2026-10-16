@@ -13,6 +13,7 @@ function handlers() {
     onHardReload() {},
     onCheckSiteUpdates() {},
     onCheckAppUpdates() {},
+    onLaunchPirateGame() {},
     onLabelsStatus() {},
     onRestartLabels() {},
     onOpenFirefoxSignedIn() {},
@@ -134,4 +135,21 @@ test("Settings menu defaults to this install's package.json version", () => {
   const settings = buildAppMenuTemplate(handlers()).find((item) => item.label === "Settings");
   assert.match(settings.submenu[0].label, new RegExp(`^Version ${version.replace(/\./g, "\\.")}`));
   assert.equal(settings.submenu[0].enabled, false);
+});
+
+test("Settings menu exposes Launch pirate game, and only there", () => {
+  let called = 0;
+  const h = handlers();
+  h.onLaunchPirateGame = () => {
+    called += 1;
+  };
+  const template = buildAppMenuTemplate(h);
+  const settings = template.find((item) => item.label === "Settings");
+  const item = settings.submenu.find((entry) => entry.label === "Launch pirate game");
+  assert.ok(item);
+  item.click();
+  assert.equal(called, 1);
+  for (const menu of template.filter((entry) => entry.label !== "Settings")) {
+    assert.ok(!menu.submenu.some((entry) => /pirate/i.test(entry.label || "")));
+  }
 });
