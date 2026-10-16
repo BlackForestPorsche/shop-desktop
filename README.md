@@ -97,7 +97,21 @@ Shop publishes do not require an update of this project — the window reloads t
 
 ## Pirate idle overlay
 
-After **5 minutes** with no mouse, keyboard, scroll, or touch activity in this window, a small pirate fleet starts sailing over the shop UI (Electron shell only — the hosted site is unchanged). Every additional 5 minutes of idle adds one more ship (capped). Each new ship lottery-picks one of four looks (pixel arcade, desk silhouette with brand blue, ink cartoon, night harbor neon). Ships **sail** across the water, trade cannon fire, can **ram and sink** each other, and respawn toward the idle target so the fight stays alive. **Click** dismisses the overlay (mousemove / hover / keys do not). Soft activity still resets the idle clock while the overlay is off. The idle clock keeps running while the window is visible (including unfocused / second monitor); it pauses only when the page is hidden. For QA, launch with `BF_IDLE_MS=10000` to use a 10s interval (production default stays 5 minutes).
+After **5 minutes** with no mouse, keyboard, scroll, or touch activity in this window, a small pirate fleet starts sailing over the shop UI (Electron shell only — the hosted site is unchanged). Every additional 5 minutes of idle adds one more ship (capped). Each new ship lottery-picks one of four looks (pixel arcade, desk silhouette with brand blue, ink cartoon, night harbor neon). Ships **sail** across the water, trade cannon fire, can **ram and sink** each other, and respawn toward the idle target so the fight stays alive. **Click on empty water** dismisses the overlay (mousemove / hover / keys do not). Soft activity still resets the idle clock while the overlay is off. The idle clock keeps running while the window is visible (including unfocused / second monitor); it pauses only when the page is hidden. For QA, launch with `BF_IDLE_MS=10000` to use a 10s interval (production default stays 5 minutes).
+
+### Pirate combat (optional, from 1.5.17)
+
+Idle-only people get the screensaver above, forever: no prompts, no HUD, no pressure to play. Combat is opt-in.
+
+- **Start:** click one of the sailing ships (hover shows a small "Take the helm" tag). That ship becomes your flagship (brand-blue ring and pennant); the other ships on screen turn hostile. Clicking empty water still dismisses the whole overlay.
+- **Sail:** **WASD / arrow keys** (A = left, D = right on screen).
+- **Fire:** **click** (or hold) to land a cannonball where you click; clicking near an enemy leads the shot. **Space** fires at the nearest ship. Enemy shots show a red landing ring so you can sail out of the way.
+- **Waves:** sloops, then brigs, then galleons. Sunk ships chain a combo (up to x4); some drop repair barrels, galleons and rare gilded ships drop chests. Between waves pick one of three refits (hull, reload, heavy shot, speed, twin guns, repair).
+- **Leave:** **Esc** / **Stand down** returns to the screensaver (the fleet stays afloat). If you are sunk, **Sail again** or **Back to the sea**.
+- **Progress:** best score / wave / ships sunk are kept in `localStorage` key `bf-tools-pirate-v1` (the shell window only; nothing is sent anywhere).
+- Flavor only: ship names and pennants use fictional names and tiny generic pixel car silhouettes (coupe, SUV, wedge, sedan). No official badges or logos. Labels / DYMO printing is untouched.
+
+Code: `src/idle-fleet.js` (idle fleet rules), `src/idle-combat.js` (combat rules, pure), `src/idle-fx.js` (particles), `src/idle-art.js` (canvas drawing), `src/shell-chrome.js` (overlay, HUD, input).
 
 Manual update on Manjaro still works:
 
