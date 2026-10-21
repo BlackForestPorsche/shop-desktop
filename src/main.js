@@ -68,6 +68,9 @@ const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 /** Re-mint widget-session.json from shop gate when SPA still unlocked but Bearer expired. */
 const SESSION_REFRESH_EVERY_MS = 5 * 60 * 1000;
 const SNOOZE_MS = 2 * 60 * 60 * 1000;
+/** Cap on the pre-window network sync so a dead network at logon cannot hide the window. */
+const BOOT_SYNC_TIMEOUT_MS = 8_000;
+const FETCH_TIMEOUT_MS = 20_000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
 const GATE_COOKIE = "bf_shop_gate";
@@ -99,6 +102,8 @@ let shellSnoozeUntil = 0;
 let pendingUnlockCreds = null;
 let pendingUnlockUntil = 0;
 let sharedSessionWatcher = null;
+let sharedSessionPoll = null;
+const SESSION_POLL_MS = 5_000;
 let lastSharedFingerprint = "";
 let lastSharedSession = null;
 let sessionVanishTimer = null;
@@ -190,12 +195,71 @@ function readWindowState() {
 }
 
 function writeWindowState(win) {
-  if (!win || win.isDestroyed()) return;
-  const maximized = win.isMaximized();
-  const bounds = maximized ? win.getNormalBounds() : win.getBounds();
-  const payload = { ...bounds, maximized };
-  fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
-  fs.writeFileSync(stateFile(), JSON.stringify(payload));
+  // Runs inside the window "close" event: a locked or read-only profile folder
+  // must never turn closing the window into an uncaught exception.
+  try {
+    if (!win || win.isDestroyed()) return;
+    const maximized = win.isMaximized();
+    const bounds = maximized ? win.getNormalBounds() : win.getBounds();
+    const payload = { ...bounds, maximized };
+    fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
+    fs.writeFileSync(stateFile(), JSON.stringify(payload));
+  } catch (error) {
+    console.error("Could not save window position:", error);
+  }
+}
+
+/** loadURL rejects on any failed navigation (offline, aborted redirect); never let that go unhandled. */
+function loadUrlSafe(contents, href, options) {
+  try {
+    const result = contents.loadURL(href, options);
+    if (result && typeof result.catch === "function") {
+      return result.catch((error) => {
+        if (error && (error.code === "ERR_ABORTED" || error.errno === -3)) return;
+        console.error("Navigation failed:", href, error && error.message ? error.message : error);
+      });
+    }
+    return result;
+  } catch (error) {
+    console.error("Navigation threw:", href, error);
+    return Promise.resolve();
+  }
+}
+
+/** Run one startup step; a failure is logged and startup carries on to the window. */
+async function startupStep(name, fn, timeoutMs = 0) {
+  let timer = null;
+  try {
+    const work = Promise.resolve().then(fn);
+    if (!timeoutMs) return await work;
+    return await Promise.race([
+      work,
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          console.error(`Startup step "${name}" still running after ${timeoutMs}ms; opening the window anyway.`);
+          resolve(undefined);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.error(`Startup step "${name}" failed:`, error);
+    return undefined;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function openLogsFolder() {
+  const { logDir } = require("./crash-log");
+  const dir = logDir();
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // shell.openPath reports the failure below
+  }
+  shell.openPath(dir).then((problem) => {
+    if (problem) console.error("Could not open the logs folder:", problem);
+  });
 }
 
 function browserUserAgent() {
@@ -226,14 +290,14 @@ function handleNavigation(event, rawUrl, contents) {
   if (decision.kind === "shop" || decision.kind === "auth") {
     if (decision.kind === "shop" && contents !== mainWindow?.webContents) {
       event.preventDefault();
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(decision.href);
+      if (mainWindow && !mainWindow.isDestroyed()) loadUrlSafe(mainWindow, decision.href);
       const owner = BrowserWindow.fromWebContents(contents);
       if (owner && owner !== mainWindow) owner.close();
       return;
     }
     if (decision.href !== rawUrl) {
       event.preventDefault();
-      contents.loadURL(decision.href);
+      loadUrlSafe(contents, decision.href);
     }
     return;
   }
@@ -260,7 +324,7 @@ function attachNavigation(contents) {
       };
     }
     if (decision.kind === "shop" && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL(decision.href);
+      loadUrlSafe(mainWindow, decision.href);
     } else if (decision.kind === "external") {
       openOutside(decision.href);
     }
@@ -287,7 +351,7 @@ function attachNavigation(contents) {
         label: "Open link",
         click: () => {
           const decision = classifyUrl(params.linkURL);
-          if (decision.kind === "shop" || decision.kind === "auth") contents.loadURL(decision.href);
+          if (decision.kind === "shop" || decision.kind === "auth") loadUrlSafe(contents, decision.href);
           else if (decision.kind === "external") openOutside(decision.href);
         },
       }));
@@ -604,7 +668,7 @@ function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
     if (!win || win.isDestroyed()) return;
-    if (channel === "home") win.loadURL(SHOP_HOME);
+    if (channel === "home") loadUrlSafe(win, SHOP_HOME);
     if (channel === "reload") win.webContents.reload();
     if (channel === "hard") win.webContents.reloadIgnoringCache();
     if (channel === "back" && win.webContents.canGoBack()) win.webContents.goBack();
@@ -651,6 +715,7 @@ function shopMenu() {
           console.error(error);
         });
       },
+      onOpenLogs: openLogsFolder,
       onAbout: async () => {
         const choice = await dialog.showMessageBox(mainWindow, {
           type: "info",
@@ -726,6 +791,14 @@ function createWindow(startUrl) {
   if (usable && saved.maximized) win.maximize();
 
   win.once("ready-to-show", showWindow);
+  // Never leave a window hidden forever if ready-to-show does not fire (GPU trouble).
+  setTimeout(() => {
+    try {
+      if (!win.isDestroyed() && !win.isVisible()) win.show();
+    } catch {
+      // ignore
+    }
+  }, 8_000);
   win.on("close", () => writeWindowState(win));
   win.on("focus", () => {
     const now = Date.now();
@@ -756,7 +829,7 @@ function createWindow(startUrl) {
     maybeMintAfterLeavingUnlock(url);
   });
 
-  win.loadURL(startUrl, {
+  loadUrlSafe(win, startUrl, {
     extraHeaders: "pragma: no-cache\ncache-control: no-cache\n",
   });
 
@@ -810,7 +883,7 @@ async function mintSharedSessionFromPending({ force = false } = {}) {
   pendingUnlockUntil = 0;
   mintingWidgetSession = true;
   try {
-    const next = await mintWidgetSession(creds.person, creds.pin);
+    const next = await mintWidgetSession(creds.person, creds.pin, timedFetch);
     trackShared(next);
     return { ok: true, reason: "minted", person: next.person || "" };
   } catch {
@@ -911,12 +984,22 @@ async function shopGateCookiesPresent() {
   }
 }
 
+/** A hung request would leave busy flags (minting / exchanging) set forever; always bound it. */
+function withFetchTimeout(init) {
+  const base = init || {};
+  return base.signal ? base : { ...base, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
+}
+
+function timedFetch(url, init) {
+  return fetch(url, withFetchTimeout(init));
+}
+
 function partitionFetch(url, init) {
   const shopSession = shopPartition();
   if (typeof shopSession.fetch === "function") {
-    return shopSession.fetch(url, init);
+    return shopSession.fetch(url, withFetchTimeout(init));
   }
-  return fetch(url, init);
+  return timedFetch(url, init);
 }
 
 /**
@@ -979,7 +1062,7 @@ async function reloadSpaAfterGateExchange() {
     return { navigated: false, reason: "nav_cooldown" };
   }
   lastSpaNavAfterExchangeAt = now;
-  await mainWindow.loadURL(SHOP_HOME);
+  await loadUrlSafe(mainWindow, SHOP_HOME);
   return { navigated: true, reason: "left_unlock" };
 }
 
@@ -1095,7 +1178,7 @@ async function leaveUnlockScreen() {
   if (!current || !current.includes("/unlock")) {
     return;
   }
-  await mainWindow.loadURL(SHOP_HOME);
+  await loadUrlSafe(mainWindow, SHOP_HOME);
 }
 
 /** PIN unlock in the Tools window: leaving /unlock with a gate cookie but no Bearer → mint for Desk. */
@@ -1221,7 +1304,7 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
   try {
     // Keep Tools SPA jar in sync before minting the Firefox ticket.
     await exchangeSharedSessionToGate({ force: true, reload: false });
-    const { url } = await requestFirefoxHandoff(existing.token, fetch);
+    const { url } = await requestFirefoxHandoff(existing.token, timedFetch);
     await launchFirefox(url);
     return { ok: true, url };
   } catch (error) {
@@ -1297,7 +1380,7 @@ async function lockSharedSurfaces({ revokeRemote = true } = {}) {
     if (mainWindow && !mainWindow.isDestroyed()) {
       const current = mainWindow.webContents.getURL();
       if (!current.includes("/unlock")) {
-        await mainWindow.loadURL(`${SHOP_BASE}/unlock`);
+        await loadUrlSafe(mainWindow, `${SHOP_BASE}/unlock`);
       }
     }
   } finally {
@@ -1391,10 +1474,22 @@ async function renewSharedSessionIfDue() {
 
 function watchSharedSessionFile() {
   const file = sessionFilePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  } catch (error) {
+    console.error("Could not create the shared session folder:", error);
+  }
   trackShared(readSession());
 
   const onChange = () => {
+    try {
+      handleSessionFileChange();
+    } catch (error) {
+      console.error("Shared session watcher handler failed:", error);
+    }
+  };
+
+  const handleSessionFileChange = () => {
     if (applyingRemoteLock || mintingWidgetSession || exchangingGate) {
       return;
     }
@@ -1450,6 +1545,20 @@ function watchSharedSessionFile() {
         return;
       }
       onChange();
+    });
+    // Windows raises EPERM here when the watched folder is renamed/removed (an update,
+    // cleanup or antivirus pass). Unhandled, that is a main-process crash.
+    sharedSessionWatcher.on("error", (error) => {
+      console.error("Shared session watcher error; falling back to polling:", error);
+      try {
+        sharedSessionWatcher.close();
+      } catch {
+        // ignore
+      }
+      sharedSessionWatcher = null;
+      if (!sharedSessionPoll) {
+        sharedSessionPoll = setInterval(onChange, SESSION_POLL_MS);
+      }
     });
   } catch (error) {
     console.error("Could not watch shared session file:", error);
@@ -1608,8 +1717,18 @@ function configureSession() {
 if (gotLock) {
   app.on("second-instance", (_event, argv) => {
     const url = shopUrlFromArgv(argv);
-    if (url && mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(url);
-    showWindow();
+    try {
+      if (url && mainWindow && !mainWindow.isDestroyed()) loadUrlSafe(mainWindow, url);
+      showWindow();
+    } catch (error) {
+      console.error("second-instance handler failed:", error);
+    }
+  });
+
+  ipcMain.on("shell:renderer-error", (_event, payload) => {
+    const where = payload && typeof payload.where === "string" ? payload.where.slice(0, 80) : "renderer";
+    const text = payload && typeof payload.text === "string" ? payload.text.slice(0, 4000) : "";
+    console.error(`Renderer error (${where}):`, text);
   });
 
   ipcMain.handle("shell:check-updates", async () => {
@@ -1621,9 +1740,9 @@ if (gotLock) {
     if (process.platform === "win32") {
       app.setAppUserModelId("com.blackforestautomotive.tools");
     }
-    loadPersistedLatch();
-    configureSession();
-    watchSharedSessionFile();
+    await startupStep("latch", loadPersistedLatch);
+    await startupStep("session", configureSession);
+    await startupStep("session-watch", watchSharedSessionFile);
     try {
       deskSessionBridge = startDeskSessionBridge({
         acceptPublish: (next) => !lockLatched || acceptsPublish(readLatch(), next),
@@ -1665,21 +1784,37 @@ if (gotLock) {
       console.error("Desk session bridge failed to start:", error);
       deskSessionBridge = null;
     }
-    Menu.setApplicationMenu(shopMenu());
+    await startupStep("menu", () => Menu.setApplicationMenu(shopMenu()));
     // Own Labels (:8080); adopt Manjaro labels.service when already healthy.
+    // Fire and forget: a Labels failure must never hold up or take down the window.
     ensureLabelsRunning({ interactive: false }).catch((error) => {
-      console.error(error);
+      console.error("Labels startup failed:", error);
     });
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
     // Also: shared Bearer can exist while SPA jar is empty — force exchange on boot.
-    await ensureSharedSessionFromGate();
-    await exchangeSharedSessionToGate({ force: true, reload: false });
-    createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
+    // Bounded: no network at logon (autostart) must not leave the app without a window.
+    await startupStep("gate-session", () => ensureSharedSessionFromGate(), BOOT_SYNC_TIMEOUT_MS);
+    await startupStep("gate-exchange", () => exchangeSharedSessionToGate({ force: true, reload: false }), BOOT_SYNC_TIMEOUT_MS);
+    try {
+      createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
+    } catch (error) {
+      console.error("Could not create the main window:", error);
+      await dialog
+        .showMessageBox({
+          type: "error",
+          title: "Black Forest Tools",
+          message: "The shop window could not open.",
+          detail: `${error && error.message ? error.message : error}\n\nDetails are in ${path.join(require("./crash-log").logDir(), "tools.log")}`,
+        })
+        .catch(() => {});
+      app.quit();
+      return;
+    }
     updateTimer = setInterval(() => {
-      checkForSiteUpdate({ interactive: false });
+      checkForSiteUpdate({ interactive: false }).catch((error) => console.error(error));
     }, UPDATE_EVERY_MS);
     shellUpdateTimer = setInterval(() => {
-      checkForShellUpdate({ interactive: false });
+      checkForShellUpdate({ interactive: false }).catch((error) => console.error(error));
     }, SHELL_UPDATE_EVERY_MS);
     sessionRefreshTimer = setInterval(() => {
       ensureSharedSessionFromGate()
@@ -1689,7 +1824,7 @@ if (gotLock) {
         });
     }, SESSION_REFRESH_EVERY_MS);
     setTimeout(() => {
-      checkForShellUpdate({ interactive: false });
+      checkForShellUpdate({ interactive: false }).catch((error) => console.error(error));
     }, 20_000);
     setTimeout(() => {
       ensureSharedSessionFromGate()
@@ -1698,6 +1833,8 @@ if (gotLock) {
           console.error(error);
         });
     }, 2_500);
+  }).catch((error) => {
+    console.error("Startup failed:", error);
   });
 
   app.on("window-all-closed", () => {
@@ -1709,6 +1846,7 @@ if (gotLock) {
     } catch {
       // ignore
     }
+    if (sharedSessionPoll) clearInterval(sharedSessionPoll);
     if (deskSessionBridge) {
       deskSessionBridge.close().catch(() => {});
       deskSessionBridge = null;

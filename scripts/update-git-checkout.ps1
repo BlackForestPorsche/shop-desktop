@@ -31,6 +31,16 @@ try {
     exit 0
   }
   Write-Host "Updated $old → $new"
+  # npm install rewrites node_modules (including electron.exe) under a running Tools /
+  # widget, so only run it when the dependency manifests actually changed.
+  $changed = @(git diff --name-only $old $new 2>$null)
+  $depsChanged = $changed | Where-Object {
+    $_ -eq "package.json" -or $_ -eq "package-lock.json" -or $_ -like "labels/package*.json" -or $_ -like "scripts/postinstall-*"
+  }
+  if (-not $depsChanged) {
+    Write-Host "Dependencies unchanged; skipping npm install."
+    exit 0
+  }
   npm install
   if ($LASTEXITCODE -ne 0) {
     Write-Error "npm install failed after pull"

@@ -183,6 +183,30 @@ function startDeskSessionBridge(opts = {}) {
   }
 
   const server = http.createServer((req, res) => {
+    // Any synchronous throw here would be an uncaught exception in Tools' main process.
+    try {
+      handleRequest(req, res);
+    } catch (error) {
+      try {
+        if (!res.headersSent) {
+          json(res, 500, { ok: false, error: "bridge_error" });
+        } else {
+          res.end();
+        }
+      } catch {
+        // socket already gone
+      }
+    }
+  });
+  server.on("clientError", (_error, socket) => {
+    try {
+      socket.destroy();
+    } catch {
+      // ignore
+    }
+  });
+
+  function handleRequest(req, res) {
     const method = req.method || "GET";
     if (method === "OPTIONS") {
       json(res, 204, {});
@@ -376,7 +400,7 @@ function startDeskSessionBridge(opts = {}) {
     }
 
     json(res, 404, { ok: false, error: "not_found" });
-  });
+  }
 
   server.listen(port, host);
 

@@ -20,7 +20,7 @@ test("shell chrome idle clock does not require window focus", () => {
   for (const m of source.matchAll(/addEventListener\("blur", (\w+)\)/g)) {
     assert.equal(m[1], "clearHeldInput");
   }
-  assert.match(source, /function idleRunning\(\) \{\s*return appActive;/);
+  assert.match(source, /function idleRunning\(\) \{\s*return appActive( && !failed)?;/);
 });
 
 test("idle overlay dismisses on click only — not mousemove or hover", () => {
