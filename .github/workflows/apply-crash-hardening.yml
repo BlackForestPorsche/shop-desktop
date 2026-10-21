@@ -1,0 +1,33 @@
+name: Apply crash hardening patches
+on:
+  push:
+    branches: [cursor/windows-tools-crash-hardening-cb7a]
+    paths: [".github/patches-crash/READY"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply patches
+        run: |
+          for p in .github/patches-crash/*.patch; do
+            echo "applying $p"
+            git apply --whitespace=nowarn "$p"
+          done
+          rm -rf .github/patches-crash
+      - name: Test
+        run: node --test
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Tools 1.5.20: crash hardening for Windows (main, labels, bridge, pirate idle, update check)"
+          git push origin HEAD
