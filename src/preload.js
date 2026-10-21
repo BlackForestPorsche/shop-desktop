@@ -158,21 +158,44 @@ XMLHttpRequest.prototype.send = function sendPatched(...args) {
   return xhrSend.apply(this, args);
 };
 
+function reportShellError(where, error) {
+  try {
+    const text = error && error.stack ? error.stack : String(error);
+    ipcRenderer.send("shell:renderer-error", { where, text: String(text).slice(0, 4000) });
+  } catch {
+    // ignore
+  }
+}
+
 function boot() {
   // Idle fleet only — Check for updates lives in Settings → Check for updates.
   // BF_IDLE_MS (ms) shortens the interval for QA; unset → 5 minutes.
-  const chrome = mountShellChrome({
-    idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
-  });
+  // The overlay is optional chrome: if it cannot mount, the shop window still loads.
+  let chrome = null;
+  try {
+    chrome = mountShellChrome({
+      idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
+      onError: (error) => reportShellError("idle-overlay", error),
+    });
+  } catch (error) {
+    reportShellError("mount-shell-chrome", error);
+  }
   // Settings → Launch pirate game (main sends this; never fired by idle or page code).
   ipcRenderer.on("shell:launch-pirate", () => {
     try {
       if (chrome && typeof chrome.launchGame === "function") chrome.launchGame();
-    } catch {
-      // ignore
+    } catch (error) {
+      reportShellError("launch-pirate", error);
     }
   });
 }
+
+window.addEventListener("error", (event) => {
+  const source = String((event && event.filename) || "");
+  if (/shell-chrome|idle-|preload/i.test(source)) {
+    reportShellError("window-error", event.error || event.message);
+  }
+});
 
 if (document.readyState === "loading") {
   window.addEventListener("DOMContentLoaded", boot, { once: true });

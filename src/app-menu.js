@@ -38,6 +38,7 @@ function installedRevisionLabel() {
  *   onLockShop: () => void,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
+ *   onOpenLogs?: () => void,
  *   revisionLabel?: string | null,
  * }} handlers
  */
@@ -153,6 +154,9 @@ function buildAppMenuTemplate(handlers) {
           label: "Open this page in Firefox signed in",
           click: handlers.onOpenInBrowser,
         },
+        ...(handlers.onOpenLogs
+          ? [{ label: "Open logs folder (crash reports)", click: handlers.onOpenLogs }]
+          : []),
         {
           label: "About Black Forest Tools",
           click: handlers.onAbout,

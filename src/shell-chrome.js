@@ -38,6 +38,8 @@ const ROOT_ID = "bf-tools-shell-root";
 /** Hulls on the water when the game is launched from Settings (one yours, the rest hostile). */
 const LAUNCH_FLEET = 3;
 
+const MAX_CANVAS_PIXELS = 8_500_000;
+
 const HINT_AMBIENT = "Click to return to the shop";
 const HINT_PLAY = "WASD sail · Click to fire · Space fires at the nearest · Esc stands down";
 
@@ -61,6 +63,14 @@ const KEY_MAP = Object.freeze({
  * }} [options]
  */
 function mountShellChrome(options = {}) {
+  const onError = typeof options.onError === "function" ? options.onError : null;
+  function reportIdleError(error) {
+    try {
+      if (onError) onError(error);
+    } catch {
+      // reporting must never throw
+    }
+  }
   const idleIntervalMs = options.idleIntervalMs ?? IDLE_INTERVAL_MS;
   const maxShips = options.maxShips ?? MAX_SHIPS;
   const now = options.now ?? Date.now;
@@ -333,7 +343,16 @@ function mountShellChrome(options = {}) {
 
   const overlay = shadow.querySelector(".overlay");
   const canvas = shadow.querySelector("canvas");
-  const ctx = canvas.getContext("2d", { alpha: true });
+  let ctx = null;
+  try {
+    ctx = canvas.getContext("2d", { alpha: true });
+  } catch (error) {
+    reportIdleError(error);
+  }
+  if (!ctx) {
+    // No 2D canvas (GPU disabled/lost): skip the screensaver rather than throw from preload.
+    return { launchGame() {}, dispose() {}, disabled: true, _test: {} };
+  }
   const hint = shadow.querySelector(".hint");
   const hud = shadow.querySelector(".hud");
   const el = {
@@ -378,6 +397,7 @@ function mountShellChrome(options = {}) {
   let lastFrame = 0;
   let fireCooldown = 0;
   let disposed = false;
+  let failed = false;
   let nextShipId = 1;
 
   /** "ambient" = screensaver. "play" = optional pirate combat. */
@@ -393,9 +413,12 @@ function mountShellChrome(options = {}) {
   let hoverId = 0;
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = Math.max(1, window.innerWidth || 1);
+    const h = Math.max(1, window.innerHeight || 1);
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // A 4K display at 2x is a ~33M-pixel canvas: enough to lose the GPU on weak Windows drivers.
+    const area = w * h;
+    if (area * dpr * dpr > MAX_CANVAS_PIXELS) dpr = Math.max(1, Math.sqrt(MAX_CANVAS_PIXELS / area));
     canvas.width = Math.max(1, Math.floor(w * dpr));
     canvas.height = Math.max(1, Math.floor(h * dpr));
     canvas.style.width = `${w}px`;
@@ -405,7 +428,31 @@ function mountShellChrome(options = {}) {
 
   /** Clock + spawn: visible page only. Do not require window focus. */
   function idleRunning() {
-    return appActive;
+    return appActive && !failed;
+  }
+
+  /**
+   * The pirate overlay is optional. If drawing/stepping ever throws, drop the overlay,
+   * stop the loop and stay off for the rest of this page so the shop underneath keeps working.
+   */
+  function failIdle(error) {
+    if (failed) return;
+    failed = true;
+    reportIdleError(error);
+    try {
+      stopLoop();
+      fleet = [];
+      balls = [];
+      splashes = [];
+      pickups = [];
+      mode = "ambient";
+      run = null;
+      overlay.classList.remove("on", "play");
+      overlay.setAttribute("aria-hidden", "true");
+      hud.hidden = true;
+    } catch {
+      // best effort
+    }
   }
 
   function resetIdle(dismiss) {
@@ -527,8 +574,13 @@ function mountShellChrome(options = {}) {
       const t = typeof ts === "number" ? ts : now();
       const dt = Math.min(0.05, lastFrame ? (t - lastFrame) / 1000 : 0.016);
       lastFrame = t;
-      step(dt);
-      draw();
+      try {
+        step(dt);
+        draw();
+      } catch (error) {
+        failIdle(error);
+        return;
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -725,7 +777,7 @@ function mountShellChrome(options = {}) {
    * @returns {boolean} true when a run is active afterwards
    */
   function launchGame() {
-    if (disposed || !appActive) return false;
+    if (disposed || failed || !appActive) return false;
     if (mode === "play") return true;
     const live = () => fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
     const wanted = Math.min(maxShips, LAUNCH_FLEET);
@@ -1481,7 +1533,11 @@ function mountShellChrome(options = {}) {
       lastActivity += now() - pauseStarted;
       pauseStarted = 0;
     }
-    syncFleet();
+    try {
+      syncFleet();
+    } catch (error) {
+      failIdle(error);
+    }
   }, 1000);
 
   resize();

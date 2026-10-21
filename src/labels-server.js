@@ -116,6 +116,15 @@ function labelsDataDir(env = process.env, platform = process.platform, homedir =
   return path.win32.join(local, "blackforest-tools", "labels");
 }
 
+function closeLogFd(fd) {
+  if (typeof fd !== "number") return;
+  try {
+    fs.closeSync(fd);
+  } catch {
+    // ignore
+  }
+}
+
 function probeLabels(url, timeoutMs = PROBE_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: timeoutMs }, (res) => {
@@ -166,6 +175,71 @@ function ensureLabelsDeps(labelsRoot, { npmBin, spawnSyncFn, platform = process.
   return { ok: true, installed: true };
 }
 
+const NPM_INSTALL_TIMEOUT_MS = 180_000;
+
+/**
+ * Same as ensureLabelsDeps but never blocks Tools' main thread: a synchronous
+ * `npm install` at launch freezes the window ("Not responding") for minutes.
+ */
+function ensureLabelsDepsAsync(labelsRoot, { npmBin, spawnFn, platform = process.platform, timeoutMs = NPM_INSTALL_TIMEOUT_MS } = {}) {
+  const pdfLib = path.join(labelsRoot, "node_modules", "pdf-lib");
+  if (fs.existsSync(pdfLib)) {
+    return Promise.resolve({ ok: true, installed: false });
+  }
+  const spawnImpl = spawnFn || spawn;
+  const npm = npmCommand(platform);
+  return new Promise((resolve) => {
+    let settled = false;
+    let tail = "";
+    let child = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try {
+        if (child) child.kill();
+      } catch {
+        // ignore
+      }
+      finish({ ok: false, installed: false, error: `npm install timed out after ${Math.round(timeoutMs / 1000)}s` });
+    }, timeoutMs);
+    try {
+      child = spawnImpl(npmBin || npm.bin, ["install", "--omit=dev"], {
+        cwd: labelsRoot,
+        env: process.env,
+        shell: npm.shell,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      finish({ ok: false, installed: false, error: String(error && error.message ? error.message : error) });
+      return;
+    }
+    const keep = (chunk) => {
+      tail = (tail + String(chunk)).slice(-600);
+    };
+    if (child.stdout) child.stdout.on("data", keep);
+    if (child.stderr) child.stderr.on("data", keep);
+    child.on("error", (error) => {
+      finish({ ok: false, installed: false, error: String(error && error.message ? error.message : error) });
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        finish({ ok: true, installed: true });
+      } else {
+        finish({
+          ok: false,
+          installed: false,
+          error: (tail.trim() || `npm install exited ${code}`).split("\n").slice(-3).join(" "),
+        });
+      }
+    });
+  });
+}
+
 /**
  * @param {{
  *   appRoot: string,
@@ -185,7 +259,7 @@ async function startLabelsServer(options) {
   const log = options.log || console.log;
   const probe = options.probeFn || probeLabels;
   const wait = options.waitFn || waitUntilReady;
-  const ensureDeps = options.ensureDepsFn || ensureLabelsDeps;
+  const ensureDeps = options.ensureDepsFn || ensureLabelsDepsAsync;
   const spawnFn = options.spawnFn || spawn;
 
   if (await probe(url)) {
@@ -214,7 +288,7 @@ async function startLabelsServer(options) {
     };
   }
 
-  const deps = ensureDeps(labelsRoot);
+  const deps = await ensureDeps(labelsRoot);
   if (!deps.ok) {
     return {
       ok: false,
@@ -270,18 +344,46 @@ async function startLabelsServer(options) {
     // ignore
   }
 
-  const child = spawnFn(nodeBin, [entry], {
-    cwd: labelsRoot,
-    env: childEnv,
-    detached: true,
-    stdio: ["ignore", out, err],
-    windowsHide: true,
-  });
-  child.unref();
+  let child;
+  try {
+    child = spawnFn(nodeBin, [entry], {
+      cwd: labelsRoot,
+      env: childEnv,
+      detached: true,
+      stdio: ["ignore", out, err],
+      windowsHide: true,
+    });
+  } catch (error) {
+    closeLogFd(out);
+    return {
+      ok: false,
+      owned: false,
+      adopted: false,
+      port,
+      url,
+      child: null,
+      reason: `Could not start Labels with ${nodeBin}: ${error && error.message ? error.message : error} (log: ${logFile})`,
+    };
+  }
+  // The child holds its own copy of the log handle; keep ours from leaking.
+  closeLogFd(out);
+  try {
+    child.unref();
+  } catch {
+    // ignore
+  }
 
-  child.on("error", (error) => {
-    log("Labels server child error:", error);
-  });
+  let earlyExit = "";
+  if (typeof child.on === "function") {
+    child.on("error", (error) => {
+      earlyExit = String(error && error.message ? error.message : error);
+      log("Labels server child error:", error);
+    });
+    child.on("exit", (code, signal) => {
+      earlyExit = earlyExit || `exited code=${code} signal=${signal}`;
+      log(`Labels server child exited code=${code} signal=${signal} (log: ${logFile})`);
+    });
+  }
 
   const ready = await wait(url);
   if (!ready) {
@@ -297,7 +399,7 @@ async function startLabelsServer(options) {
       port,
       url,
       child: null,
-      reason: `Labels server did not become ready at ${url} (log: ${logFile})`,
+      reason: `Labels server did not become ready at ${url}${earlyExit ? ` (${earlyExit})` : ""} (log: ${logFile})`,
     };
   }
 
@@ -356,6 +458,7 @@ module.exports = {
   probeLabels,
   waitUntilReady,
   ensureLabelsDeps,
+  ensureLabelsDepsAsync,
   startLabelsServer,
   stopLabelsServer,
 };

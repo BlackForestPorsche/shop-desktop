@@ -1,6 +1,6 @@
 "use strict";
 
-const { spawnSync } = require("node:child_process");
+const { spawnSync, execFile } = require("node:child_process");
 const fs = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
@@ -129,10 +129,40 @@ function finishPendingNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
   return { ran: true };
 }
 
+/** Never let git stop to ask for credentials in a window-less process. */
+function gitEnv(env = process.env) {
+  return { ...env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+}
+
+/**
+ * Async git for the background update check. A synchronous `git fetch` on Electron's
+ * main thread freezes the whole window (Windows "Not responding") for as long as the
+ * network or a credential prompt takes.
+ */
+function runGitAsync(root, args) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      ["-C", root, ...args],
+      { encoding: "utf8", timeout: 60_000, windowsHide: true, env: gitEnv() },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || stdout || "").trim();
+          reject(detail ? new Error(detail) : error);
+          return;
+        }
+        resolve(String(stdout || "").trim());
+      },
+    );
+  });
+}
+
 function runGit(root, args) {
   const result = spawnSync("git", ["-C", root, ...args], {
     encoding: "utf8",
     timeout: 120_000,
+    windowsHide: true,
+    env: gitEnv(),
   });
   if (result.error) {
     throw result.error;
@@ -186,9 +216,9 @@ function fetchJson(url) {
 }
 
 async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
-  runGit(root, ["fetch", "--quiet", remote, branch]);
-  const current = runGit(root, ["rev-parse", "HEAD"]);
-  const upstream = runGit(root, ["rev-parse", `${remote}/${branch}`]);
+  await runGitAsync(root, ["fetch", "--quiet", remote, branch]);
+  const current = await runGitAsync(root, ["rev-parse", "HEAD"]);
+  const upstream = await runGitAsync(root, ["rev-parse", `${remote}/${branch}`]);
   if (current === upstream) {
     return {
       mode: "git",
@@ -200,7 +230,7 @@ async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH
 
   let summary = "";
   try {
-    summary = runGit(root, [
+    summary = await runGitAsync(root, [
       "log",
       "--oneline",
       "--no-decorate",
