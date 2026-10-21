@@ -17,6 +17,7 @@ jobs:
           node-version: "22"
       - name: Apply patches
         run: |
+          sed -i 's/^-    summary = await runGitAsync(root, \[$/-    summary = runGit(root, [/' .github/patches-crash/01-mods.patch
           for p in .github/patches-crash/*.patch; do
             echo "applying $p"
             git apply --recount --whitespace=nowarn "$p"
