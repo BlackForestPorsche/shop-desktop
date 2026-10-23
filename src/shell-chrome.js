@@ -129,7 +129,13 @@ function mountShellChrome(options = {}) {
         user-select: none;
         -webkit-user-select: none;
       }
-      .overlay.on { display: block; }
+      .overlay.on {
+        display: block;
+        /* Own compositor layer: avoids Windows DWM tearing when the shop page
+           underneath repaints through a translucent fullscreen overlay. */
+        transform: translateZ(0);
+        backface-visibility: hidden;
+      }
       .overlay.play {
         background:
           radial-gradient(ellipse 120% 60% at 50% 100%, rgba(8, 18, 36, 0.7), transparent 70%),
@@ -564,6 +570,10 @@ function mountShellChrome(options = {}) {
     lastFrame = 0;
   }
 
+  // Ambient screensaver does not need 60fps; capping cuts GPU/compositor load on
+  // Windows (large translucent canvas over the shop page) and reduces flicker.
+  const AMBIENT_FRAME_MS = 1000 / 30;
+
   function startLoop() {
     if (raf || disposed || !fleet.length || !idleRunning()) return;
     lastFrame = 0;
@@ -572,6 +582,10 @@ function mountShellChrome(options = {}) {
       if (disposed || !fleet.length) return;
       if (!idleRunning()) return;
       const t = typeof ts === "number" ? ts : now();
+      if (mode === "ambient" && lastFrame && t - lastFrame < AMBIENT_FRAME_MS) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
       const dt = Math.min(0.05, lastFrame ? (t - lastFrame) / 1000 : 0.016);
       lastFrame = t;
       try {

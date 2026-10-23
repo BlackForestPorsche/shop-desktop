@@ -89,6 +89,12 @@ function installCrashGuards(options) {
   try {
     if (gpu.disableGpu) app.disableHardwareAcceleration();
     if (gpu.disableGpuSandbox) app.commandLine.appendSwitch("disable-gpu-sandbox");
+    // Windows: Chromium's native window-occlusion calc can stop/start painting and
+    // flicker the frame (partial cover, taskbar peek, another window sliding by).
+    // Shop Widget already disables this; Tools must too (same Electron shell).
+    if (proc.platform === "win32") {
+      app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+    }
   } catch (error) {
     log.warn("GPU fallback could not be applied", error);
   }

@@ -85,6 +85,14 @@ function HINT_FROM(source, name) {
   return m ? m[1] : "";
 }
 
+test("idle overlay caps ambient FPS and promotes its compositor layer", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.match(source, /AMBIENT_FRAME_MS = 1000 \/ 30/);
+  assert.match(source, /mode === "ambient" && lastFrame && t - lastFrame < AMBIENT_FRAME_MS/);
+  assert.match(source, /transform: translateZ\(0\)/);
+  assert.match(source, /backface-visibility: hidden/);
+});
+
 test("Settings launch starts combat through preload IPC without changing idle rules", () => {
   const chrome = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
