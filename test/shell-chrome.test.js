@@ -170,7 +170,7 @@ test("dedicated pirate window fallback files exist", () => {
   assert.match(piratePreload, /shell:pirate-relaunch/);
 });
 
-test("package version is 1.5.23 for pirate launch fix round 2", () => {
+test("package version is 1.5.24 for in-place git Check for updates", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.23");
+  assert.equal(pkg.version, "1.5.24");
 });

@@ -41,6 +41,8 @@ const {
   applyGitUpdate,
   checkShellUpdate,
   isGitInstall,
+  resolveGitUpdateRoot,
+  relaunchAfterGitUpdate,
 } = require("./shell-update");
 
 const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
@@ -450,7 +452,7 @@ async function checkForShellUpdate({ interactive }) {
           detail:
             info.mode === "git"
               ? "Your shop-desktop git folder already matches GitHub."
-              : `You are on version ${app.getVersion()}. Portable builds download a new .exe; prefer a git checkout for auto-update.`,
+              : `You are on version ${app.getVersion()}. Portable builds only download a new .exe when there is no shop-desktop git checkout.`,
         });
       }
       return;
@@ -465,7 +467,8 @@ async function checkForShellUpdate({ interactive }) {
           cancelId: 1,
           title: "Desktop update",
           message: `Version ${info.remoteVersion} is available.`,
-          detail: "Portable-only install. For git pull + restart, use a shop-desktop git clone.",
+          detail:
+            "No shop-desktop git checkout found. Portable download is bootstrap only — prefer Windows Setup / a git clone for in-place updates.",
         });
         if (choice.response === 0 && info.downloadUrl) {
           shell.openExternal(info.downloadUrl).catch(() => {});
@@ -475,6 +478,7 @@ async function checkForShellUpdate({ interactive }) {
     }
 
     if (!win || win.isDestroyed()) return;
+    const gitRoot = info.root || APP_ROOT;
     const choice = await dialog.showMessageBox(win, {
       type: "info",
       buttons: ["Update and restart", "Later"],
@@ -483,7 +487,7 @@ async function checkForShellUpdate({ interactive }) {
       title: "Desktop update",
       message: "A newer desktop app is available.",
       detail: [
-        "Pulls shop-desktop (widgets + Tools shell), runs npm install, then restarts this widget.",
+        "Pulls shop-desktop in place (git pull), then restarts this widget — not a Portable download.",
         info.shortCurrent && info.shortUpstream
           ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
           : "",
@@ -494,7 +498,7 @@ async function checkForShellUpdate({ interactive }) {
     if (choice.response !== 0) return;
 
     try {
-      applyGitUpdate(APP_ROOT);
+      applyGitUpdate(gitRoot);
     } catch (error) {
       await dialog.showMessageBox(win, {
         type: "warning",
@@ -511,7 +515,17 @@ async function checkForShellUpdate({ interactive }) {
       return;
     }
 
-    app.relaunch({ args: process.argv.slice(1) });
+    relaunchAfterGitUpdate(gitRoot, {
+      runningRoot: APP_ROOT,
+      packaged: app.isPackaged,
+      relaunchApp: (opts) => {
+        if (opts && opts.execPath) {
+          app.relaunch({ ...opts });
+        } else {
+          app.relaunch({ args: process.argv.slice(1) });
+        }
+      },
+    });
     app.exit(0);
   } catch (error) {
     if (interactive && win && !win.isDestroyed()) {
@@ -730,13 +744,14 @@ app.whenReady().then(() => {
     else loadSessionFromDisk();
   }, DEFAULT_POLL_MS);
 
+  const canGitUpdate = () => !!(resolveGitUpdateRoot(APP_ROOT) || isGitInstall(APP_ROOT));
   shellUpdateTimer = setInterval(() => {
-    if (isGitInstall(APP_ROOT)) {
+    if (canGitUpdate()) {
       checkForShellUpdate({ interactive: false });
     }
   }, SHELL_UPDATE_EVERY_MS);
   setTimeout(() => {
-    if (isGitInstall(APP_ROOT)) {
+    if (canGitUpdate()) {
       checkForShellUpdate({ interactive: false });
     }
   }, 25_000);
