@@ -20,7 +20,10 @@ test("shell chrome idle clock does not require window focus", () => {
   for (const m of source.matchAll(/addEventListener\("blur", (\w+)\)/g)) {
     assert.equal(m[1], "clearHeldInput");
   }
-  assert.match(source, /function idleRunning\(\) \{\s*return appActive( && !failed)?;/);
+  // Overlay-on keeps running even if document.hidden flaps; otherwise appActive.
+  assert.match(source, /function idleRunning\(\)/);
+  assert.match(source, /if \(overlay\.classList\.contains\("on"\)\) return true;/);
+  assert.match(source, /return appActive;/);
 });
 
 test("idle overlay dismisses on click only — not mousemove or hover", () => {
@@ -100,9 +103,45 @@ test("Settings launch starts combat through preload IPC without changing idle ru
   assert.match(chrome, /function launchGame\(\)/);
   assert.match(chrome, /takeCommand\(flagship\)/);
   assert.match(preload, /ipcRenderer\.on\("shell:launch-pirate"/);
-  assert.match(main, /webContents\.send\("shell:launch-pirate"\)/);
+  assert.match(main, /wc\.send\("shell:launch-pirate"\)|webContents\.send\("shell:launch-pirate"\)/);
   // No visible in-page launcher and no change to the ambient hint / dismiss rules.
   assert.equal(/Launch pirate game/.test(chrome), false);
   assert.match(chrome, /HINT_AMBIENT = "Click to return to the shop"/);
   assert.match(chrome, /dismissEvents = \["click", "auxclick"\]/);
+});
+
+test("Launch pirate never silently no-ops: status IPC, recovery, visibility flaps", () => {
+  const chrome = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+
+  // Returns { ok, reason } and reports status — no empty stub launchGame.
+  assert.match(chrome, /return \{ ok: false, reason: "canvas-2d-unavailable" \}/);
+  assert.match(chrome, /reportStatus\("launch-aborted"/);
+  assert.match(chrome, /reportStatus\("launch-ok"/);
+  assert.match(chrome, /cleared-failed-latch/);
+  // document.hidden must not block Settings launch or an already-shown overlay.
+  assert.match(chrome, /Force wake: document\.hidden must not block/);
+  assert.match(chrome, /Keep the pirate overlay alive across Windows visibility flaps/);
+  assert.match(chrome, /if \(overlay\.classList\.contains\("on"\)\) \{\s*appActive = true;/);
+  // Idle spawn shares the recovery path.
+  assert.match(chrome, /idle-spawn-aborted/);
+  assert.match(chrome, /idle-recovered/);
+
+  assert.match(preload, /shell:pirate-status/);
+  assert.match(preload, /reportPirateStatus/);
+  assert.match(preload, /chrome-not-mounted/);
+  assert.match(preload, /onStatus:/);
+
+  assert.match(main, /async function launchPirateFromSettings/);
+  assert.match(main, /pirate: launch-requested/);
+  assert.match(main, /pirate: launch-aborted/);
+  assert.match(main, /no-renderer-ack/);
+  assert.match(main, /Could not open the pirate game/);
+  assert.match(main, /shell:pirate-status/);
+});
+
+test("package version is 1.5.22 for pirate launch fix", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  assert.equal(pkg.version, "1.5.22");
 });
