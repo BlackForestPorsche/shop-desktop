@@ -167,6 +167,17 @@ function reportShellError(where, error) {
   }
 }
 
+function reportPirateStatus(event, reason) {
+  try {
+    ipcRenderer.send("shell:pirate-status", {
+      event: String(event || "").slice(0, 80),
+      reason: String(reason || "").slice(0, 200),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 function boot() {
   // Idle fleet only — Check for updates lives in Settings → Check for updates.
   // BF_IDLE_MS (ms) shortens the interval for QA; unset → 5 minutes.
@@ -176,16 +187,36 @@ function boot() {
     chrome = mountShellChrome({
       idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
       onError: (error) => reportShellError("idle-overlay", error),
+      onStatus: (info) => reportPirateStatus(info && info.event, info && info.reason),
     });
   } catch (error) {
     reportShellError("mount-shell-chrome", error);
+    reportPirateStatus("mount-aborted", error && error.message ? error.message : String(error));
   }
   // Settings → Launch pirate game (main sends this; never fired by idle or page code).
   ipcRenderer.on("shell:launch-pirate", () => {
     try {
-      if (chrome && typeof chrome.launchGame === "function") chrome.launchGame();
+      reportPirateStatus("launch-requested", "ipc");
+      if (!chrome) {
+        reportPirateStatus("launch-aborted", "chrome-not-mounted");
+        return;
+      }
+      if (typeof chrome.launchGame !== "function") {
+        reportPirateStatus("launch-aborted", "launchGame-missing");
+        return;
+      }
+      const result = chrome.launchGame();
+      // launchGame returns { ok, reason }; tolerate a legacy boolean.
+      if (result && typeof result === "object") {
+        if (!result.ok) reportPirateStatus("launch-aborted", result.reason || "unknown");
+        else reportPirateStatus("launch-ok", result.reason || "ok");
+        return;
+      }
+      if (!result) reportPirateStatus("launch-aborted", "launchGame-false");
+      else reportPirateStatus("launch-ok", "legacy-true");
     } catch (error) {
       reportShellError("launch-pirate", error);
+      reportPirateStatus("launch-aborted", error && error.message ? error.message : String(error));
     }
   });
 }

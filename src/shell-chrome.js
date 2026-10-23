@@ -60,13 +60,23 @@ const KEY_MAP = Object.freeze({
  *   maxShips?: number,
  *   now?: () => number,
  *   storage?: Storage | null,
+ *   onError?: (error: unknown) => void,
+ *   onStatus?: (info: { event: string, reason?: string }) => void,
  * }} [options]
  */
 function mountShellChrome(options = {}) {
   const onError = typeof options.onError === "function" ? options.onError : null;
+  const onStatus = typeof options.onStatus === "function" ? options.onStatus : null;
   function reportIdleError(error) {
     try {
       if (onError) onError(error);
+    } catch {
+      // reporting must never throw
+    }
+  }
+  function reportStatus(event, reason) {
+    try {
+      if (onStatus) onStatus({ event, reason: reason || "" });
     } catch {
       // reporting must never throw
     }
@@ -76,7 +86,14 @@ function mountShellChrome(options = {}) {
   const now = options.now ?? Date.now;
 
   if (typeof document === "undefined") {
-    return { dispose() {} };
+    return {
+      launchGame() {
+        return { ok: false, reason: "no-document" };
+      },
+      dispose() {},
+      disabled: true,
+      _test: {},
+    };
   }
 
   let storage = options.storage;
@@ -350,14 +367,22 @@ function mountShellChrome(options = {}) {
   const overlay = shadow.querySelector(".overlay");
   const canvas = shadow.querySelector("canvas");
   let ctx = null;
-  try {
-    ctx = canvas.getContext("2d", { alpha: true });
-  } catch (error) {
-    reportIdleError(error);
+  /** @returns {boolean} */
+  function ensureCtx() {
+    if (ctx) return true;
+    try {
+      ctx = canvas.getContext("2d", { alpha: true });
+    } catch (error) {
+      reportIdleError(error);
+      ctx = null;
+    }
+    return !!ctx;
   }
-  if (!ctx) {
-    // No 2D canvas (GPU disabled/lost): skip the screensaver rather than throw from preload.
-    return { launchGame() {}, dispose() {}, disabled: true, _test: {} };
+  if (!ensureCtx()) {
+    // GPU/driver quirks can withhold 2D at first paint; keep the host mounted and
+    // retry on Settings → Launch pirate / the next idle tick instead of a silent stub.
+    reportStatus("overlay-deferred", "canvas-2d-unavailable");
+    reportIdleError(new Error("canvas-2d-unavailable at mount"));
   }
   const hint = shadow.querySelector(".hint");
   const hud = shadow.querySelector(".hud");
@@ -419,6 +444,7 @@ function mountShellChrome(options = {}) {
   let hoverId = 0;
 
   function resize() {
+    if (!ensureCtx()) return;
     const w = Math.max(1, window.innerWidth || 1);
     const h = Math.max(1, window.innerHeight || 1);
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -432,18 +458,27 @@ function mountShellChrome(options = {}) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  /** Clock + spawn: visible page only. Do not require window focus. */
+  /**
+   * Clock + spawn. Do not require window focus (second-monitor desk Tools).
+   * While the overlay is up, ignore document.hidden flaps — Windows DWM occlusion
+   * / multi-monitor can mark the page "hidden" without the user leaving Tools.
+   */
   function idleRunning() {
-    return appActive && !failed;
+    if (failed) return false;
+    if (overlay.classList.contains("on")) return true;
+    return appActive;
   }
 
   /**
-   * The pirate overlay is optional. If drawing/stepping ever throws, drop the overlay,
-   * stop the loop and stay off for the rest of this page so the shop underneath keeps working.
+   * The pirate overlay is optional. If drawing/stepping ever throws, drop the overlay
+   * and stop the loop so the shop underneath keeps working. Settings → Launch pirate
+   * may recover (clears `failed` and retries the canvas).
    */
   function failIdle(error) {
     if (failed) return;
     failed = true;
+    const message = error && error.message ? error.message : String(error || "unknown");
+    reportStatus("overlay-aborted", `draw-failed:${message}`.slice(0, 200));
     reportIdleError(error);
     try {
       stopLoop();
@@ -456,6 +491,8 @@ function mountShellChrome(options = {}) {
       overlay.classList.remove("on", "play");
       overlay.setAttribute("aria-hidden", "true");
       hud.hidden = true;
+      // Drop a dead context so the next launch retries getContext.
+      ctx = null;
     } catch {
       // best effort
     }
@@ -537,19 +574,46 @@ function mountShellChrome(options = {}) {
   }
 
   function showOverlay() {
-    if (fleet.length && !overlay.classList.contains("on")) {
+    if (!fleet.length) return false;
+    if (!ensureCtx()) {
+      reportStatus("overlay-aborted", "canvas-2d-unavailable");
+      return false;
+    }
+    if (!overlay.classList.contains("on")) {
       overlay.classList.add("on");
       overlay.setAttribute("aria-hidden", "false");
+      // Overlay is up: treat as active even if Page Visibility says hidden.
+      appActive = true;
       resize();
       startLoop();
+      reportStatus("overlay-shown", mode);
+    } else if (!raf) {
+      startLoop();
     }
+    return overlay.classList.contains("on");
   }
 
   function syncFleet() {
-    if (!idleRunning() || mode !== "ambient") return;
+    if (!appActive && !overlay.classList.contains("on")) return;
+    if (mode !== "ambient") return;
     const idleMs = now() - lastActivity;
     const target = shipsForIdleMs(idleMs, { intervalMs: idleIntervalMs, maxShips });
     if (target <= fleet.length) return;
+
+    // Same recovery path as Settings → Launch pirate: a prior draw fault must not
+    // permanently kill idle spawn on this page.
+    if (failed) {
+      ctx = null;
+      if (!ensureCtx()) {
+        reportStatus("idle-spawn-aborted", "canvas-2d-unavailable");
+        return;
+      }
+      failed = false;
+      reportStatus("idle-recovered", "cleared-failed-latch");
+    } else if (!ensureCtx()) {
+      reportStatus("idle-spawn-aborted", "canvas-2d-unavailable");
+      return;
+    }
 
     const before = fleet.length;
     const grown = growFleet(
@@ -559,7 +623,13 @@ function mountShellChrome(options = {}) {
     for (let i = before; i < grown.length; i++) {
       fleet.push(placeShip(grown[i].style, i));
     }
-    showOverlay();
+    if (!showOverlay()) {
+      // Roll back ships if the overlay could not surface — avoid invisible fleet.
+      fleet = fleet.slice(0, before);
+      reportStatus("idle-spawn-aborted", "overlay-not-shown");
+    } else if (before === 0) {
+      reportStatus("idle-spawn", `ships=${fleet.length}`);
+    }
   }
 
   function stopLoop() {
@@ -575,12 +645,19 @@ function mountShellChrome(options = {}) {
   const AMBIENT_FRAME_MS = 1000 / 30;
 
   function startLoop() {
-    if (raf || disposed || !fleet.length || !idleRunning()) return;
+    if (raf || disposed || !fleet.length || failed) return;
+    if (!ensureCtx()) return;
+    // Overlay-on always runs; otherwise respect Page Visibility.
+    if (!idleRunning()) return;
     lastFrame = 0;
     const frame = (ts) => {
       raf = 0;
-      if (disposed || !fleet.length) return;
+      if (disposed || !fleet.length || failed) return;
       if (!idleRunning()) return;
+      if (!ensureCtx()) {
+        failIdle(new Error("canvas-2d-lost"));
+        return;
+      }
       const t = typeof ts === "number" ? ts : now();
       if (mode === "ambient" && lastFrame && t - lastFrame < AMBIENT_FRAME_MS) {
         raf = requestAnimationFrame(frame);
@@ -788,11 +865,38 @@ function mountShellChrome(options = {}) {
   /**
    * Settings menu launcher: show the overlay now and start combat, skipping
    * the idle wait. Idle behavior is untouched when this is never called.
-   * @returns {boolean} true when a run is active afterwards
+   * Never silently no-ops: returns `{ ok, reason }` so preload/main can log
+   * and surface a dialog when the game truly cannot start.
+   * @returns {{ ok: boolean, reason: string }}
    */
   function launchGame() {
-    if (disposed || failed || !appActive) return false;
-    if (mode === "play") return true;
+    reportStatus("launch-requested", mode);
+    if (disposed) {
+      reportStatus("launch-aborted", "disposed");
+      return { ok: false, reason: "disposed" };
+    }
+    // Settings asked again — clear a prior canvas fault and retry getContext.
+    if (failed) {
+      ctx = null;
+      if (!ensureCtx()) {
+        reportStatus("launch-aborted", "canvas-2d-unavailable");
+        return { ok: false, reason: "canvas-2d-unavailable" };
+      }
+      failed = false;
+      reportStatus("launch-recovered", "cleared-failed-latch");
+    }
+    if (!ensureCtx()) {
+      reportStatus("launch-aborted", "canvas-2d-unavailable");
+      return { ok: false, reason: "canvas-2d-unavailable" };
+    }
+    // Force wake: document.hidden must not block an explicit menu launch.
+    appActive = true;
+    if (mode === "play") {
+      if (!overlay.classList.contains("on")) showOverlay();
+      else if (!raf) startLoop();
+      reportStatus("launch-ok", "already-playing");
+      return { ok: true, reason: "already-playing" };
+    }
     const live = () => fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
     const wanted = Math.min(maxShips, LAUNCH_FLEET);
     if (live().length < wanted) {
@@ -806,11 +910,23 @@ function mountShellChrome(options = {}) {
     }
     if (!live().length) fleet.push(placeShip(pickShipStyle(), fleet.length));
     lastActivity = now();
-    showOverlay();
+    if (!showOverlay()) {
+      reportStatus("launch-aborted", "overlay-not-shown");
+      return { ok: false, reason: "overlay-not-shown" };
+    }
     const flagship = live()[0];
-    if (!flagship) return false;
+    if (!flagship) {
+      reportStatus("launch-aborted", "no-flagship");
+      return { ok: false, reason: "no-flagship" };
+    }
     takeCommand(flagship);
-    return mode === "play";
+    if (mode !== "play") {
+      reportStatus("launch-aborted", "take-command-failed");
+      return { ok: false, reason: "take-command-failed" };
+    }
+    if (!raf) startLoop();
+    reportStatus("launch-ok", "started");
+    return { ok: true, reason: "started" };
   }
 
   function takeCommand(ship) {
@@ -1483,6 +1599,14 @@ function mountShellChrome(options = {}) {
   }
 
   function onVisibility() {
+    // Keep the pirate overlay alive across Windows visibility flaps (occlusion /
+    // multi-monitor). Only pause ambient idle when the page is truly hidden and
+    // the overlay is not showing.
+    if (overlay.classList.contains("on")) {
+      appActive = true;
+      if (fleet.length && !raf && !failed && !disposed) startLoop();
+      return;
+    }
     appActive = !document.hidden;
     if (!appActive) {
       clearHeldInput();
@@ -1558,6 +1682,9 @@ function mountShellChrome(options = {}) {
 
   return {
     launchGame,
+    get disabled() {
+      return failed || !ctx;
+    },
     dispose() {
       disposed = true;
       window.clearInterval(tickTimer);
@@ -1595,6 +1722,14 @@ function mountShellChrome(options = {}) {
       },
       get overlayOn() {
         return overlay.classList.contains("on");
+      },
+      get failed() {
+        return failed;
+      },
+      failIdle,
+      ensureCtx,
+      setAppActive(value) {
+        appActive = !!value;
       },
       dismissWithClick: onDismissClick,
       softActivity: onSoftActivity,

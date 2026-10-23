@@ -666,6 +666,129 @@ async function restartLabelsService() {
   }
 }
 
+const PIRATE_LAUNCH_ABORT_REASONS = new Set([
+  "canvas-2d-unavailable",
+  "chrome-not-mounted",
+  "launchGame-missing",
+  "overlay-not-shown",
+  "no-flagship",
+  "take-command-failed",
+  "disposed",
+  "no-document",
+  "no-renderer-ack",
+  "no-main-window",
+]);
+
+function pirateAbortDetail(reason) {
+  const r = String(reason || "unknown");
+  if (r === "canvas-2d-unavailable" || r.startsWith("draw-failed")) {
+    return [
+      `Reason: ${r}`,
+      "",
+      "Canvas 2D is unavailable on this PC (GPU / driver / hardware acceleration).",
+      "Check %LOCALAPPDATA%\\blackforest-tools\\tools.log for pirate: lines.",
+      "If gpu-fallback.json exists, try deleting it or set BF_TOOLS_ENABLE_GPU=1 and restart.",
+    ].join("\n");
+  }
+  if (r === "chrome-not-mounted" || r === "no-renderer-ack") {
+    return [
+      `Reason: ${r}`,
+      "",
+      "The shop page may still be loading, or preload did not mount.",
+      "Wait for the shop to finish loading, then try Launch pirate again.",
+      "Check tools.log for pirate: and Renderer error lines.",
+    ].join("\n");
+  }
+  return [
+    `Reason: ${r}`,
+    "",
+    "Check %LOCALAPPDATA%\\blackforest-tools\\tools.log (Help → Open logs folder).",
+  ].join("\n");
+}
+
+/**
+ * Settings → Launch pirate game. Logs every request/abort to tools.log and shows a
+ * dialog when the overlay truly cannot start (never a silent no-op).
+ */
+async function launchPirateFromSettings() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) {
+    console.warn("pirate: launch-aborted no-main-window");
+    return;
+  }
+  console.info("pirate: launch-requested from-settings");
+  try {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.webContents.focus();
+  } catch (error) {
+    console.warn("pirate: could not focus window", error);
+  }
+
+  const wc = win.webContents;
+  let settled = false;
+
+  const finish = async (event, reason) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    try {
+      ipcMain.removeListener("shell:pirate-status", onStatus);
+    } catch {
+      // ignore
+    }
+    const ev = String(event || "");
+    const why = String(reason || "");
+    if (ev === "launch-ok") {
+      console.info(`pirate: launch-ok ${why || "ok"}`);
+      return;
+    }
+    if (ev === "launch-aborted" || PIRATE_LAUNCH_ABORT_REASONS.has(why)) {
+      console.warn(`pirate: launch-aborted ${why || "unknown"}`);
+      if (!win.isDestroyed()) {
+        try {
+          await dialog.showMessageBox(win, {
+            type: "warning",
+            buttons: ["OK"],
+            defaultId: 0,
+            title: "Pirate game",
+            message: "Could not open the pirate game",
+            detail: pirateAbortDetail(why),
+          });
+        } catch (error) {
+          console.error("pirate abort dialog failed:", error);
+        }
+      }
+    }
+  };
+
+  const onStatus = (event, payload) => {
+    try {
+      if (!event || event.sender !== wc) return;
+    } catch {
+      return;
+    }
+    const ev = payload && typeof payload.event === "string" ? payload.event : "";
+    const reason = payload && typeof payload.reason === "string" ? payload.reason : "";
+    if (ev === "launch-ok" || ev === "launch-aborted") {
+      finish(ev, reason).catch((error) => console.error(error));
+    }
+  };
+
+  const timer = setTimeout(() => {
+    finish("launch-aborted", "no-renderer-ack").catch((error) => console.error(error));
+  }, 3000);
+
+  ipcMain.on("shell:pirate-status", onStatus);
+  try {
+    wc.send("shell:launch-pirate");
+  } catch (error) {
+    console.error("pirate: send failed", error);
+    await finish("launch-aborted", "send-failed");
+  }
+}
+
 function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
@@ -687,10 +810,9 @@ function shopMenu() {
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
       onLaunchPirateGame: () => {
-        const win = mainWindow;
-        if (!win || win.isDestroyed()) return;
-        win.webContents.focus();
-        win.webContents.send("shell:launch-pirate");
+        launchPirateFromSettings().catch((error) => {
+          console.error("pirate launch handler failed:", error);
+        });
       },
       onLabelsStatus: () => {
         showLabelsStatus().catch((error) => {
@@ -1731,6 +1853,17 @@ if (gotLock) {
     const where = payload && typeof payload.where === "string" ? payload.where.slice(0, 80) : "renderer";
     const text = payload && typeof payload.text === "string" ? payload.text.slice(0, 4000) : "";
     console.error(`Renderer error (${where}):`, text);
+  });
+
+  // Pirate idle / Settings launch status (also handled transiently by launchPirateFromSettings).
+  ipcMain.on("shell:pirate-status", (_event, payload) => {
+    const ev = payload && typeof payload.event === "string" ? payload.event.slice(0, 80) : "status";
+    const reason = payload && typeof payload.reason === "string" ? payload.reason.slice(0, 200) : "";
+    if (ev.includes("abort") || ev.includes("fail") || ev.includes("deferred")) {
+      console.warn(`pirate: ${ev}${reason ? ` ${reason}` : ""}`);
+    } else {
+      console.info(`pirate: ${ev}${reason ? ` ${reason}` : ""}`);
+    }
   });
 
   ipcMain.handle("shell:check-updates", async () => {
