@@ -120,6 +120,12 @@ test("Launch pirate never silently no-ops: status IPC, recovery, visibility flap
   assert.match(chrome, /reportStatus\("launch-aborted"/);
   assert.match(chrome, /reportStatus\("launch-ok"/);
   assert.match(chrome, /cleared-failed-latch/);
+  assert.match(chrome, /overlay-not-visible/);
+  assert.match(chrome, /function isOverlayVisible/);
+  // Full-size host (0×0 clipped when a shop transform creates a containing block).
+  assert.match(chrome, /width: "100%"/);
+  assert.match(chrome, /height: "100%"/);
+  assert.equal(/width: "0"/.test(chrome), false);
   // document.hidden must not block Settings launch or an already-shown overlay.
   assert.match(chrome, /Force wake: document\.hidden must not block/);
   assert.match(chrome, /Keep the pirate overlay alive across Windows visibility flaps/);
@@ -132,16 +138,39 @@ test("Launch pirate never silently no-ops: status IPC, recovery, visibility flap
   assert.match(preload, /reportPirateStatus/);
   assert.match(preload, /chrome-not-mounted/);
   assert.match(preload, /onStatus:/);
+  assert.match(preload, /isOverlayVisible/);
 
   assert.match(main, /async function launchPirateFromSettings/);
+  assert.match(main, /pirate: menu-click/);
   assert.match(main, /pirate: launch-requested/);
   assert.match(main, /pirate: launch-aborted/);
+  assert.match(main, /pirate: in-page-failed/);
   assert.match(main, /no-renderer-ack/);
   assert.match(main, /Could not open the pirate game/);
   assert.match(main, /shell:pirate-status/);
+  assert.match(main, /openPirateGameWindow/);
+  assert.match(main, /tryDedicatedPirateWindow/);
+  // Must use console.log/warn so teeConsole writes tools.log (info was missing).
+  assert.match(main, /console\.log\("pirate: menu-click"\)/);
+  assert.match(main, /console\.log\("pirate: launch-requested from-settings"\)/);
 });
 
-test("package version is 1.5.22 for pirate launch fix", () => {
+test("dedicated pirate window fallback files exist", () => {
+  const root = path.join(__dirname, "..");
+  assert.ok(fs.existsSync(path.join(root, "assets", "pirate-game.html")));
+  assert.ok(fs.existsSync(path.join(root, "src", "pirate-preload.js")));
+  assert.ok(fs.existsSync(path.join(root, "src", "pirate-window.js")));
+  const pirateWindow = fs.readFileSync(path.join(root, "src", "pirate-window.js"), "utf8");
+  const piratePreload = fs.readFileSync(path.join(root, "src", "pirate-preload.js"), "utf8");
+  assert.match(pirateWindow, /function openPirateGameWindow/);
+  assert.match(pirateWindow, /pirate-game\.html/);
+  assert.match(pirateWindow, /pirate-preload\.js/);
+  assert.match(piratePreload, /mountShellChrome/);
+  assert.match(piratePreload, /launchGame/);
+  assert.match(piratePreload, /shell:pirate-relaunch/);
+});
+
+test("package version is 1.5.23 for pirate launch fix round 2", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.22");
+  assert.equal(pkg.version, "1.5.23");
 });

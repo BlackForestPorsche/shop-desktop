@@ -27,7 +27,14 @@ function createLimiter(max, windowMs, clock = Date.now) {
 }
 
 function teeConsole(log, target = console) {
-  for (const [method, level] of [["log", "info"], ["warn", "warn"], ["error", "error"]]) {
+  // Must include console.info: pirate launch diagnostics use it, and a GUI
+  // Windows start has no attached console — tools.log is the only record.
+  for (const [method, level] of [
+    ["log", "info"],
+    ["info", "info"],
+    ["warn", "warn"],
+    ["error", "error"],
+  ]) {
     const original = target[method] ? target[method].bind(target) : () => {};
     target[method] = (...args) => {
       try {
