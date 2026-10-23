@@ -118,14 +118,16 @@ test("Launch pirate never silently no-ops: status IPC, recovery, visibility flap
   // Returns { ok, reason } and reports status — no empty stub launchGame.
   assert.match(chrome, /return \{ ok: false, reason: "canvas-2d-unavailable" \}/);
   assert.match(chrome, /reportStatus\("launch-aborted"/);
-  assert.match(chrome, /reportStatus\("launch-ok"/);
   assert.match(chrome, /cleared-failed-latch/);
-  assert.match(chrome, /overlay-not-visible/);
   assert.match(chrome, /function isOverlayVisible/);
-  // Full-size host (0×0 clipped when a shop transform creates a containing block).
-  assert.match(chrome, /width: "100%"/);
-  assert.match(chrome, /height: "100%"/);
+  assert.match(chrome, /function refreshLayout/);
+  // Full-size host pinned in CSS pixels (0×0 clipped when a shop transform creates a containing block).
+  assert.match(chrome, /pinHostToViewport/);
+  assert.match(chrome, /100vw/);
   assert.equal(/width: "0"/.test(chrome), false);
+  // launch-ok / overlay-not-visible come from preload after paint (not sync in launchGame).
+  assert.match(preload, /overlay-not-visible/);
+  assert.match(preload, /launch-ok/);
   // document.hidden must not block Settings launch or an already-shown overlay.
   assert.match(chrome, /Force wake: document\.hidden must not block/);
   assert.match(chrome, /Keep the pirate overlay alive across Windows visibility flaps/);
@@ -148,29 +150,47 @@ test("Launch pirate never silently no-ops: status IPC, recovery, visibility flap
   assert.match(main, /no-renderer-ack/);
   assert.match(main, /Could not open the pirate game/);
   assert.match(main, /shell:pirate-status/);
+  assert.match(main, /tryPirateShellOverlay/);
+  assert.match(main, /attachPirateShellOverlay/);
   assert.match(main, /openPirateGameWindow/);
   assert.match(main, /tryDedicatedPirateWindow/);
+  assert.match(main, /last-resort dedicated window/);
   // Must use console.log/warn so teeConsole writes tools.log (info was missing).
   assert.match(main, /console\.log\("pirate: menu-click"\)/);
   assert.match(main, /console\.log\("pirate: launch-requested from-settings"\)/);
+  // Host is pinned in CSS pixels on documentElement (not % alone).
+  assert.match(chrome, /pinHostToViewport/);
+  assert.match(chrome, /ensureHostAttached/);
+  assert.match(chrome, /refreshLayout/);
+  assert.match(preload, /afterPaint/);
+  assert.match(preload, /dismissOverlay/);
 });
 
-test("dedicated pirate window fallback files exist", () => {
+test("pirate shell overlay preferred over dedicated window", () => {
   const root = path.join(__dirname, "..");
   assert.ok(fs.existsSync(path.join(root, "assets", "pirate-game.html")));
   assert.ok(fs.existsSync(path.join(root, "src", "pirate-preload.js")));
   assert.ok(fs.existsSync(path.join(root, "src", "pirate-window.js")));
   const pirateWindow = fs.readFileSync(path.join(root, "src", "pirate-window.js"), "utf8");
   const piratePreload = fs.readFileSync(path.join(root, "src", "pirate-preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(root, "src", "main.js"), "utf8");
+  assert.match(pirateWindow, /function attachPirateShellOverlay/);
   assert.match(pirateWindow, /function openPirateGameWindow/);
   assert.match(pirateWindow, /pirate-game\.html/);
   assert.match(pirateWindow, /pirate-preload\.js/);
+  assert.match(pirateWindow, /WebContentsView/);
   assert.match(piratePreload, /mountShellChrome/);
-  assert.match(piratePreload, /launchGame/);
+  assert.match(piratePreload, /launchOnly:\s*true/);
+  assert.match(piratePreload, /shell:pirate-overlay-close/);
   assert.match(piratePreload, /shell:pirate-relaunch/);
+  // Launch order: in-page → shell overlay → dedicated window last.
+  const inPageAt = main.indexOf("tryInPagePirateLaunch");
+  const shellAt = main.indexOf("tryPirateShellOverlay");
+  const dedicatedAt = main.indexOf("tryDedicatedPirateWindow");
+  assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.24 for in-place git Check for updates", () => {
+test("package version is 1.5.25 for pirate overlay-on-shop fix", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.24");
+  assert.equal(pkg.version, "1.5.25");
 });

@@ -62,11 +62,14 @@ const KEY_MAP = Object.freeze({
  *   storage?: Storage | null,
  *   onError?: (error: unknown) => void,
  *   onStatus?: (info: { event: string, reason?: string }) => void,
+ *   launchOnly?: boolean,
  * }} [options]
  */
 function mountShellChrome(options = {}) {
   const onError = typeof options.onError === "function" ? options.onError : null;
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : null;
+  /** When true (shell overlay / dedicated window), dismiss + stand-down close the session. */
+  const launchOnly = !!options.launchOnly;
   function reportIdleError(error) {
     try {
       if (onError) onError(error);
@@ -111,19 +114,49 @@ function mountShellChrome(options = {}) {
   const host = document.createElement("div");
   host.id = ROOT_ID;
   host.setAttribute("data-bf-tools-shell", "1");
-  // Full viewport host (not 0×0): a shop-page transform/filter can make
-  // position:fixed descendants use the host as containing block. A zero-size
-  // host then clips the overlay to nothing while launchGame still returns ok.
+  // Full viewport host pinned in CSS pixels (not % / inset alone): shop-page
+  // transform/filter can make position:fixed use a non-viewport containing
+  // block. Pixel sizing + documentElement attachment keep the overlay covering
+  // the window; shell-level WebContentsView is the fallback if this still clips.
   Object.assign(host.style, {
     all: "initial",
+    display: "block",
     position: "fixed",
-    inset: "0",
-    width: "100%",
-    height: "100%",
+    left: "0px",
+    top: "0px",
+    right: "auto",
+    bottom: "auto",
+    width: "100vw",
+    height: "100vh",
+    margin: "0",
+    padding: "0",
+    border: "0",
     overflow: "visible",
     zIndex: "2147483646",
     pointerEvents: "none",
+    isolation: "isolate",
+    contain: "layout style",
   });
+
+  /** Keep the host a direct child of <html> (outside typical SPA body transforms). */
+  function ensureHostAttached() {
+    const root = document.documentElement;
+    if (!root) return false;
+    if (host.parentNode !== root) root.appendChild(host);
+    else if (root.lastElementChild !== host) root.appendChild(host);
+    return true;
+  }
+
+  /** Pin host box to the visual viewport in CSS pixels (survives % containing blocks). */
+  function pinHostToViewport() {
+    const w = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
+    const h = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+    host.style.left = "0px";
+    host.style.top = "0px";
+    host.style.width = `${w}px`;
+    host.style.height = `${h}px`;
+    return { w, h };
+  }
 
   const shadow = host.attachShadow({ mode: "closed" });
   shadow.innerHTML = `
@@ -447,9 +480,11 @@ function mountShellChrome(options = {}) {
   let hoverId = 0;
 
   function resize() {
+    ensureHostAttached();
+    const pinned = pinHostToViewport();
     if (!ensureCtx()) return;
-    const w = Math.max(1, window.innerWidth || 1);
-    const h = Math.max(1, window.innerHeight || 1);
+    const w = pinned.w;
+    const h = pinned.h;
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
     // A 4K display at 2x is a ~33M-pixel canvas: enough to lose the GPU on weak Windows drivers.
     const area = w * h;
@@ -459,6 +494,19 @@ function mountShellChrome(options = {}) {
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /** Re-pin + layout flush; used before visibility probes (Windows often reports 0×0 pre-paint). */
+  function refreshLayout() {
+    ensureHostAttached();
+    pinHostToViewport();
+    resize();
+    try {
+      void host.offsetWidth;
+      void canvas.offsetWidth;
+    } catch {
+      // ignore
+    }
   }
 
   /**
@@ -503,7 +551,7 @@ function mountShellChrome(options = {}) {
 
   function resetIdle(dismiss) {
     lastActivity = now();
-    if (dismiss && fleet.length) {
+    if (dismiss && (fleet.length || overlay.classList.contains("on"))) {
       hoverId = 0;
       leavePlayState();
       fleet = [];
@@ -514,6 +562,7 @@ function mountShellChrome(options = {}) {
       overlay.classList.remove("on");
       overlay.setAttribute("aria-hidden", "true");
       stopLoop();
+      reportStatus("overlay-dismissed", launchOnly ? "launch-only" : "idle");
     }
   }
 
@@ -582,6 +631,8 @@ function mountShellChrome(options = {}) {
       reportStatus("overlay-aborted", "canvas-2d-unavailable");
       return false;
     }
+    ensureHostAttached();
+    pinHostToViewport();
     if (!overlay.classList.contains("on")) {
       overlay.classList.add("on");
       overlay.setAttribute("aria-hidden", "false");
@@ -897,11 +948,8 @@ function mountShellChrome(options = {}) {
     if (mode === "play") {
       if (!overlay.classList.contains("on")) showOverlay();
       else if (!raf) startLoop();
-      if (!isOverlayVisible()) {
-        reportStatus("launch-aborted", "overlay-not-visible");
-        return { ok: false, reason: "overlay-not-visible" };
-      }
-      reportStatus("launch-ok", "already-playing");
+      refreshLayout();
+      // Visibility is confirmed by preload after paint (avoids Windows 0×0 false negatives).
       return { ok: true, reason: "already-playing" };
     }
     const live = () => fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
@@ -932,26 +980,34 @@ function mountShellChrome(options = {}) {
       return { ok: false, reason: "take-command-failed" };
     }
     if (!raf) startLoop();
-    if (!isOverlayVisible()) {
-      reportStatus("launch-aborted", "overlay-not-visible");
-      return { ok: false, reason: "overlay-not-visible" };
-    }
-    reportStatus("launch-ok", "started");
+    refreshLayout();
+    // Do not report launch-ok here — preload confirms isOverlayVisible after paint,
+    // then sends launch-ok / launch-aborted. Sync probes false-negative on Windows.
     return { ok: true, reason: "started" };
   }
 
   /**
    * True when the overlay is on and the canvas has a real on-screen box.
    * Catches “launch-ok but invisible” (clipped 0×0 host / failed paint).
+   * Call refreshLayout() first when probing right after show (Windows layout lag).
    */
   function isOverlayVisible() {
     try {
       if (!overlay.classList.contains("on")) return false;
       if (!ctx) return false;
+      if (!document.documentElement || !document.documentElement.contains(host)) return false;
+      // Force layout so getBoundingClientRect is not stale/zero before first paint.
+      void host.offsetWidth;
+      void canvas.offsetWidth;
       const hostRect = host.getBoundingClientRect();
       if (hostRect.width < 32 || hostRect.height < 32) return false;
       const canvasRect = canvas.getBoundingClientRect();
       if (canvasRect.width < 32 || canvasRect.height < 32) return false;
+      // Clipped to a tiny containing block while canvas style claims full viewport.
+      const styleW = parseFloat(canvas.style.width) || 0;
+      const styleH = parseFloat(canvas.style.height) || 0;
+      if (styleW >= 64 && canvasRect.width < styleW * 0.25) return false;
+      if (styleH >= 64 && canvasRect.height < styleH * 0.25) return false;
       return true;
     } catch {
       return false;
@@ -1004,6 +1060,11 @@ function mountShellChrome(options = {}) {
   /** Esc / Stand down / Back to the sea: back to the screensaver, fleet stays afloat. */
   function standDown() {
     if (mode !== "play") return;
+    // Shell overlay / dedicated launch: stand down means return to the shop.
+    if (launchOnly) {
+      resetIdle(true);
+      return;
+    }
     leavePlayState();
     balls = [];
     pickups = [];
@@ -1686,8 +1747,8 @@ function mountShellChrome(options = {}) {
   el.sea.addEventListener("click", standDown);
   el.again.addEventListener("click", sailAgain);
 
-  const parent = document.documentElement || document.body;
-  parent.appendChild(host);
+  ensureHostAttached();
+  pinHostToViewport();
 
   let pauseStarted = 0;
   tickTimer = window.setInterval(() => {
@@ -1712,6 +1773,11 @@ function mountShellChrome(options = {}) {
   return {
     launchGame,
     isOverlayVisible,
+    refreshLayout,
+    /** Clear a clipped/invisible overlay so a shell-level fallback can take over. */
+    dismissOverlay() {
+      resetIdle(true);
+    },
     get disabled() {
       return failed || !ctx;
     },

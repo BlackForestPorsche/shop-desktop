@@ -1,9 +1,9 @@
 "use strict";
 
 /**
- * Preload for the dedicated pirate BrowserWindow (Settings → Launch pirate fallback).
- * Mounts shell chrome on a blank local page and starts combat immediately — no shop
- * SPA, no CSP fight, no document.hidden from the desk site.
+ * Preload for the pirate shell overlay (WebContentsView on the shop window) and
+ * the last-resort dedicated BrowserWindow. Mounts shell chrome on a blank local
+ * page — no shop SPA CSS, no CSP fight — and starts combat immediately.
  */
 
 const { ipcRenderer } = require("electron");
@@ -20,18 +20,45 @@ function reportPirateStatus(event, reason) {
   }
 }
 
+function afterPaint() {
+  return new Promise((resolve) => {
+    try {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    } catch {
+      setTimeout(resolve, 32);
+    }
+  });
+}
+
 function boot() {
   let chrome = null;
   try {
-    // Idle interval huge: this window is launch-only, not a screensaver host.
+    // Idle interval huge: this surface is launch-only, not a screensaver host.
+    // launchOnly: Esc / stand down / water click closes the overlay (back to shop).
     chrome = mountShellChrome({
       idleIntervalMs: 24 * 60 * 60 * 1000,
-      onStatus: (info) => reportPirateStatus(info && info.event, info && info.reason),
+      launchOnly: true,
+      onStatus: (info) => {
+        const event = info && info.event;
+        const reason = info && info.reason;
+        reportPirateStatus(event, reason);
+        if (event === "overlay-dismissed") {
+          try {
+            ipcRenderer.send("shell:pirate-overlay-close", {
+              reason: String(reason || "dismissed").slice(0, 200),
+            });
+          } catch {
+            // ignore
+          }
+        }
+      },
       onError: (error) => {
         try {
           const text = error && error.stack ? error.stack : String(error);
           ipcRenderer.send("shell:renderer-error", {
-            where: "pirate-window",
+            where: "pirate-overlay",
             text: String(text).slice(0, 4000),
           });
         } catch {
@@ -44,8 +71,8 @@ function boot() {
     return;
   }
 
-  function runLaunch(source) {
-    reportPirateStatus("launch-requested", source || "dedicated-window");
+  async function runLaunch(source) {
+    reportPirateStatus("launch-requested", source || "shell-overlay");
     try {
       const result = chrome.launchGame();
       if (result && typeof result === "object") {
@@ -53,11 +80,15 @@ function boot() {
           reportPirateStatus("launch-aborted", result.reason || "unknown");
           return;
         }
+        if (typeof chrome.refreshLayout === "function") chrome.refreshLayout();
+        await afterPaint();
+        if (typeof chrome.refreshLayout === "function") chrome.refreshLayout();
         if (typeof chrome.isOverlayVisible === "function" && !chrome.isOverlayVisible()) {
+          if (typeof chrome.dismissOverlay === "function") chrome.dismissOverlay();
           reportPirateStatus("launch-aborted", "overlay-not-visible");
           return;
         }
-        reportPirateStatus("launch-ok", result.reason || "dedicated-window");
+        reportPirateStatus("launch-ok", result.reason || "shell-overlay");
         return;
       }
       if (!result) reportPirateStatus("launch-aborted", "launchGame-false");
@@ -67,8 +98,10 @@ function boot() {
     }
   }
 
-  ipcRenderer.on("shell:pirate-relaunch", () => runLaunch("dedicated-relaunch"));
-  runLaunch("dedicated-window");
+  ipcRenderer.on("shell:pirate-relaunch", () => {
+    runLaunch("shell-overlay-relaunch").catch(() => {});
+  });
+  runLaunch("shell-overlay").catch(() => {});
 }
 
 if (document.readyState === "loading") {
