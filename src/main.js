@@ -10,6 +10,7 @@ const {
   appRootFromMain,
   applyGitUpdate,
   checkShellUpdate,
+  relaunchAfterGitUpdate,
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
 const { openPirateGameWindow } = require("./pirate-window");
@@ -412,8 +413,8 @@ async function checkForShellUpdate({ interactive }) {
           message: "This desktop app is up to date.",
           detail:
             info.mode === "git"
-              ? `Your ${process.platform === "win32" ? "Windows" : "Manjaro"} install already matches the latest shop-desktop on GitHub.`
-              : `You are on version ${app.getVersion()}.`,
+              ? `Your ${process.platform === "win32" ? "Windows Setup" : "Manjaro"} install already matches the latest shop-desktop on GitHub.`
+              : `You are on version ${app.getVersion()}. Portable builds only download a new .exe when there is no shop-desktop git checkout.`,
         });
       }
       return;
@@ -425,6 +426,7 @@ async function checkForShellUpdate({ interactive }) {
     shellPromptOpen = true;
 
     if (info.mode === "git") {
+      const gitRoot = info.root || APP_ROOT;
       const choice = await dialog.showMessageBox(mainWindow, {
         type: "info",
         buttons: ["Update and restart", "Later"],
@@ -433,7 +435,7 @@ async function checkForShellUpdate({ interactive }) {
         title: "Desktop app update",
         message: "A newer desktop app is available.",
         detail: [
-          "This updates the window itself (menus, shortcuts, offline page) — not the shop site.",
+          "This updates the window in place (git pull) — not a Portable download.",
           info.shortCurrent && info.shortUpstream
             ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
             : "",
@@ -450,7 +452,7 @@ async function checkForShellUpdate({ interactive }) {
       }
 
       try {
-        applyGitUpdate(APP_ROOT);
+        applyGitUpdate(gitRoot);
       } catch (error) {
         await dialog.showMessageBox(mainWindow, {
           type: "warning",
@@ -463,12 +465,24 @@ async function checkForShellUpdate({ interactive }) {
             process.platform === "win32" ? "cd %USERPROFILE%\\shop-desktop" : "cd ~/shop-desktop",
             "git pull",
             "npm install",
-          ].join("\n"),
+            process.platform === "linux" ? "bash scripts/ensure-electron.sh" : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
         });
         return;
       }
 
-      app.relaunch();
+      // Linux: menu launcher runs pending npm + ensure-electron after quit.
+      // If this process was Portable but a Setup checkout exists, spawn that checkout.
+      relaunchAfterGitUpdate(gitRoot, {
+        runningRoot: APP_ROOT,
+        packaged: app.isPackaged,
+        relaunchApp: (opts) => {
+          if (opts && opts.execPath) app.relaunch(opts);
+          else app.relaunch();
+        },
+      });
       app.exit(0);
       return;
     }
@@ -482,7 +496,8 @@ async function checkForShellUpdate({ interactive }) {
       message: `Version ${info.remoteVersion} is available.`,
       detail: [
         `You are on ${info.currentVersion}.`,
-        "This is the Windows desktop window, not the shop site.",
+        "This install has no shop-desktop git checkout, so the update is a Portable download (bootstrap only).",
+        "Prefer Windows Setup / a git clone for in-place updates.",
         info.assetName ? `File: ${info.assetName}` : "",
       ]
         .filter(Boolean)
@@ -945,7 +960,7 @@ function shopMenu() {
             "Publishing the site updates this window. Shop data is not a separate copy.",
             "",
             "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
-            "A git install (Manjaro, or Windows Setup) pulls those and restarts. Portable builds offer the new download instead.",
+            "A git install (Manjaro, or Windows Setup) pulls those in place and restarts. Portable download is only when there is no shop-desktop git checkout (bootstrap).",
             "",
             "Check for desktop updates from Settings → Check for updates.",
             "",

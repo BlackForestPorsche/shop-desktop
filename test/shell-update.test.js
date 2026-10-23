@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -16,6 +17,12 @@ const {
   hasPendingNpmInstall,
   pendingNpmFlagPath,
   linuxRelaunchSpec,
+  defaultDeskCheckoutRoots,
+  isShopDesktopRemoteUrl,
+  resolveGitUpdateRoot,
+  relaunchAfterGitUpdate,
+  checkoutElectronPath,
+  checkShellUpdate,
   PENDING_NPM_FLAG,
 } = require("../src/shell-update");
 
@@ -91,4 +98,141 @@ test("linuxRelaunchSpec points at the menu launcher", () => {
   assert.ok(spec);
   assert.equal(spec.execPath, "/bin/bash");
   assert.match(spec.args[0], /blackforest-tools\.sh$/);
+});
+
+test("isShopDesktopRemoteUrl accepts github clone URLs", () => {
+  assert.equal(
+    isShopDesktopRemoteUrl("https://github.com/BlackForestPorsche/shop-desktop.git"),
+    true,
+  );
+  assert.equal(
+    isShopDesktopRemoteUrl("git@github.com:BlackForestPorsche/shop-desktop.git"),
+    true,
+  );
+  assert.equal(
+    isShopDesktopRemoteUrl("https://github.com/BlackForestPorsche/other.git"),
+    false,
+  );
+});
+
+test("defaultDeskCheckoutRoots prefers BF_SHOP_DESKTOP_ROOT then ~/shop-desktop", () => {
+  const roots = defaultDeskCheckoutRoots({
+    home: "/home/logan",
+    envRoot: "/custom/shop-desktop",
+  });
+  assert.deepEqual(roots, ["/custom/shop-desktop", path.join("/home/logan", "shop-desktop")]);
+});
+
+test("resolveGitUpdateRoot prefers the running root when it has a shop-desktop remote", () => {
+  const running = "/desk/shop-desktop";
+  const other = "/home/logan/shop-desktop";
+  const chosen = resolveGitUpdateRoot(running, {
+    deskRoots: [other],
+    hasRemote: (root) => root === running,
+  });
+  assert.equal(chosen, path.resolve(running));
+});
+
+test("resolveGitUpdateRoot falls back to the Setup desk checkout", () => {
+  const portableAsar = "/tmp/portable-app";
+  const desk = "/home/logan/shop-desktop";
+  const chosen = resolveGitUpdateRoot(portableAsar, {
+    deskRoots: [desk],
+    hasRemote: (root) => root === path.resolve(desk),
+  });
+  assert.equal(chosen, path.resolve(desk));
+});
+
+test("resolveGitUpdateRoot returns null when no git remote exists (true portable)", () => {
+  assert.equal(
+    resolveGitUpdateRoot("/tmp/portable", {
+      deskRoots: ["/tmp/missing-desk"],
+      hasRemote: () => false,
+    }),
+    null,
+  );
+});
+
+test("relaunchAfterGitUpdate uses the Linux launcher", () => {
+  const root = path.join(__dirname, "..");
+  let seen = null;
+  const mode = relaunchAfterGitUpdate(root, {
+    runningRoot: root,
+    packaged: false,
+    platform: "linux",
+    relaunchApp: (opts) => {
+      seen = opts;
+    },
+  });
+  assert.equal(mode, "linux-launcher");
+  assert.equal(seen.execPath, "/bin/bash");
+  assert.match(seen.args[0], /blackforest-tools\.sh$/);
+});
+
+test("relaunchAfterGitUpdate spawns checkout electron when leaving Portable", () => {
+  const gitRoot = "/Users/desk/shop-desktop";
+  const electronBin = checkoutElectronPath(gitRoot, "win32");
+  let spawned = null;
+  const mode = relaunchAfterGitUpdate(gitRoot, {
+    runningRoot: "/tmp/portable-asar",
+    packaged: true,
+    platform: "win32",
+    exists: (p) => p === electronBin,
+    spawnDetached: (execPath, args, opts) => {
+      spawned = { execPath, args, opts };
+    },
+    relaunchApp: () => {
+      throw new Error("should not app.relaunch Portable");
+    },
+  });
+  assert.equal(mode, "checkout-electron");
+  assert.equal(spawned.execPath, electronBin);
+  assert.deepEqual(spawned.args, [gitRoot]);
+});
+
+test("checkShellUpdate prefers git in place even when packaged=true", async () => {
+  const root = path.join(__dirname, "..");
+  const info = await checkShellUpdate({
+    root,
+    currentVersion: "0.0.1",
+    packaged: true,
+    deskRoots: [],
+  });
+  assert.equal(info.mode, "git");
+  assert.equal(path.resolve(info.root), path.resolve(root));
+  assert.equal(typeof info.available, "boolean");
+});
+
+test("checkShellUpdate offers Portable release only without a git remote", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bf-portable-only-"));
+  try {
+    const info = await checkShellUpdate({
+      root: tmp,
+      currentVersion: "0.0.1",
+      packaged: true,
+      deskRoots: [],
+    });
+    assert.equal(info.mode, "release");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("hasShopDesktopRemote accepts a real origin remote", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bf-git-remote-"));
+  try {
+    const git = (args) => {
+      const result = spawnSync("git", ["-C", tmp, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+    };
+    git(["init"]);
+    git(["remote", "add", "origin", "https://github.com/BlackForestPorsche/shop-desktop.git"]);
+    const { hasShopDesktopRemote } = require("../src/shell-update");
+    assert.equal(hasShopDesktopRemote(tmp), true);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });

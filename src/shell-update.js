@@ -1,8 +1,9 @@
 "use strict";
 
-const { spawnSync, execFile } = require("node:child_process");
+const { spawn, spawnSync, execFile } = require("node:child_process");
 const fs = require("node:fs");
 const https = require("node:https");
+const os = require("node:os");
 const path = require("node:path");
 const {
   ensureElectronBinary,
@@ -43,6 +44,62 @@ function isGitInstall(root) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Standard desk checkouts created by Setup / bootstrap / install-linux-desk.sh.
+ * Portable leftovers should prefer these over downloading another Portable ZIP/exe.
+ */
+function defaultDeskCheckoutRoots({
+  home = process.env.USERPROFILE || process.env.HOME || os.homedir(),
+  envRoot = process.env.BF_SHOP_DESKTOP_ROOT,
+} = {}) {
+  const roots = [];
+  if (envRoot && String(envRoot).trim()) roots.push(path.resolve(String(envRoot).trim()));
+  if (home) roots.push(path.join(home, "shop-desktop"));
+  return roots;
+}
+
+function isShopDesktopRemoteUrl(url) {
+  const text = String(url || "").trim();
+  if (!text) return false;
+  return /(?:^|[/:])BlackForestPorsche\/shop-desktop(?:\.git)?(?:\/|$)/i.test(text);
+}
+
+/** Local-only: does this checkout have an origin that points at shop-desktop? */
+function hasShopDesktopRemote(root, { remote = "origin" } = {}) {
+  if (!isGitInstall(root)) return false;
+  try {
+    const url = runGit(root, ["remote", "get-url", remote]);
+    return isShopDesktopRemoteUrl(url);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prefer an in-place git update root whenever one exists — even if this process is a
+ * packaged/Portable binary. Portable download is only for true portable bootstrap
+ * (no usable shop-desktop git remote nearby).
+ */
+function resolveGitUpdateRoot(
+  root,
+  {
+    deskRoots = defaultDeskCheckoutRoots(),
+    hasRemote = hasShopDesktopRemote,
+  } = {},
+) {
+  const candidates = [];
+  if (root) candidates.push(path.resolve(root));
+  for (const desk of deskRoots) {
+    if (!desk) continue;
+    const resolved = path.resolve(desk);
+    if (!candidates.includes(resolved)) candidates.push(resolved);
+  }
+  for (const candidate of candidates) {
+    if (hasRemote(candidate)) return candidate;
+  }
+  return null;
 }
 
 function parseSemver(text) {
@@ -287,10 +344,18 @@ async function checkShellUpdate({
   packaged = false,
   repo = DEFAULT_REPO,
   branch = DEFAULT_BRANCH,
+  deskRoots,
 } = {}) {
-  if (!packaged && isGitInstall(root)) {
-    return checkGitUpdate(root, { branch });
+  // Git in-place wins over packaged/Portable: Setup (Windows) and Manjaro clones
+  // update via git pull. `packaged` alone must not force a Portable download.
+  const gitRoot = resolveGitUpdateRoot(root, { deskRoots });
+  if (gitRoot) {
+    const info = await checkGitUpdate(gitRoot, { branch });
+    return { ...info, root: gitRoot };
   }
+  // True portable / AppImage / no shop-desktop remote: offer release download.
+  // (Portable asset is the bootstrap fallback; Setup desks should not land here.)
+  void packaged;
   return checkReleaseUpdate(currentVersion, { repo });
 }
 
@@ -331,12 +396,71 @@ function linuxRelaunchSpec(root) {
   };
 }
 
+/** Windows/macOS unpackaged: electron binary inside the git checkout. */
+function checkoutElectronPath(root, platform = process.platform) {
+  const dist = path.join(root, "node_modules", "electron", "dist");
+  return platform === "win32"
+    ? path.join(dist, "electron.exe")
+    : path.join(dist, "electron");
+}
+
+/**
+ * Relaunch Tools after a git update.
+ * Linux always goes through blackforest-tools.sh (pending npm + ensure-electron).
+ * If the update root differs from the running app (Portable → Setup checkout),
+ * spawn that checkout's Electron instead of relaunching the Portable binary.
+ *
+ * @returns {"linux-launcher"|"checkout-electron"|"app-relaunch"}
+ */
+function relaunchAfterGitUpdate(
+  gitRoot,
+  {
+    runningRoot = appRootFromMain(),
+    packaged = false,
+    platform = process.platform,
+    relaunchApp = null,
+    spawnDetached = (execPath, args, opts) => {
+      const child = spawn(execPath, args, { ...opts, detached: true, stdio: "ignore" });
+      child.unref();
+      return child;
+    },
+    exists = fs.existsSync,
+  } = {},
+) {
+  if (platform === "linux") {
+    const spec = linuxRelaunchSpec(gitRoot);
+    if (spec && typeof relaunchApp === "function") {
+      relaunchApp({ execPath: spec.execPath, args: spec.args });
+      return "linux-launcher";
+    }
+  }
+
+  const sameRoot =
+    path.resolve(gitRoot || "") === path.resolve(runningRoot || "") && !packaged;
+  if (!sameRoot) {
+    const electronBin = checkoutElectronPath(gitRoot, platform);
+    if (exists(electronBin)) {
+      spawnDetached(electronBin, [gitRoot], { cwd: gitRoot, windowsHide: true });
+      return "checkout-electron";
+    }
+  }
+
+  if (typeof relaunchApp === "function") {
+    relaunchApp();
+  }
+  return "app-relaunch";
+}
+
 module.exports = {
   DEFAULT_REPO,
   DEFAULT_BRANCH,
   PENDING_NPM_FLAG,
   appRootFromMain,
   isGitInstall,
+  defaultDeskCheckoutRoots,
+  isShopDesktopRemoteUrl,
+  hasShopDesktopRemote,
+  resolveGitUpdateRoot,
   parseSemver,
   compareSemver,
   versionFromReleaseAssetName,
@@ -354,4 +478,6 @@ module.exports = {
   checkShellUpdate,
   applyGitUpdate,
   linuxRelaunchSpec,
+  checkoutElectronPath,
+  relaunchAfterGitUpdate,
 };

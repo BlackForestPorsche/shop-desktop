@@ -63,7 +63,7 @@ The window keeps a normal Electron menu bar: **Shop**, **Labels**, **Settings**,
 
 - **Shop** — home, back/forward, reload, site-update check, quit
 - **Labels** — thin service controls only: **Labels service status…** / **Restart Labels service** (also under Settings). Not a second Labels app; print buttons live on the shop site.
-- **Settings → Check for updates** — desktop app updater (git pull on Manjaro and Windows Setup; portable download for portable builds)
+- **Settings → Check for updates** — desktop app updater (git pull in place on Manjaro and Windows Setup; Portable download only when there is no shop-desktop git checkout)
 - **Help → About** — version info; About dialog also offers **Check for updates**
 
 There is no in-page **Check for updates** button next to the avatar/header.
@@ -91,9 +91,9 @@ Shop publishes do not require an update of this project — the window reloads t
 
 **Desktop-app** changes (menus, shortcuts, offline page, this updater) come from this repo:
 
-- **Manjaro and Windows Setup (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`).
-- **Check for updates:** **Settings → Check for updates** (or **Help → About → Check for updates**). Same updater path.
-- **Windows portable (secondary):** the app checks the latest GitHub Release and offers the new `.exe` download when `package.json` version is newer.
+- **Manjaro and Windows Setup (git install):** the app checks GitHub on a schedule and can **Update and restart** for you (`git pull` + `npm install`) in place — never a Portable download for routine updates.
+- **Check for updates:** **Settings → Check for updates** (or **Help → About → Check for updates**). Same updater path. If a `%USERPROFILE%\shop-desktop` / `~/shop-desktop` checkout with an `origin` remote exists, that wins even when the running binary is a leftover Portable.
+- **Windows portable (bootstrap only):** only when there is no usable shop-desktop git checkout does Check for updates offer the latest Portable `.exe` from GitHub Releases.
 
 ## Pirate idle overlay
 

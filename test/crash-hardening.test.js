@@ -262,6 +262,8 @@ test("crash-prone paths stay guarded in source", () => {
   assert.match(SRC("shell-chrome.js"), /failIdle\(error\)/);
   assert.match(SRC("entry.js"), /installCrashGuards/);
   assert.match(SRC("shell-update.js"), /await runGitAsync\(root, \["fetch"/);
+  assert.match(SRC("shell-update.js"), /resolveGitUpdateRoot/);
+  assert.match(SRC("main.js"), /relaunchAfterGitUpdate/);
 });
 
 test("teeConsole hooks console.info into tools.log", () => {
