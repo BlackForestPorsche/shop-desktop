@@ -149,7 +149,7 @@ test("installCrashGuards logs uncaught errors, applies saved GPU fallback, and r
     stdout: new EventEmitter(),
     stderr: new EventEmitter(),
   });
-  const fakeConsole = { log() {}, warn() {}, error() {} };
+  const fakeConsole = { log() {}, warn() {}, error() {}, info() {} };
   const guard = installCrashGuards({
     app,
     proc,
@@ -165,11 +165,16 @@ test("installCrashGuards logs uncaught errors, applies saved GPU fallback, and r
   proc.emit("unhandledRejection", new Error("rejected"));
   proc.stdout.emit("error", new Error("EPIPE"));
   fakeConsole.error("Labels server failed:", "no node");
+  fakeConsole.info("pirate: launch-requested from-settings");
+  fakeConsole.log("pirate: menu-click");
   const text = fs.readFileSync(path.join(guard.dir, "tools.log"), "utf8");
   assert.match(text, /start tools v9\.9\.9/);
   assert.match(text, /kaboom/);
   assert.match(text, /rejected/);
   assert.match(text, /Labels server failed/);
+  // console.info must reach tools.log (1.5.22 logged pirate: via info only — invisible on Windows).
+  assert.match(text, /pirate: launch-requested from-settings/);
+  assert.match(text, /pirate: menu-click/);
 
   const fresh = tmpDir("bft-guard2-");
   const app2 = new EventEmitter();
@@ -257,4 +262,60 @@ test("crash-prone paths stay guarded in source", () => {
   assert.match(SRC("shell-chrome.js"), /failIdle\(error\)/);
   assert.match(SRC("entry.js"), /installCrashGuards/);
   assert.match(SRC("shell-update.js"), /await runGitAsync\(root, \["fetch"/);
+});
+
+test("teeConsole hooks console.info into tools.log", () => {
+  const source = SRC("crash-guard.js");
+  assert.match(source, /\["info", "info"\]/);
+  assert.match(source, /Must include console\.info/);
+});
+
+test("openPirateGameWindow focuses an existing window or creates one", () => {
+  const { openPirateGameWindow } = require("../src/pirate-window");
+  const created = [];
+  class FakeWin {
+    constructor(opts) {
+      created.push(opts);
+      this.opts = opts;
+      this._destroyed = false;
+      this._visible = false;
+      this.webContents = { send: (...args) => (this._sent = args) };
+    }
+    isDestroyed() {
+      return this._destroyed;
+    }
+    isMinimized() {
+      return false;
+    }
+    isVisible() {
+      return this._visible;
+    }
+    restore() {}
+    show() {
+      this._visible = true;
+    }
+    focus() {}
+    once(ev, fn) {
+      if (ev === "ready-to-show") setImmediate(fn);
+    }
+    on() {}
+    loadFile() {
+      return Promise.resolve();
+    }
+  }
+  const first = openPirateGameWindow({ BrowserWindow: FakeWin, parent: null, existing: null });
+  assert.equal(first.ok, true);
+  assert.equal(first.reason, "opened");
+  assert.equal(created.length, 1);
+  assert.match(created[0].webPreferences.preload, /pirate-preload\.js/);
+
+  const again = openPirateGameWindow({
+    BrowserWindow: FakeWin,
+    parent: null,
+    existing: first.window,
+  });
+  assert.equal(again.ok, true);
+  assert.equal(again.reason, "focused-existing");
+  assert.deepEqual(first.window._sent, ["shell:pirate-relaunch"]);
+  assert.equal(created.length, 1, "did not create a second window");
 });

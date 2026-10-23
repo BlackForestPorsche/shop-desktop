@@ -193,10 +193,9 @@ function boot() {
     reportShellError("mount-shell-chrome", error);
     reportPirateStatus("mount-aborted", error && error.message ? error.message : String(error));
   }
-  // Settings → Launch pirate game (main sends this; never fired by idle or page code).
-  ipcRenderer.on("shell:launch-pirate", () => {
+  function runPirateLaunch(source) {
     try {
-      reportPirateStatus("launch-requested", "ipc");
+      reportPirateStatus("launch-requested", source || "ipc");
       if (!chrome) {
         reportPirateStatus("launch-aborted", "chrome-not-mounted");
         return;
@@ -208,8 +207,15 @@ function boot() {
       const result = chrome.launchGame();
       // launchGame returns { ok, reason }; tolerate a legacy boolean.
       if (result && typeof result === "object") {
-        if (!result.ok) reportPirateStatus("launch-aborted", result.reason || "unknown");
-        else reportPirateStatus("launch-ok", result.reason || "ok");
+        if (!result.ok) {
+          reportPirateStatus("launch-aborted", result.reason || "unknown");
+          return;
+        }
+        if (typeof chrome.isOverlayVisible === "function" && !chrome.isOverlayVisible()) {
+          reportPirateStatus("launch-aborted", "overlay-not-visible");
+          return;
+        }
+        reportPirateStatus("launch-ok", result.reason || "ok");
         return;
       }
       if (!result) reportPirateStatus("launch-aborted", "launchGame-false");
@@ -218,7 +224,10 @@ function boot() {
       reportShellError("launch-pirate", error);
       reportPirateStatus("launch-aborted", error && error.message ? error.message : String(error));
     }
-  });
+  }
+
+  // Settings → Launch pirate game (main sends this; never fired by idle or page code).
+  ipcRenderer.on("shell:launch-pirate", () => runPirateLaunch("ipc"));
 }
 
 window.addEventListener("error", (event) => {

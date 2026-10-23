@@ -111,12 +111,15 @@ function mountShellChrome(options = {}) {
   const host = document.createElement("div");
   host.id = ROOT_ID;
   host.setAttribute("data-bf-tools-shell", "1");
+  // Full viewport host (not 0×0): a shop-page transform/filter can make
+  // position:fixed descendants use the host as containing block. A zero-size
+  // host then clips the overlay to nothing while launchGame still returns ok.
   Object.assign(host.style, {
     all: "initial",
     position: "fixed",
     inset: "0",
-    width: "0",
-    height: "0",
+    width: "100%",
+    height: "100%",
     overflow: "visible",
     zIndex: "2147483646",
     pointerEvents: "none",
@@ -894,6 +897,10 @@ function mountShellChrome(options = {}) {
     if (mode === "play") {
       if (!overlay.classList.contains("on")) showOverlay();
       else if (!raf) startLoop();
+      if (!isOverlayVisible()) {
+        reportStatus("launch-aborted", "overlay-not-visible");
+        return { ok: false, reason: "overlay-not-visible" };
+      }
       reportStatus("launch-ok", "already-playing");
       return { ok: true, reason: "already-playing" };
     }
@@ -925,8 +932,30 @@ function mountShellChrome(options = {}) {
       return { ok: false, reason: "take-command-failed" };
     }
     if (!raf) startLoop();
+    if (!isOverlayVisible()) {
+      reportStatus("launch-aborted", "overlay-not-visible");
+      return { ok: false, reason: "overlay-not-visible" };
+    }
     reportStatus("launch-ok", "started");
     return { ok: true, reason: "started" };
+  }
+
+  /**
+   * True when the overlay is on and the canvas has a real on-screen box.
+   * Catches “launch-ok but invisible” (clipped 0×0 host / failed paint).
+   */
+  function isOverlayVisible() {
+    try {
+      if (!overlay.classList.contains("on")) return false;
+      if (!ctx) return false;
+      const hostRect = host.getBoundingClientRect();
+      if (hostRect.width < 32 || hostRect.height < 32) return false;
+      const canvasRect = canvas.getBoundingClientRect();
+      if (canvasRect.width < 32 || canvasRect.height < 32) return false;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function takeCommand(ship) {
@@ -1682,6 +1711,7 @@ function mountShellChrome(options = {}) {
 
   return {
     launchGame,
+    isOverlayVisible,
     get disabled() {
       return failed || !ctx;
     },
