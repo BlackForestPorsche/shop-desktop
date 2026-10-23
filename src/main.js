@@ -1,6 +1,18 @@
 "use strict";
 
-const { app, BrowserWindow, Menu, MenuItem, clipboard, dialog, ipcMain, session, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  BrowserView,
+  WebContentsView,
+  Menu,
+  MenuItem,
+  clipboard,
+  dialog,
+  ipcMain,
+  session,
+  shell,
+} = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -13,7 +25,12 @@ const {
   relaunchAfterGitUpdate,
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
-const { openPirateGameWindow } = require("./pirate-window");
+const {
+  attachPirateShellOverlay,
+  detachPirateShellOverlay,
+  syncPirateShellOverlayBounds,
+  openPirateGameWindow,
+} = require("./pirate-window");
 const { DEFAULT_WIDTH, DEFAULT_HEIGHT, MIN_WIDTH, MIN_HEIGHT, boundsAreUsable } = require("./window-state");
 const {
   sessionFilePath,
@@ -91,6 +108,10 @@ if (!gotLock) {
 
 let mainWindow = null;
 /** Dedicated pirate BrowserWindow (Settings launch fallback). */
+/** @type {{ kind: string, view: object, webContents: import("electron").WebContents } | null} */
+let pirateOverlay = null;
+let pirateOverlayResizeHooked = false;
+/** Last-resort separate BrowserWindow (only if shell overlay cannot attach). */
 let pirateWindow = null;
 let runningStamp = "";
 let snoozedStamp = "";
@@ -715,13 +736,15 @@ function pirateAbortDetail(reason) {
     r === "chrome-not-mounted" ||
     r === "no-renderer-ack" ||
     r === "overlay-not-visible" ||
-    r === "overlay-not-shown"
+    r === "overlay-not-shown" ||
+    r === "no-overlay-view-api" ||
+    r === "shell-overlay-failed"
   ) {
     return [
       `Reason: ${r}`,
       "",
-      "The in-page overlay could not show (page still loading, preload missing, or clipped).",
-      "Tools tried a separate Pirate window as a fallback.",
+      "The pirate overlay could not show on the shop window (page still loading, clipped, or shell view failed).",
+      "Tools tries in-page overlay, then a same-window shell overlay, then a separate window only as last resort.",
       "Check tools.log for pirate: lines (Help → Open logs folder).",
     ].join("\n");
   }
@@ -777,14 +800,98 @@ function tryInPagePirateLaunch(win, timeoutMs = 2500) {
   });
 }
 
+function closePirateShellOverlay(reason) {
+  const handle = pirateOverlay;
+  pirateOverlay = null;
+  if (!handle) return;
+  console.log(`pirate: shell-overlay-close ${reason || "closed"}`);
+  try {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    detachPirateShellOverlay(win, handle);
+  } catch (error) {
+    console.warn("pirate: shell-overlay detach failed", error);
+  }
+}
+
+function ensurePirateOverlayResizeHook(win) {
+  if (!win || win.isDestroyed() || pirateOverlayResizeHooked) return;
+  pirateOverlayResizeHooked = true;
+  const sync = () => {
+    if (!pirateOverlay) return;
+    syncPirateShellOverlayBounds(win, pirateOverlay);
+  };
+  win.on("resize", sync);
+  win.on("maximize", sync);
+  win.on("unmaximize", sync);
+  win.on("enter-full-screen", sync);
+  win.on("leave-full-screen", sync);
+}
+
 /**
- * Open (or focus) the dedicated pirate BrowserWindow and wait briefly for
- * launch-ok from its preload.
+ * Same-window shell overlay (WebContentsView / BrowserView on the shop window).
+ * Covers the shop content without opening a second OS window.
+ */
+function tryPirateShellOverlay(timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    if (!win) {
+      resolve({ ok: false, reason: "no-main-window" });
+      return;
+    }
+
+    let settled = false;
+    let wc = pirateOverlay && pirateOverlay.webContents ? pirateOverlay.webContents : null;
+    const done = (ok, reason) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ipcMain.removeListener("shell:pirate-status", onStatus);
+      } catch {
+        // ignore
+      }
+      if (!ok) {
+        // Failed boot — do not leave a blank view covering the shop.
+        closePirateShellOverlay(reason || "overlay-failed");
+      }
+      resolve({ ok: !!ok, reason: String(reason || "") });
+    };
+    const onStatus = (event, payload) => {
+      try {
+        if (!wc || !event || event.sender !== wc) return;
+      } catch {
+        return;
+      }
+      const ev = payload && typeof payload.event === "string" ? payload.event : "";
+      const reason = payload && typeof payload.reason === "string" ? payload.reason : "";
+      if (ev === "launch-ok") done(true, reason || "shell-overlay");
+      else if (ev === "launch-aborted") done(false, reason || "shell-overlay-failed");
+    };
+    const timer = setTimeout(() => done(false, "no-renderer-ack"), timeoutMs);
+    ipcMain.on("shell:pirate-status", onStatus);
+
+    const attached = attachPirateShellOverlay({
+      parent: win,
+      WebContentsView,
+      BrowserView,
+      existing: pirateOverlay,
+    });
+    if (!attached.ok || !attached.handle) {
+      done(false, attached.reason || "shell-overlay-failed");
+      return;
+    }
+    pirateOverlay = attached.handle;
+    wc = pirateOverlay.webContents;
+    ensurePirateOverlayResizeHook(win);
+  });
+}
+
+/**
+ * Last-resort dedicated BrowserWindow — only if in-page and shell overlay both fail.
  */
 function tryDedicatedPirateWindow(timeoutMs = 4000) {
   return new Promise((resolve) => {
     const existing = pirateWindow && !pirateWindow.isDestroyed() ? pirateWindow : null;
-    // Attach the status listener before create/relaunch so we cannot miss boot IPC.
     let settled = false;
     let wc = existing ? existing.webContents : null;
     const done = (ok, reason) => {
@@ -851,9 +958,10 @@ async function showPirateAbortDialog(reason) {
 /**
  * Settings → Launch pirate game.
  * 1) Log immediately (console.log → tools.log).
- * 2) Try in-page overlay.
- * 3) On any failure, open a dedicated Pirate BrowserWindow.
- * 4) If both fail, show a dialog with the reason. Never a silent no-op.
+ * 2) Try in-page overlay on the shop page (default — same as idle).
+ * 3) On failure, attach a same-window shell overlay (WebContentsView).
+ * 4) Only if that also fails, open a separate Pirate BrowserWindow (last resort).
+ * 5) If all fail, show a dialog. Never a silent no-op.
  */
 async function launchPirateFromSettings() {
   // console.log (not info): teeConsole always writes log/warn/error to tools.log;
@@ -872,12 +980,24 @@ async function launchPirateFromSettings() {
     }
   }
 
-  const inPage = await tryInPagePirateLaunch(win);
+  // In-page can take an extra frame for the visibility probe (preload afterPaint).
+  const inPage = await tryInPagePirateLaunch(win, 3500);
   if (inPage.ok) {
-    console.log(`pirate: launch-ok ${inPage.reason || "ok"}`);
+    console.log(`pirate: launch-ok in-page ${inPage.reason || "ok"}`);
     return;
   }
-  console.warn(`pirate: in-page-failed ${inPage.reason || "unknown"}; opening dedicated window`);
+  console.warn(
+    `pirate: in-page-failed ${inPage.reason || "unknown"}; opening same-window shell overlay`,
+  );
+
+  const overlay = await tryPirateShellOverlay();
+  if (overlay.ok) {
+    console.log(`pirate: launch-ok shell-overlay ${overlay.reason || "ok"}`);
+    return;
+  }
+  console.warn(
+    `pirate: shell-overlay-failed ${overlay.reason || "unknown"}; last-resort dedicated window`,
+  );
 
   const dedicated = await tryDedicatedPirateWindow();
   if (dedicated.ok) {
@@ -885,7 +1005,7 @@ async function launchPirateFromSettings() {
     return;
   }
 
-  const why = dedicated.reason || inPage.reason || "dedicated-window-failed";
+  const why = dedicated.reason || overlay.reason || inPage.reason || "dedicated-window-failed";
   console.warn(`pirate: launch-aborted ${why}`);
   await showPirateAbortDialog(why);
 }
@@ -1968,6 +2088,13 @@ if (gotLock) {
     } else {
       console.log(`pirate: ${ev}${reason ? ` ${reason}` : ""}`);
     }
+  });
+
+  // Shell overlay (WebContentsView) asked to close — stand down / water click / failed boot.
+  ipcMain.on("shell:pirate-overlay-close", (_event, payload) => {
+    const reason =
+      payload && typeof payload.reason === "string" ? payload.reason.slice(0, 200) : "ipc-close";
+    closePirateShellOverlay(reason);
   });
 
   ipcMain.handle("shell:check-updates", async () => {

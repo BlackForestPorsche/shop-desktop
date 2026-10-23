@@ -307,7 +307,7 @@ test("openPirateGameWindow focuses an existing window or creates one", () => {
   }
   const first = openPirateGameWindow({ BrowserWindow: FakeWin, parent: null, existing: null });
   assert.equal(first.ok, true);
-  assert.equal(first.reason, "opened");
+  assert.equal(first.reason, "opened-dedicated-window");
   assert.equal(created.length, 1);
   assert.match(created[0].webPreferences.preload, /pirate-preload\.js/);
 
@@ -320,4 +320,54 @@ test("openPirateGameWindow focuses an existing window or creates one", () => {
   assert.equal(again.reason, "focused-existing");
   assert.deepEqual(first.window._sent, ["shell:pirate-relaunch"]);
   assert.equal(created.length, 1, "did not create a second window");
+});
+
+test("attachPirateShellOverlay covers parent content without a second window", () => {
+  const { attachPirateShellOverlay, detachPirateShellOverlay } = require("../src/pirate-window");
+  const views = [];
+  class FakeWCV {
+    constructor(opts) {
+      this.opts = opts;
+      this.webContents = {
+        isDestroyed: () => false,
+        destroy() {},
+        loadFile() {
+          return Promise.resolve();
+        },
+        send() {},
+      };
+      views.push(this);
+    }
+    setBackgroundColor() {}
+    setBounds(b) {
+      this.bounds = b;
+    }
+  }
+  const children = [];
+  const parent = {
+    isDestroyed: () => false,
+    getContentSize: () => [1024, 768],
+    contentView: {
+      addChildView(v) {
+        children.push(v);
+      },
+      removeChildView(v) {
+        const i = children.indexOf(v);
+        if (i >= 0) children.splice(i, 1);
+      },
+    },
+  };
+  const attached = attachPirateShellOverlay({
+    parent,
+    WebContentsView: FakeWCV,
+    existing: null,
+  });
+  assert.equal(attached.ok, true);
+  assert.match(attached.reason, /shell-overlay/);
+  assert.equal(views.length, 1);
+  assert.equal(children.length, 1);
+  assert.deepEqual(views[0].bounds, { x: 0, y: 0, width: 1024, height: 768 });
+  assert.match(views[0].opts.webPreferences.preload, /pirate-preload\.js/);
+  detachPirateShellOverlay(parent, attached.handle);
+  assert.equal(children.length, 0);
 });

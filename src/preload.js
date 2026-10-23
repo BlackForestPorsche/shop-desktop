@@ -193,7 +193,19 @@ function boot() {
     reportShellError("mount-shell-chrome", error);
     reportPirateStatus("mount-aborted", error && error.message ? error.message : String(error));
   }
-  function runPirateLaunch(source) {
+  function afterPaint() {
+    return new Promise((resolve) => {
+      try {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      } catch {
+        setTimeout(resolve, 32);
+      }
+    });
+  }
+
+  async function runPirateLaunch(source) {
     try {
       reportPirateStatus("launch-requested", source || "ipc");
       if (!chrome) {
@@ -211,7 +223,12 @@ function boot() {
           reportPirateStatus("launch-aborted", result.reason || "unknown");
           return;
         }
+        // Windows can report 0×0 before the first paint; re-pin and wait two frames.
+        if (typeof chrome.refreshLayout === "function") chrome.refreshLayout();
+        await afterPaint();
+        if (typeof chrome.refreshLayout === "function") chrome.refreshLayout();
         if (typeof chrome.isOverlayVisible === "function" && !chrome.isOverlayVisible()) {
+          if (typeof chrome.dismissOverlay === "function") chrome.dismissOverlay();
           reportPirateStatus("launch-aborted", "overlay-not-visible");
           return;
         }
@@ -227,7 +244,9 @@ function boot() {
   }
 
   // Settings → Launch pirate game (main sends this; never fired by idle or page code).
-  ipcRenderer.on("shell:launch-pirate", () => runPirateLaunch("ipc"));
+  ipcRenderer.on("shell:launch-pirate", () => {
+    runPirateLaunch("ipc").catch((error) => reportShellError("launch-pirate", error));
+  });
 }
 
 window.addEventListener("error", (event) => {
