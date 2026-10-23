@@ -92,6 +92,40 @@ test("renderer reload limiter allows 3 per window", () => {
   assert.equal(allow(), true);
 });
 
+test("installCrashGuards disables CalculateNativeWinOcclusion on Windows only", () => {
+  const fakeConsole = { log() {}, warn() {}, error() {} };
+  for (const [platform, expect] of [
+    ["win32", true],
+    ["linux", false],
+    ["darwin", false],
+  ]) {
+    const dir = tmpDir(`bft-occ-${platform}-`);
+    const switches = [];
+    const app = new EventEmitter();
+    Object.assign(app, {
+      getVersion: () => "1",
+      setPath() {},
+      disableHardwareAcceleration() {},
+      commandLine: {
+        appendSwitch: (name, value) => switches.push(value ? `${name}=${value}` : name),
+      },
+    });
+    const proc = new EventEmitter();
+    Object.assign(proc, {
+      platform,
+      arch: "x64",
+      pid: 1,
+      argv: ["electron", "."],
+      versions: { electron: "38", chrome: "1", node: "22" },
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+    });
+    installCrashGuards({ app, proc, env: { BF_TOOLS_LOG_DIR: dir }, console: fakeConsole });
+    const hit = switches.includes("disable-features=CalculateNativeWinOcclusion");
+    assert.equal(hit, expect, platform);
+  }
+});
+
 test("installCrashGuards logs uncaught errors, applies saved GPU fallback, and relaunches once on GPU failure", () => {
   const dir = tmpDir("bft-guard-");
   gpu.writeState(dir, { ...gpu.emptyState(), disableGpu: true });
@@ -125,6 +159,7 @@ test("installCrashGuards logs uncaught errors, applies saved GPU fallback, and r
   });
   assert.ok(calls.includes("disable-gpu"));
   assert.ok(calls.includes("crashReporter"));
+  assert.equal(calls.some((c) => String(c).includes("CalculateNativeWinOcclusion")), false);
 
   proc.emit("uncaughtException", new Error("kaboom"), "uncaughtException");
   proc.emit("unhandledRejection", new Error("rejected"));

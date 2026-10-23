@@ -77,6 +77,8 @@ const GATE_COOKIE = "bf_shop_gate";
 
 app.setName("Black Forest Tools");
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+// Windows flicker: CalculateNativeWinOcclusion is disabled in crash-guard (early).
+// Keep backgroundColor opaque and backgroundThrottling off so DWM does not flash.
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
