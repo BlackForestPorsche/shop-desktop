@@ -190,9 +190,29 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.27 for the full-sea pirate game", () => {
+test("package version is 1.5.28 for shop pirate boards", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.27");
+  assert.equal(pkg.version, "1.5.28");
+});
+
+test("death screen shows shop day, week, month, and this revision", () => {
+  const chrome = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const piratePreload = fs.readFileSync(path.join(__dirname, "..", "src", "pirate-preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const menu = fs.readFileSync(path.join(__dirname, "..", "src", "app-menu.js"), "utf8");
+  assert.match(chrome, /wreck-boards/);
+  assert.match(chrome, /paintShopBoards/);
+  assert.match(chrome, /pirateBoard\.BOARD_IDS/);
+  assert.match(chrome, /submitPirateScore\(snapshot\)/);
+  assert.equal(/person:\s*run\.|person:\s*snapshot/.test(chrome), false);
+  assert.match(preload, /submitPirateScore: \(run\) => ipcRenderer\.invoke\("shell:pirate-board", run\)/);
+  assert.match(piratePreload, /shell:pirate-board/);
+  assert.match(main, /shell:pirate-board/);
+  assert.match(main, /version: app\.getVersion\(\)/);
+  assert.match(main, /Pirate leaderboard/);
+  assert.match(menu, /label: "Pirate leaderboard"/);
+  assert.equal(/Launch pirate game/.test(chrome), false);
 });
 
 test("combat sails the whole overlay, not a lower water band", () => {

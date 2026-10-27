@@ -25,6 +25,8 @@ const {
   relaunchAfterGitUpdate,
 } = require("./shell-update");
 const { buildAppMenuTemplate } = require("./app-menu");
+const { formatLeaderboardDetail } = require("./pirate-board");
+const { pirateBoardFromDesk } = require("./pirate-board-sync");
 const {
   attachPirateShellOverlay,
   detachPirateShellOverlay,
@@ -1011,6 +1013,20 @@ async function launchPirateFromSettings() {
   await showPirateAbortDialog(why);
 }
 
+async function showPirateLeaderboard() {
+  const board = await pirateBoardFromDesk(null, { version: app.getVersion() });
+  if (!board.ok) console.warn(`pirate: board ${board.error || "unavailable"}`);
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  await dialog.showMessageBox(win, {
+    type: board.ok ? "info" : "warning",
+    buttons: ["OK"],
+    defaultId: 0,
+    title: "Pirate leaderboard",
+    message: `Pirate leaderboard · Tools ${app.getVersion()}`,
+    detail: formatLeaderboardDetail(board),
+  });
+}
+
 function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
@@ -1037,6 +1053,11 @@ function shopMenu() {
         console.log("pirate: menu-click");
         launchPirateFromSettings().catch((error) => {
           console.error("pirate launch handler failed:", error);
+        });
+      },
+      onPirateLeaderboard: () => {
+        showPirateLeaderboard().catch((error) => {
+          console.error("pirate leaderboard failed:", error);
         });
       },
       onLabelsStatus: () => {
@@ -2101,6 +2122,12 @@ if (gotLock) {
   ipcMain.handle("shell:check-updates", async () => {
     await checkForShellUpdate({ interactive: true });
     return { ok: true };
+  });
+
+  ipcMain.handle("shell:pirate-board", async (_event, payload) => {
+    const board = await pirateBoardFromDesk(payload, { version: app.getVersion() });
+    if (!board.ok) console.warn(`pirate: board ${board.error || "unavailable"}`);
+    return board;
   });
 
   app.whenReady().then(async () => {

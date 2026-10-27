@@ -97,6 +97,37 @@ test("stepShipSail translates the hull over time", () => {
   assert.ok(ship.x > before, "ship should sail forward");
 });
 
+test("stepShipSail changes course by easing, not by jumping across the sea", () => {
+  const bounds = { minX: 0, maxX: 1400, minY: 0, maxY: 900 };
+  const ship = {
+    x: 400,
+    y: 450,
+    vx: 36,
+    vy: 0,
+    facing: 1,
+    speed: 36,
+    turnTimer: 0,
+    sinking: 0,
+  };
+  let x = ship.x;
+  let y = ship.y;
+  // Always-high rng used to take the instant Y hop (about 35% of the sea).
+  const rng = () => 0.99;
+  stepShipSail(ship, 1 / 60, bounds, rng);
+  assert.ok(Math.abs(ship.x - x) < 2, `x jumped ${ship.x - x}`);
+  assert.ok(Math.abs(ship.y - y) < 2, `y jumped ${ship.y - y}`);
+  for (let i = 0; i < 180; i++) {
+    x = ship.x;
+    y = ship.y;
+    stepShipSail(ship, 1 / 60, bounds, rng);
+    const step = Math.hypot(ship.x - x, ship.y - y);
+    assert.ok(step < 3, `frame moved ${step}px`);
+  }
+  assert.ok(Math.hypot(ship.x - 400, ship.y - 450) > 20, "ship should still cross the window");
+  assert.ok(ship.x >= bounds.minX && ship.x <= bounds.maxX);
+  assert.ok(ship.y >= bounds.minY && ship.y <= bounds.maxY);
+});
+
 test("applyCannonHit sinks after enough hits", () => {
   const ship = { hp: SHIP_HP, list: 0, sinking: 0 };
   for (let i = 0; i < SHIP_HP - 1; i++) {

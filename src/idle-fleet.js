@@ -84,61 +84,80 @@ function pickSailMotion(rng = Math.random) {
   return {
     facing,
     vx: facing * speed,
+    vy: 0,
+    aimVx: facing * speed,
+    aimVy: 0,
     speed,
     turnTimer: 2.5 + rng() * 5,
   };
 }
 
 /**
- * Sail a ship across the water band. Real translation (not bob-only).
+ * Sail a ship across the sea. Position only moves by integrating velocity.
+ * Course changes ease toward a new aim; they never assign a new x/y.
  * @param {{
- *   x: number, y: number, vx: number, facing: number,
+ *   x: number, y: number, vx: number, vy?: number, facing: number,
  *   speed: number, turnTimer: number, sinking?: number,
+ *   aimVx?: number, aimVy?: number,
  * }} ship
  * @param {number} dt seconds
  * @param {{ minX: number, maxX: number, minY: number, maxY: number }} bounds
  * @param {() => number} [rng]
  */
 function stepShipSail(ship, dt, bounds, rng = Math.random) {
+  const step = Number.isFinite(dt) && dt > 0 ? dt : 0;
   if (ship.sinking > 0) {
-    ship.y += 28 * dt;
+    ship.y += 28 * step;
     ship.vx *= 0.92;
-    ship.x += ship.vx * dt;
+    ship.x += ship.vx * step;
     return ship;
   }
 
-  ship.turnTimer -= dt;
+  const speed = Math.max(12, Math.abs(ship.speed) || 28);
+  if (!Number.isFinite(ship.aimVx)) ship.aimVx = ship.facing * speed;
+  if (!Number.isFinite(ship.aimVy)) ship.aimVy = 0;
+  if (!Number.isFinite(ship.vy)) ship.vy = 0;
+  if (!Number.isFinite(ship.vx)) ship.vx = ship.aimVx;
+
+  ship.turnTimer -= step;
   if (ship.turnTimer <= 0) {
-    ship.turnTimer = 2.2 + rng() * 5.5;
-    if (rng() < 0.55) {
-      ship.facing *= -1;
-      ship.vx = ship.facing * ship.speed;
-    } else {
-      // Hop a real slice of the sea so idle hulls don't sit in one lane.
-      const span = Math.max(48, bounds.maxY - bounds.minY);
-      const nudge = (rng() - 0.5) * span * 0.35;
-      ship.y = Math.min(bounds.maxY, Math.max(bounds.minY, ship.y + nudge));
-    }
+    ship.turnTimer = 2.8 + rng() * 6;
+    if (rng() < 0.45) ship.facing *= -1;
+    const climb = (rng() - 0.5) * 2;
+    ship.aimVx = ship.facing * speed;
+    ship.aimVy = climb * speed * 0.42;
   }
 
-  ship.x += ship.vx * dt;
-  // Gentle drift on the Y band so lanes mix.
-  ship.y += Math.sin((ship.x + ship.speed) * 0.01) * 6 * dt;
+  // Ease velocity toward the aim. One frame cannot cross the sea.
+  const blend = 1 - Math.exp(-1.8 * step);
+  ship.vx += (ship.aimVx - ship.vx) * blend;
+  ship.vy += (ship.aimVy - ship.vy) * blend;
+  ship.x += ship.vx * step;
+  ship.y += ship.vy * step;
 
   if (ship.x < bounds.minX) {
     ship.x = bounds.minX;
     ship.facing = 1;
-    ship.vx = ship.speed;
-    ship.turnTimer = 1.5 + rng() * 2;
+    ship.aimVx = speed;
+    if (ship.vx < 0) ship.vx = 0;
+    ship.turnTimer = Math.max(ship.turnTimer, 1.6);
   } else if (ship.x > bounds.maxX) {
     ship.x = bounds.maxX;
     ship.facing = -1;
-    ship.vx = -ship.speed;
-    ship.turnTimer = 1.5 + rng() * 2;
+    ship.aimVx = -speed;
+    if (ship.vx > 0) ship.vx = 0;
+    ship.turnTimer = Math.max(ship.turnTimer, 1.6);
   }
 
-  if (ship.y < bounds.minY) ship.y = bounds.minY;
-  if (ship.y > bounds.maxY) ship.y = bounds.maxY;
+  if (ship.y < bounds.minY) {
+    ship.y = bounds.minY;
+    ship.aimVy = Math.abs(ship.aimVy) || speed * 0.2;
+    if (ship.vy < 0) ship.vy = 0;
+  } else if (ship.y > bounds.maxY) {
+    ship.y = bounds.maxY;
+    ship.aimVy = -Math.abs(ship.aimVy) || -speed * 0.2;
+    if (ship.vy > 0) ship.vy = 0;
+  }
   return ship;
 }
 

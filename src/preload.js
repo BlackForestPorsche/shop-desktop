@@ -188,6 +188,7 @@ function boot() {
       idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
       onError: (error) => reportShellError("idle-overlay", error),
       onStatus: (info) => reportPirateStatus(info && info.event, info && info.reason),
+      submitPirateScore: (run) => ipcRenderer.invoke("shell:pirate-board", run),
     });
   } catch (error) {
     reportShellError("mount-shell-chrome", error);

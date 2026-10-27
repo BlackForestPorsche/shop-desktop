@@ -10,6 +10,8 @@
  *   wave, random hazards (sinkhole, megalodon, reef, mine).
  *   Overlay dismisses on a click on empty water only (never hover, never keys).
  * - Settings menu launcher (launchGame) opens the overlay and takes the helm at once.
+ * - A sunk run posts to the shop pirate boards (day, week, month, and this
+ *   Tools revision) for the signed-in desk person. The death screen shows them.
  * Desktop updates live in the native Settings menu (not an in-page header button).
  *
  * Idle accumulates while the page is visible (not document.hidden). Window blur/focus
@@ -34,6 +36,7 @@ const {
 const combat = require("./idle-combat");
 const fxlib = require("./idle-fx");
 const art = require("./idle-art");
+const pirateBoard = require("./pirate-board");
 
 const ROOT_ID = "bf-tools-shell-root";
 
@@ -66,6 +69,7 @@ const KEY_MAP = Object.freeze({
  *   onError?: (error: unknown) => void,
  *   onStatus?: (info: { event: string, reason?: string }) => void,
  *   launchOnly?: boolean,
+ *   submitPirateScore?: (run: { score: number, wave: number, sunk: number }) => Promise<unknown>,
  * }} [options]
  */
 function mountShellChrome(options = {}) {
@@ -333,7 +337,8 @@ function mountShellChrome(options = {}) {
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        min-width: 320px;
+        min-width: min(860px, calc(100vw - 36px));
+        max-width: calc(100vw - 36px);
         padding: 26px 30px 24px;
         text-align: center;
         background: rgba(11, 15, 20, 0.9);
@@ -347,6 +352,42 @@ function mountShellChrome(options = {}) {
       .wreck .meta { font-size: 14px; color: rgba(235,240,248,0.7); margin-bottom: 4px; }
       .wreck .new { color: #f5c542; font-weight: 700; min-height: 20px; }
       .wreck .row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+      .wreck-boards { margin-top: 12px; }
+      .board-note {
+        margin: 0 0 8px;
+        font-size: 13px;
+        color: rgba(235,240,248,0.8);
+      }
+      .board-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        text-align: left;
+      }
+      .board {
+        padding: 8px 8px 10px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        min-height: 92px;
+      }
+      .board h3 {
+        margin: 0 0 6px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(235,240,248,0.65);
+      }
+      .board ol { margin: 0; padding: 0; list-style: none; }
+      .board li {
+        font-size: 12px;
+        line-height: 1.35;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .board li.you { color: #f5c542; font-weight: 700; }
+      .board p { margin: 0; font-size: 12px; color: rgba(235,240,248,0.55); }
       .btn {
         padding: 10px 18px;
         border-radius: 4px;
@@ -361,6 +402,7 @@ function mountShellChrome(options = {}) {
       .btn:hover, .btn:focus-visible { filter: brightness(1.15); outline: none; }
       @media (max-width: 760px) {
         .panel.left { width: 170px; }
+        .board-grid { grid-template-columns: 1fr 1fr; }
         .cards { flex-direction: column; bottom: 56px; }
         .card { width: 240px; }
         .cards-title { display: none; }
@@ -394,6 +436,7 @@ function mountShellChrome(options = {}) {
           <div class="big cond wreck-score"></div>
           <div class="meta wreck-meta"></div>
           <div class="new cond wreck-new"></div>
+          <div class="wreck-boards"></div>
           <div class="row">
             <button class="btn primary cond again" type="button">Sail again</button>
             <button class="btn cond sea" type="button">Back to the sea</button>
@@ -447,6 +490,7 @@ function mountShellChrome(options = {}) {
     wreckScore: shadow.querySelector(".wreck-score"),
     wreckMeta: shadow.querySelector(".wreck-meta"),
     wreckNew: shadow.querySelector(".wreck-new"),
+    wreckBoards: shadow.querySelector(".wreck-boards"),
     again: shadow.querySelector(".again"),
     sea: shadow.querySelector(".sea"),
   };
@@ -592,7 +636,9 @@ function mountShellChrome(options = {}) {
       y: 0,
       facing: motion.facing,
       vx: motion.vx,
-      vy: 0,
+      vy: motion.vy || 0,
+      aimVx: motion.aimVx,
+      aimVy: motion.aimVy || 0,
       speed: motion.speed,
       turnTimer: motion.turnTimer,
       bob: Math.random() * Math.PI * 2,
@@ -827,6 +873,8 @@ function mountShellChrome(options = {}) {
     ship.facing = ship.facing || motion.facing;
     ship.vx = ship.facing * ship.speed;
     ship.vy = 0;
+    ship.aimVx = ship.vx;
+    ship.aimVy = 0;
     ship.turnTimer = motion.turnTimer;
     ship.scale = 0.85 + Math.random() * 0.25;
   }
@@ -1076,6 +1124,62 @@ function mountShellChrome(options = {}) {
       run.newBest = res.newBest;
       combat.writeSave(storage, save);
     }
+    // Shop boards, not the local best. Person is the signed-in desk session.
+    const snapshot = { score: run.score | 0, wave: run.wave | 0, sunk: run.sunk | 0 };
+    run.boardPromise = requestShopBoard(snapshot);
+  }
+
+  function requestShopBoard(snapshot) {
+    if (typeof options.submitPirateScore !== "function") {
+      return Promise.resolve(
+        pirateBoard.lockedBoard(
+          "Sign in on this desk. A score posts only while that person is signed in.",
+        ),
+      );
+    }
+    return Promise.resolve()
+      .then(() => options.submitPirateScore(snapshot))
+      .then((result) => result || pirateBoard.unavailableBoard("Could not reach the shop board."))
+      .catch(() => pirateBoard.unavailableBoard("Could not reach the shop board. This run was not posted."));
+  }
+
+  function paintShopBoards(board) {
+    const host = el.wreckBoards;
+    host.replaceChildren();
+    if (board && board.message) {
+      const note = document.createElement("p");
+      note.className = "board-note";
+      note.textContent = board.message;
+      host.appendChild(note);
+    }
+    if (!board || !board.ok) return;
+    const grid = document.createElement("div");
+    grid.className = "board-grid";
+    for (const id of pirateBoard.BOARD_IDS) {
+      const column = board.boards[id];
+      const card = document.createElement("section");
+      card.className = "board";
+      const title = document.createElement("h3");
+      title.textContent = column.label;
+      card.appendChild(title);
+      const rows = column.rows.slice(0, 5);
+      if (!rows.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "No scores yet";
+        card.appendChild(empty);
+      } else {
+        const list = document.createElement("ol");
+        for (const row of rows) {
+          const li = document.createElement("li");
+          if (row.person && row.person === board.you) li.className = "you";
+          li.textContent = `${row.name}  ${pirateBoard.formatScore(row.score)}`;
+          list.appendChild(li);
+        }
+        card.appendChild(list);
+      }
+      grid.appendChild(card);
+    }
+    host.appendChild(grid);
   }
 
   /** Leave combat state without touching the fleet (used by dismiss / dispose). */
@@ -1560,7 +1664,18 @@ function mountShellChrome(options = {}) {
     el.wreckScore.textContent = run.score.toLocaleString();
     el.wreckMeta.textContent = `Wave ${run.wave} · ${run.sunk} ship${run.sunk === 1 ? "" : "s"} sunk · Best ${save.best.toLocaleString()}`;
     el.wreckNew.textContent = run.newBest ? "New best" : "";
+    el.wreckBoards.replaceChildren();
+    const pending = document.createElement("p");
+    pending.className = "board-note";
+    pending.textContent = "Loading the shop board…";
+    el.wreckBoards.appendChild(pending);
     el.wreck.hidden = false;
+    const token = (showWreck.token = (showWreck.token || 0) + 1);
+    const promise = run.boardPromise || requestShopBoard({ score: run.score | 0, wave: run.wave | 0, sunk: run.sunk | 0 });
+    promise.then((board) => {
+      if (token !== showWreck.token || !run || run.phase !== "wrecked") return;
+      paintShopBoards(board);
+    });
     el.again.focus({ preventScroll: true });
   }
 
@@ -1599,6 +1714,8 @@ function mountShellChrome(options = {}) {
             b.facing = -1;
             b.vx = -b.speed;
           }
+          a.aimVx = a.vx;
+          b.aimVx = b.vx;
         }
       }
       const ready = fleet.filter((s) => !(s.sinking > 0));

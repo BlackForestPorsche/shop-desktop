@@ -111,7 +111,7 @@ Idle-only people get the screensaver above, forever: no prompts, no HUD, no pres
 - **Bosses:** every 5th wave a big hull arrives — Man-o'-war, then Black Galleon, then Dreadnought — with a health bar and a broadside. At half hull it spills escorts.
 - **Hazards:** the sea rolls sinkholes (pull and chew hulls), megalodons (cross the window and bite), reefs, and drift mines. They hit everyone. Sail around them.
 - **Leave:** **Esc** / **Stand down** returns to the screensaver (the fleet stays afloat). If you are sunk, **Sail again** or **Back to the sea**.
-- **Progress:** best score / wave / ships sunk are kept in `localStorage` key `bf-tools-pirate-v1` (the shell window only; nothing is sent anywhere).
+- **Progress:** this computer still keeps a personal best in `localStorage` key `bf-tools-pirate-v1`. The shop boards are separate. A run with a score posts to the shop for the **signed-in desk person** (the widget session — Logan's score updates only while Logan is signed in). No new account and no pasted key. The shop keeps the best score for **today**, **this week**, **this month**, and **this Tools revision** (the app version; a new version starts a new revision board). **Settings → Pirate leaderboard** shows all four. The death screen shows the same four beside each other. A desk that is signed out does not get a made-up ranking.
 - Flavor only: ship names and pennants use fictional names and tiny generic pixel car silhouettes (coupe, SUV, wedge, sedan). No official badges or logos. Labels / DYMO printing is untouched.
 
 Code: `src/idle-fleet.js` (idle fleet rules), `src/idle-combat.js` (combat rules, pure), `src/idle-fx.js` (particles), `src/idle-art.js` (canvas drawing), `src/shell-chrome.js` (overlay, HUD, input).
