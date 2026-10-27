@@ -280,9 +280,19 @@ test("Windows install scripts launch electron.exe directly and include the widge
   assert.match(install, /electron\.exe/);
   assert.match(install, /--widget/);
   assert.match(install, /Black Forest Shop Widget\.lnk/);
-  assert.match(install, /-WindowStyle Hidden/);
+  assert.match(install, /assets\\icon\.ico/);
+  assert.match(install, /wscript\.exe/);
+  assert.match(install, /background-update\.vbs/);
+  assert.doesNotMatch(install, /-WindowStyle Hidden/);
   const bootstrap = fs.readFileSync(path.join(root, "scripts", "bootstrap-windows.ps1"), "utf8");
   assert.match(bootstrap, /electron\.exe/);
+  const updatePs1 = fs.readFileSync(path.join(root, "scripts", "update-git-checkout.ps1"), "utf8");
+  assert.match(updatePs1, /CreateNoWindow\s*=\s*\$true/);
+  assert.match(updatePs1, /cmd\.exe/);
+  const updateVbs = fs.readFileSync(path.join(root, "scripts", "background-update.vbs"), "utf8");
+  assert.match(updateVbs, /sh\.Run cmd, 0, True/);
+  const autostart = fs.readFileSync(path.join(root, "scripts", "enable-tools-autostart.ps1"), "utf8");
+  assert.match(autostart, /assets\\icon\.ico/);
 });
 
 function findPwsh() {

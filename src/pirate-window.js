@@ -12,7 +12,8 @@ const path = require("node:path");
 
 const PIRATE_HTML = path.join(__dirname, "..", "assets", "pirate-game.html");
 const PIRATE_PRELOAD = path.join(__dirname, "pirate-preload.js");
-const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
+const { resolveAppIconPath } = require("./app-icon");
+const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
 
 /**
  * @param {import("electron").BrowserWindow} win

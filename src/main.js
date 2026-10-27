@@ -78,7 +78,7 @@ const {
   sessionTimerAction,
 } = require("./session-lifecycle");
 
-const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
+const { resolveAppIconPath } = require("./app-icon");
 const OFFLINE_PATH = path.join(__dirname, "..", "assets", "offline.html");
 const PRELOAD_PATH = path.join(__dirname, "preload.js");
 const STATE_NAME = "window-state.json";
@@ -92,6 +92,7 @@ const BOOT_SYNC_TIMEOUT_MS = 8_000;
 const FETCH_TIMEOUT_MS = 20_000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
+const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
 const GATE_COOKIE = "bf_shop_gate";
 
 app.setName("Black Forest Tools");
