@@ -117,6 +117,74 @@ test("enemy captains close in, then circle at their range and sail in from off-s
   assert.ok(spawn.x >= bounds.minX);
 });
 
+test("waves escalate: more budget, more hulls on the sea, faster batches", () => {
+  assert.ok(c.waveBudget(8) > c.waveBudget(1));
+  assert.ok(c.waveBudget(1) >= 8);
+  assert.ok(c.maxAliveForWave(1) >= 6);
+  assert.ok(c.maxAliveForWave(10) > 7);
+  assert.ok(c.maxAliveForWave(10) <= 28);
+  assert.equal(c.spawnBatch(1), 1);
+  assert.ok(c.spawnBatch(10) >= 3);
+  assert.ok(c.spawnGap(10) < c.spawnGap(1));
+});
+
+test("bosses arrive every fifth wave and stay out of the horde plan", () => {
+  assert.equal(c.bossForWave(1), null);
+  assert.equal(c.bossForWave(4), null);
+  assert.equal(c.bossForWave(5), "manowar");
+  assert.equal(c.bossForWave(10), "blackgalleon");
+  assert.equal(c.bossForWave(15), "dreadnought");
+  assert.equal(c.bossForWave(20), "dreadnought");
+  for (const id of c.planWave(10, Math.random)) {
+    assert.equal(c.ENEMY_TYPES[id].boss, undefined);
+  }
+});
+
+test("enemy hulls scale up after wave 1 and the sea is the whole viewport", () => {
+  const early = c.scaleEnemy("sloop", 1);
+  const late = c.scaleEnemy("sloop", 8);
+  assert.equal(early.hp, c.ENEMY_TYPES.sloop.hp);
+  assert.ok(late.hp > early.hp);
+  const boss = c.scaleEnemy("manowar", 5);
+  assert.ok(boss.hp > c.ENEMY_TYPES.manowar.hp);
+  const sea = c.seaBounds(1280, 800);
+  assert.equal(sea.minY, 18);
+  assert.ok(sea.maxY > 700);
+  assert.ok(sea.minY < 800 * 0.2);
+  assert.ok(sea.maxX > 1200);
+  assert.equal(c.volleyOffsets(5).length, 5);
+});
+
+test("sinkhole pulls inward, megalodon crosses, mine blast reaches nearby hulls", () => {
+  const bounds = { minX: 0, maxX: 800, minY: 0, maxY: 600 };
+  const hole = c.createHazard("sinkhole", bounds, () => 0.5, 3);
+  hole.x = 400;
+  hole.y = 300;
+  hole.r = 80;
+  hole.maxR = 80;
+  hole.pull = 200;
+  hole.dps = 2;
+  const ship = { id: 1, x: 440, y: 300, sinking: 0, boss: false };
+  const inf = c.hazardInfluence(hole, ship, 0.5);
+  assert.ok(inf.dx < 0);
+  assert.ok(inf.damage > 0);
+
+  const mega = c.createHazard("megalodon", bounds, () => 0, 1);
+  const x0 = mega.x;
+  assert.equal(c.stepHazard(mega, 0.5, bounds), true);
+  assert.ok(mega.x > x0);
+
+  const mine = c.createHazard("mine", bounds, () => 0.2, 2);
+  const near = { id: 2, x: mine.x + 10, y: mine.y, sinking: 0 };
+  const far = { id: 3, x: mine.x + 400, y: mine.y, sinking: 0 };
+  const hit = c.hazardInfluence(mine, near, 0.016);
+  assert.equal(hit.explode, true);
+  assert.equal(c.mineBlastHits(mine, near), true);
+  assert.equal(c.mineBlastHits(mine, far), false);
+  assert.ok(c.HAZARD_KINDS.includes(c.pickHazardKind(1, () => 0)));
+  assert.ok(c.hazardInterval(8) < c.hazardInterval(1));
+});
+
 test("enemy aim error shrinks with waves but never reaches zero", () => {
   assert.ok(c.enemyAimError(1) > c.enemyAimError(6));
   assert.ok(c.enemyAimError(99) >= 26);

@@ -114,7 +114,9 @@ function stepShipSail(ship, dt, bounds, rng = Math.random) {
       ship.facing *= -1;
       ship.vx = ship.facing * ship.speed;
     } else {
-      const nudge = (rng() - 0.5) * 18;
+      // Hop a real slice of the sea so idle hulls don't sit in one lane.
+      const span = Math.max(48, bounds.maxY - bounds.minY);
+      const nudge = (rng() - 0.5) * span * 0.35;
       ship.y = Math.min(bounds.maxY, Math.max(bounds.minY, ship.y + nudge));
     }
   }

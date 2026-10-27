@@ -5,7 +5,9 @@
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
  * - Ships sail, fire, collide, and sink; sunk hulls respawn toward the idle target.
  *   Idle-only people get this forever: no prompts, no pressure to play.
- * - Pirate combat (opt-in): click a ship to take the helm. WASD sails, click fires.
+ * - Pirate combat (opt-in): click a ship to take the helm. WASD sails the whole
+ *   window (A is screen-left), click fires. Waves escalate, bosses every 5th
+ *   wave, random hazards (sinkhole, megalodon, reef, mine).
  *   Overlay dismisses on a click on empty water only (never hover, never keys).
  * - Settings menu launcher (launchGame) opens the overlay and takes the helm at once.
  * Desktop updates live in the native Settings menu (not an in-page header button).
@@ -41,8 +43,9 @@ const LAUNCH_FLEET = 3;
 const MAX_CANVAS_PIXELS = 8_500_000;
 
 const HINT_AMBIENT = "Click to return to the shop";
-const HINT_PLAY = "WASD sail · Click to fire · Space fires at the nearest · Esc stands down";
+const HINT_PLAY = "WASD sails the whole sea · A is left · Click to fire · Space nearest · Esc stands down";
 
+/** Screen-space helm. A / ArrowLeft moves left. Never inverted. */
 const KEY_MAP = Object.freeze({
   KeyA: "left",
   ArrowLeft: "left",
@@ -283,6 +286,7 @@ function mountShellChrome(options = {}) {
         opacity: 0;
       }
       .banner b { display: block; font-size: 64px; line-height: 1; text-shadow: 0 2px 18px rgba(0,0,0,0.6); }
+      .banner.boss b { color: #ffb15a; }
       .banner span { display: block; margin-top: 6px; font-size: 18px; color: rgba(235,240,248,0.8); letter-spacing: 0.14em; }
       .banner.show { animation: bannerIn 2.2s ease-out forwards; }
       @keyframes bannerIn {
@@ -456,6 +460,8 @@ function mountShellChrome(options = {}) {
   let splashes = [];
   /** @type {Array<any>} */
   let pickups = [];
+  /** @type {Array<any>} */
+  let hazards = [];
   const fx = fxlib.createFx();
   let lastActivity = now();
   let appActive = !document.hidden;
@@ -558,6 +564,7 @@ function mountShellChrome(options = {}) {
       balls = [];
       splashes = [];
       pickups = [];
+      hazards = [];
       fxlib.clearFx(fx);
       overlay.classList.remove("on");
       overlay.setAttribute("aria-hidden", "true");
@@ -567,14 +574,8 @@ function mountShellChrome(options = {}) {
   }
 
   function waterBounds() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    return {
-      minX: 70,
-      maxX: Math.max(90, w - 70),
-      minY: h * 0.42,
-      maxY: Math.max(h * 0.42 + 40, h - 70),
-    };
+    // Whole overlay is the sea — not a lower band.
+    return combat.seaBounds(window.innerWidth, window.innerHeight);
   }
 
   function baseShip(style) {
@@ -618,7 +619,8 @@ function mountShellChrome(options = {}) {
     const col = index % 4;
     const row = Math.floor(index / 4);
     const x = bounds.minX + (bounds.maxX - bounds.minX) * (0.12 + col * 0.22);
-    const y = bounds.minY + row * ((bounds.maxY - bounds.minY) * 0.28) + (index * 17) % 36;
+    const ySpan = Math.max(1, bounds.maxY - bounds.minY);
+    const y = bounds.minY + ySpan * (0.16 + row * 0.2) + (index * 17) % 36;
     const ship = baseShip(style);
     ship.x = Math.min(bounds.maxX, Math.max(bounds.minX, x + (index % 2 ? 18 : -12)));
     ship.y = Math.min(bounds.maxY, Math.max(bounds.minY, y));
@@ -748,10 +750,12 @@ function mountShellChrome(options = {}) {
   function sinkBurst(ship) {
     const cx = ship.x;
     const cy = ship.y - 8;
-    fxlib.splinters(fx, cx, cy, 22, Math.random, 1.1);
-    fxlib.spray(fx, cx, ship.y + 12, 14, Math.random, 1.2);
-    fxlib.smoke(fx, cx, cy - 10, 6, Math.random, "#8b95a3");
-    fxlib.bubbles(fx, cx, ship.y + 14, 10);
+    const heavy = ship.boss ? 1.7 : 1;
+    fxlib.splinters(fx, cx, cy, ship.boss ? 36 : 22, Math.random, 1.1 * heavy);
+    fxlib.spray(fx, cx, ship.y + 12, ship.boss ? 22 : 14, Math.random, 1.2);
+    fxlib.smoke(fx, cx, cy - 10, ship.boss ? 12 : 6, Math.random, "#8b95a3");
+    fxlib.bubbles(fx, cx, ship.y + 14, ship.boss ? 16 : 10);
+    if (ship.boss) fxlib.sparks(fx, cx, cy, 18, Math.random, "#f5c542");
     splashes.push({ x: cx, y: ship.y + 14, t: 0, style: ship.style, big: true });
   }
 
@@ -793,10 +797,11 @@ function mountShellChrome(options = {}) {
     if (run.combo > 1) {
       fxlib.floatText(fx, ship.x, ship.y - 48, `x${combat.comboMultiplier(run.combo)} combo`, "#f5c542", 14);
     }
-    fxlib.addShake(fx, 4);
-    if (ship.gilded || ship.type === "galleon") {
+    fxlib.addShake(fx, ship.boss ? 10 : 4);
+    if (ship.boss) showBanner("Boss sunk", combat.ENEMY_TYPES[ship.type]?.label || "The flagship goes down", true);
+    if (ship.boss || ship.gilded || ship.type === "galleon") {
       pickups.push({ x: ship.x, y: ship.y, kind: "chest", life: 14 });
-      fxlib.coins(fx, ship.x, ship.y - 20, 10);
+      fxlib.coins(fx, ship.x, ship.y - 20, ship.boss ? 18 : 10);
     } else if (Math.random() < 0.32) {
       pickups.push({ x: ship.x, y: ship.y, kind: "barrel", life: 14 });
     }
@@ -808,6 +813,10 @@ function mountShellChrome(options = {}) {
   function toAmbient(ship) {
     ship.role = "ambient";
     ship.type = null;
+    ship.boss = false;
+    ship.enraged = false;
+    ship.moveSpeed = 0;
+    ship.fireDamage = 0;
     ship.maxHp = 0;
     ship.hp = SHIP_HP;
     ship.gilded = false;
@@ -823,14 +832,19 @@ function mountShellChrome(options = {}) {
   }
 
   function makeEnemy(ship, typeId) {
-    const type = combat.ENEMY_TYPES[typeId];
+    const type = combat.ENEMY_TYPES[typeId] || combat.ENEMY_TYPES.sloop;
+    const scaled = combat.scaleEnemy(typeId, run ? run.wave : 1);
     ship.role = "enemy";
     ship.type = typeId;
-    ship.gilded = Math.random() < combat.GILDED_CHANCE;
-    ship.maxHp = type.hp + (ship.gilded ? 1 : 0);
+    ship.boss = !!type.boss;
+    ship.enraged = false;
+    ship.gilded = !ship.boss && Math.random() < combat.GILDED_CHANCE;
+    ship.maxHp = scaled.hp + (ship.gilded ? 2 : 0);
     ship.hp = ship.maxHp;
-    ship.scale = type.scale * (0.95 + Math.random() * 0.1);
-    ship.reloadT = 1.6 + Math.random() * type.reload;
+    ship.scale = type.scale * (ship.boss ? 1 : 0.94 + Math.random() * 0.12);
+    ship.moveSpeed = scaled.speed;
+    ship.fireDamage = scaled.damage;
+    ship.reloadT = 0.7 + Math.random() * type.reload;
     ship.vx = 0;
     ship.vy = 0;
     ship.sinking = 0;
@@ -842,9 +856,15 @@ function mountShellChrome(options = {}) {
   function spawnEnemy(typeId) {
     const bounds = waterBounds();
     const ship = baseShip(pickShipStyle());
+    const type = combat.ENEMY_TYPES[typeId];
     const side = Math.random() < 0.5 ? -1 : 1;
-    ship.x = side < 0 ? bounds.minX - 110 : bounds.maxX + 110;
-    ship.y = bounds.minY + Math.random() * (bounds.maxY - bounds.minY);
+    const p = player();
+    ship.x = side < 0 ? bounds.minX - 120 : bounds.maxX + 120;
+    if (type && type.boss && p) {
+      ship.y = Math.min(bounds.maxY, Math.max(bounds.minY, p.y + (Math.random() - 0.5) * 140));
+    } else {
+      ship.y = bounds.minY + Math.random() * Math.max(1, bounds.maxY - bounds.minY);
+    }
     makeEnemy(ship, typeId);
     ship.entering = true;
     ship.enterDir = -side;
@@ -855,9 +875,18 @@ function mountShellChrome(options = {}) {
 
   function beginWave() {
     run.queue = combat.planWave(run.wave);
-    run.spawnT = 0.6;
+    run.bossKind = combat.bossForWave(run.wave);
+    run.bossSpawned = !run.bossKind;
+    run.bossArm = 0;
+    run.spawnT = 0.4;
+    run.hazardT = combat.hazardInterval(run.wave) * 0.4;
     run.phase = "fight";
-    showBanner(`Wave ${run.wave}`, run.wave === 1 ? "Sink the fleet" : "More sails on the horizon");
+    if (run.bossKind) {
+      const label = combat.ENEMY_TYPES[run.bossKind].label;
+      showBanner(label, `Boss wave ${run.wave}`, true);
+    } else {
+      showBanner(`Wave ${run.wave}`, run.wave === 1 ? "The sea fills with sails" : "More hulls on the horizon");
+    }
   }
 
   function startRun(flagship) {
@@ -884,13 +913,18 @@ function mountShellChrome(options = {}) {
       recorded: false,
       newBest: false,
       shipName: flagship.name,
+      bossKind: null,
+      bossSpawned: true,
+      bossArm: 0,
+      hazardT: 7.5,
     };
 
     flagship.role = "player";
     flagship.type = "flagship";
+    flagship.boss = false;
     flagship.maxHp = stats.maxHp;
     flagship.hp = stats.maxHp;
-    flagship.scale = 1.3;
+    flagship.scale = 1.38;
     flagship.vx = 0;
     flagship.vy = 0;
     flagship.sinking = 0;
@@ -900,10 +934,12 @@ function mountShellChrome(options = {}) {
       .filter((s) => s !== flagship && !(s.sinking > 0))
       .sort((a, b) => Math.hypot(a.x - flagship.x, a.y - flagship.y) - Math.hypot(b.x - flagship.x, b.y - flagship.y));
     const plan = combat.planWave(1);
-    const keep = others.slice(0, Math.min(plan.length - 1, 4));
+    const room = Math.max(0, combat.maxAliveForWave(1) - 1);
+    const keep = others.slice(0, Math.min(plan.length, room));
     keep.forEach((s, i) => makeEnemy(s, plan[i]));
     for (const s of others.slice(keep.length)) s.retire = 1;
     run.queue = plan.slice(keep.length);
+    hazards = [];
 
     overlay.classList.add("play");
     hud.hidden = false;
@@ -912,7 +948,7 @@ function mountShellChrome(options = {}) {
     el.cardsTitle.hidden = true;
     el.wreck.hidden = true;
     hudKey = "";
-    showBanner("Wave 1", "Sink the fleet");
+    showBanner("Wave 1", "The sea fills with sails");
     updateHud(true);
   }
 
@@ -1047,6 +1083,7 @@ function mountShellChrome(options = {}) {
     if (mode === "play") finishRun();
     mode = "ambient";
     run = null;
+    hazards = [];
     pointer.down = false;
     keys.left = keys.right = keys.up = keys.down = false;
     overlay.classList.remove("play");
@@ -1079,9 +1116,10 @@ function mountShellChrome(options = {}) {
     lastActivity = now() - idleIntervalMs * Math.min(maxShips, Math.max(1, fleet.length));
   }
 
-  function showBanner(title, sub) {
+  function showBanner(title, sub, boss) {
     el.bannerTitle.textContent = title;
     el.bannerSub.textContent = sub || "";
+    el.banner.classList.toggle("boss", !!boss);
     el.banner.classList.remove("show");
     void el.banner.offsetWidth;
     el.banner.classList.add("show");
@@ -1089,6 +1127,7 @@ function mountShellChrome(options = {}) {
 
   function waveCleared() {
     run.phase = "intermission";
+    hazards = [];
     const bonus = combat.waveClearBonus(run.wave);
     run.score += bonus;
     const p = player();
@@ -1189,10 +1228,22 @@ function mountShellChrome(options = {}) {
   }
 
   function enemyFire(e, p) {
-    const type = combat.ENEMY_TYPES[e.type];
+    const type = combat.ENEMY_TYPES[e.type] || combat.ENEMY_TYPES.sloop;
+    const shots = type.boss ? type.shots || 3 : 1;
     const aim = combat.enemyAim({ x: e.x, y: e.y - 16 }, p, run.wave);
     const side = aim.x >= e.x ? 1 : -1;
-    launch(e, aim.x, aim.y, Math.max(0.9, aim.dur * 1.25), "enemy", type.damage, { muzzleSide: side });
+    const offsets = combat.volleyOffsets(shots);
+    offsets.forEach((off, i) => {
+      launch(
+        e,
+        aim.x + off.dx,
+        aim.y + off.dy,
+        Math.max(0.85, aim.dur * 1.15) + i * 0.03,
+        "enemy",
+        e.fireDamage || type.damage,
+        { muzzleSide: side },
+      );
+    });
   }
 
   function maybeFire(liveFleet) {
@@ -1401,15 +1452,107 @@ function mountShellChrome(options = {}) {
     }
 
     if (run.phase === "fight") {
+      stepHazards(dt, bounds);
+      if (run.phase !== "fight") return;
       const enemies = liveEnemies();
-      combat.separate(enemies, 70, 40, dt);
-      run.spawnT -= dt;
-      if (run.queue.length && run.spawnT <= 0 && enemies.length < combat.maxAliveForWave(run.wave)) {
-        spawnEnemy(run.queue.shift());
-        run.spawnT = 1.3;
+      combat.separate(enemies.filter((e) => !e.boss), 72, 48, dt);
+      combat.giveBossRoom(enemies);
+      for (const e of enemies) combat.clampToBounds(e, bounds);
+      if (p) combat.clampToBounds(p, bounds);
+
+      for (const e of enemies) {
+        if (!e.boss || e.enraged || e.entering) continue;
+        if (e.hp > e.maxHp * 0.5) continue;
+        e.enraged = true;
+        const escorts = e.type === "dreadnought" ? 4 : 3;
+        for (let i = 0; i < escorts; i++) run.queue.push("raider");
+        fxlib.floatText(fx, e.x, e.y - 90, "Escorts", "#ffb15a", 18);
       }
-      if (!run.queue.length && enemies.length === 0 && p && p.sinking <= 0) waveCleared();
+
+      if (!run.bossSpawned && run.bossKind) {
+        run.bossArm = (run.bossArm || 0) + dt;
+        if (run.bossArm > 1.15) {
+          spawnEnemy(run.bossKind);
+          run.bossSpawned = true;
+        }
+      }
+
+      run.spawnT -= dt;
+      const cap = combat.maxAliveForWave(run.wave);
+      if (run.queue.length && run.spawnT <= 0 && liveEnemies().length < cap) {
+        const batch = combat.spawnBatch(run.wave);
+        let spawned = 0;
+        while (run.queue.length && liveEnemies().length < cap && spawned < batch) {
+          spawnEnemy(run.queue.shift());
+          spawned += 1;
+        }
+        const thin = liveEnemies().length < Math.min(cap, 3 + Math.floor(run.wave / 2));
+        run.spawnT = combat.spawnGap(run.wave) * (thin ? 0.55 : 1);
+      }
+
+      run.hazardT -= dt;
+      if (run.hazardT <= 0 && hazards.length < 4) {
+        const kind = combat.pickHazardKind(run.wave);
+        const h = combat.createHazard(kind, bounds, Math.random, run.wave);
+        if (p && kind !== "megalodon" && Math.hypot(h.x - p.x, h.y - p.y) < 170) {
+          const push = h.x < p.x ? -1 : 1;
+          h.x = Math.min(bounds.maxX, Math.max(bounds.minX, h.x + push * 200));
+        }
+        hazards.push(h);
+        const label = kind === "megalodon" ? "Megalodon" : kind === "sinkhole" ? "Sinkhole" : kind === "reef" ? "Reef" : "Drift mine";
+        const tx = kind === "megalodon" ? (h.vx > 0 ? bounds.minX + 90 : bounds.maxX - 90) : h.x;
+        const ty = kind === "megalodon" ? h.y : h.y - 24;
+        fxlib.floatText(fx, tx, ty, label, "#9fd0ff", 16);
+        run.hazardT = combat.hazardInterval(run.wave);
+      }
+
+      const still = liveEnemies();
+      if (!run.queue.length && still.length === 0 && run.bossSpawned && p && p.sinking <= 0) waveCleared();
     }
+  }
+
+  function absorbHazardDamage(ship, amount, kind) {
+    ship.hazardAcc = (ship.hazardAcc || 0) + amount;
+    if (ship.hazardAcc < 1) return;
+    const dmg = Math.floor(ship.hazardAcc);
+    ship.hazardAcc -= dmg;
+    damageShip(ship, dmg, kind);
+  }
+
+  function detonateMine(h) {
+    fxlib.addShake(fx, 6);
+    fxlib.sparks(fx, h.x, h.y, 16, Math.random, "#ffb15a");
+    fxlib.spray(fx, h.x, h.y, 12, Math.random, 1.3);
+    splashes.push({ x: h.x, y: h.y, t: 0, style: "pixel", big: true });
+    for (const ship of fleet) {
+      if (ship.sinking > 0 || ship.retire > 0) continue;
+      if (!combat.mineBlastHits(h, ship)) continue;
+      damageShip(ship, h.damage || 3, "mine");
+    }
+  }
+
+  function stepHazards(dt, bounds) {
+    const ships = fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
+    const next = [];
+    for (const h of hazards) {
+      const alive = combat.stepHazard(h, dt, bounds);
+      let boom = false;
+      for (const ship of ships) {
+        const inf = combat.hazardInfluence(h, ship, dt);
+        if (inf.dx || inf.dy) {
+          ship.x += inf.dx;
+          ship.y += inf.dy;
+        }
+        if (inf.damage > 0) absorbHazardDamage(ship, inf.damage, h.kind);
+        if (inf.explode) boom = true;
+      }
+      if (boom) detonateMine(h);
+      if (h.kind === "megalodon" && alive && Math.random() < dt * 6) {
+        fxlib.spray(fx, h.x - Math.sign(h.vx || 1) * 20, h.y + 6, 2, Math.random, 0.45);
+      }
+      if (alive && !h.exploded) next.push(h);
+    }
+    hazards = next;
   }
 
   function showWreck() {
@@ -1488,6 +1631,8 @@ function mountShellChrome(options = {}) {
   function updateHud(force) {
     if (!inPlay()) return;
     const p = player();
+    const sails = liveEnemies().length;
+    const bossUp = fleet.some((s) => s.boss && !(s.sinking > 0));
     const key = [
       run.phase,
       run.wave,
@@ -1496,6 +1641,8 @@ function mountShellChrome(options = {}) {
       p ? p.hp : 0,
       p ? p.maxHp : 0,
       save.best,
+      sails,
+      bossUp ? 1 : 0,
     ].join("|");
     if (force || key !== hudKey) {
       hudKey = key;
@@ -1505,7 +1652,7 @@ function mountShellChrome(options = {}) {
       el.hullFill.style.width = `${Math.max(0, (hp / max) * 100)}%`;
       el.hullBar.classList.toggle("low", hp / max <= 0.25);
       el.hullTxt.textContent = `Hull ${hp}/${max}`;
-      el.wave.textContent = `Wave ${run.wave}`;
+      el.wave.textContent = bossUp ? `Boss · Wave ${run.wave} · ${sails}` : `Wave ${run.wave} · ${sails} sails`;
       el.score.textContent = run.score.toLocaleString();
       const mult = run.combo > 0 && run.comboT > 0 ? combat.comboMultiplier(run.combo) : 0;
       el.combo.textContent = mult > 1 ? `Combo x${mult}` : "";
@@ -1526,12 +1673,19 @@ function mountShellChrome(options = {}) {
     if (fx.shake > 0.2) {
       ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
     }
-    art.drawWater(ctx, w, h, t);
+    art.drawWater(ctx, w, h, t, { dense: mode === "play" });
+
+    for (const hz of hazards) {
+      if (hz.kind !== "megalodon") art.drawHazard(ctx, hz, t);
+    }
 
     for (const p of fx.parts) {
       if (p.kind === "wake" || p.kind === "bubble") art.drawParticle(ctx, p);
     }
     for (const pk of pickups) art.drawPickup(ctx, pk, t);
+    for (const hz of hazards) {
+      if (hz.kind === "megalodon") art.drawHazard(ctx, hz, t);
+    }
 
     const showHp = mode === "play";
     const sorted = fleet.slice().sort((a, b) => a.y - b.y);
@@ -1550,6 +1704,13 @@ function mountShellChrome(options = {}) {
     if (mode === "ambient" && hoverId) {
       const ship = fleet.find((s) => s.id === hoverId);
       if (ship && !(ship.sinking > 0)) art.drawHoverTag(ctx, ship, `Take the helm · ${ship.name}`);
+    }
+    if (inPlay()) {
+      const boss = fleet.find((s) => s.boss && !(s.sinking > 0) && s.maxHp > 0);
+      if (boss) {
+        const label = (combat.ENEMY_TYPES[boss.type] && combat.ENEMY_TYPES[boss.type].label) || "Boss";
+        art.drawBossPlate(ctx, w, h, label, boss.hp, boss.maxHp);
+      }
     }
     ctx.restore();
 
