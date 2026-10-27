@@ -14,6 +14,7 @@ function handlers() {
     onCheckSiteUpdates() {},
     onCheckAppUpdates() {},
     onLaunchPirateGame() {},
+    onPirateLeaderboard() {},
     onLabelsStatus() {},
     onRestartLabels() {},
     onOpenFirefoxSignedIn() {},
@@ -149,6 +150,8 @@ test("Settings menu exposes Launch pirate game, and only there", () => {
   assert.ok(item);
   item.click();
   assert.equal(called, 1);
+  const board = settings.submenu.find((entry) => entry.label === "Pirate leaderboard");
+  assert.ok(board);
   for (const menu of template.filter((entry) => entry.label !== "Settings")) {
     assert.ok(!menu.submenu.some((entry) => /pirate/i.test(entry.label || "")));
   }

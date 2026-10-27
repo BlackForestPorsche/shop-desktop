@@ -32,6 +32,7 @@ function installedRevisionLabel() {
  *   onCheckSiteUpdates: () => void,
  *   onCheckAppUpdates: () => void,
  *   onLaunchPirateGame?: () => void,
+ *   onPirateLeaderboard?: () => void,
  *   onOpenFirefoxSignedIn: () => void,
  *   onLabelsStatus: () => void,
  *   onRestartLabels: () => void,
@@ -104,6 +105,10 @@ function buildAppMenuTemplate(handlers) {
         {
           label: "Launch pirate game",
           click: handlers.onLaunchPirateGame,
+        },
+        {
+          label: "Pirate leaderboard",
+          click: handlers.onPirateLeaderboard,
         },
         { type: "separator" },
         {

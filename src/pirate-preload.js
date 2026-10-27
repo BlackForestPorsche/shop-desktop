@@ -54,6 +54,7 @@ function boot() {
           }
         }
       },
+      submitPirateScore: (run) => ipcRenderer.invoke("shell:pirate-board", run),
       onError: (error) => {
         try {
           const text = error && error.stack ? error.stack : String(error);
