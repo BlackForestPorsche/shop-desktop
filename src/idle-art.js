@@ -7,193 +7,335 @@ const { FLAG_ICONS } = require("./idle-combat");
 
 const SINK_SECONDS = 1.35;
 
-function drawPixelShip(c) {
-  c.fillStyle = "#3a2416";
-  c.fillRect(-40, -6, 80, 22);
+function hullTier(ship) {
+  if (!ship) return "full";
+  if (
+    ship.boss ||
+    ship.type === "galleon" ||
+    ship.type === "manowar" ||
+    ship.type === "blackgalleon" ||
+    ship.type === "dreadnought"
+  ) {
+    return "heavy";
+  }
+  if (ship.type === "sloop" || ship.type === "raider") return "light";
+  return "full";
+}
+
+function drawBossCrown(c) {
+  c.save();
+  c.translate(-36, -18);
+  c.fillStyle = "#f5c542";
+  c.fillRect(-8, 0, 16, 3);
+  c.fillRect(-7, -6, 3, 6);
+  c.fillRect(-1.5, -9, 3, 9);
+  c.fillRect(4, -6, 3, 6);
+  c.restore();
+}
+
+/** Chunky arcade galleon: readable gun deck, stern castle, striped sails. Nose to +x. */
+function drawPixelShip(c, ship) {
+  const tier = hullTier(ship);
+  const light = tier === "light";
+  const heavy = tier === "heavy";
+  const hullW = light ? 70 : heavy ? 96 : 84;
+  const hullX = light ? -32 : heavy ? -46 : -40;
+  c.fillStyle = "#24160e";
+  c.fillRect(hullX, 2, hullW, heavy ? 16 : 13);
   c.fillStyle = "#6b3e22";
-  c.fillRect(-36, -2, 72, 12);
-  c.fillStyle = "#f2e6c8";
-  c.fillRect(-6, -48, 8, 44);
-  c.fillRect(-22, -40, 6, 34);
-  c.fillRect(14, -36, 6, 30);
-  // striped sails
-  for (let i = 0; i < 5; i++) {
-    c.fillStyle = i % 2 ? "#f4efe4" : "#c0392b";
-    c.fillRect(-30 + i * 6, -44, 6, 28);
+  c.fillRect(hullX + 3, -8, hullW - 8, 12);
+  c.fillStyle = "#8a5530";
+  c.fillRect(hullX + 6, -10, hullW - 22, 5);
+  c.fillStyle = "#140c08";
+  const ports = light ? 3 : heavy ? 6 : 4;
+  for (let i = 0; i < ports; i++) {
+    const px = hullX + 12 + i * 11;
+    c.fillRect(px, -3, 5, 4);
+    if (heavy) c.fillRect(px, 3, 5, 3);
+    c.fillStyle = "#e8a04a";
+    c.fillRect(px + 1, -2, 2, 2);
+    c.fillStyle = "#140c08";
   }
-  for (let i = 0; i < 4; i++) {
-    c.fillStyle = i % 2 ? "#f4efe4" : "#c0392b";
-    c.fillRect(10 + i * 5, -34, 5, 22);
-  }
-  c.fillStyle = "#111";
-  c.fillRect(-4, -56, 14, 8);
-  c.fillStyle = "#eee";
-  c.fillRect(-1, -54, 3, 3);
-  c.fillRect(4, -53, 5, 2);
-  c.fillStyle = "#222";
-  c.fillRect(28, 0, 14, 6);
-  c.fillStyle = "#f5a623";
-  c.fillRect(40, -2, 6, 6);
-}
-
-function drawSilhouetteShip(c) {
-  c.fillStyle = "#0a0c10";
-  c.beginPath();
-  c.moveTo(-46, 4);
-  c.quadraticCurveTo(-20, 18, 44, 6);
-  c.lineTo(36, -4);
-  c.lineTo(-40, -2);
-  c.closePath();
-  c.fill();
-  c.fillRect(-4, -50, 3, 50);
-  c.fillRect(-18, -40, 2, 38);
-  c.fillRect(12, -36, 2, 34);
-  c.fillStyle = BRAND_BLUE;
-  c.beginPath();
-  c.moveTo(-4, -48);
-  c.lineTo(22, -36);
-  c.lineTo(-4, -20);
-  c.closePath();
-  c.fill();
-  c.globalAlpha = 0.85;
-  c.beginPath();
-  c.moveTo(-18, -38);
-  c.lineTo(-2, -30);
-  c.lineTo(-18, -18);
-  c.closePath();
-  c.fill();
-  c.globalAlpha = 1;
-  c.fillStyle = "#0a0c10";
-  c.beginPath();
-  c.moveTo(12, -34);
-  c.lineTo(28, -26);
-  c.lineTo(12, -16);
-  c.closePath();
-  c.fill();
-}
-
-function drawInkShip(c) {
-  c.strokeStyle = "#1a140f";
-  c.fillStyle = "#8a623d";
+  c.fillStyle = "#3d2616";
+  c.fillRect(hullX, -18, 16, 12);
+  c.fillStyle = "#f5c542";
+  c.fillRect(hullX + 3, -16, 4, 3);
+  c.fillStyle = "#c9a36a";
+  c.fillRect(hullX + hullW - 14, -8, 10, 6);
+  c.strokeStyle = "#2a1a10";
   c.lineWidth = 2;
   c.beginPath();
-  c.moveTo(-42, 2);
-  c.quadraticCurveTo(0, 20, 42, 2);
-  c.lineTo(34, -8);
-  c.lineTo(-34, -6);
+  c.moveTo(hullX + hullW - 6, -6);
+  c.lineTo(hullX + hullW + 12, -12);
+  c.stroke();
+  const masts = light
+    ? [{ x: -2, h: 40, sw: 22 }]
+    : heavy
+      ? [{ x: -18, h: 44, sw: 20 }, { x: 0, h: 56, sw: 24 }, { x: 18, h: 38, sw: 16 }]
+      : [{ x: -14, h: 42, sw: 20 }, { x: 2, h: 52, sw: 22 }, { x: 18, h: 34, sw: 14 }];
+  for (const m of masts) {
+    c.fillStyle = "#1a120c";
+    c.fillRect(m.x, -8 - m.h, 3, m.h);
+    const stripes = 4;
+    const sw = m.sw / stripes;
+    const sailTop = -6 - m.h;
+    const sailH = Math.round(m.h * 0.62);
+    for (let i = 0; i < stripes; i++) {
+      c.fillStyle = i % 2 ? "#f3ecdf" : "#9d2c22";
+      c.fillRect(m.x + 4 + i * sw, sailTop, sw + 0.4, sailH);
+    }
+    c.fillStyle = "#5c3b24";
+    c.fillRect(m.x - 1, -8, 5, 3);
+  }
+  if (ship && ship.boss) drawBossCrown(c);
+}
+
+/** Desk-black hull, brand-blue sails, gunports cut out of the sheer. Nose to +x. */
+function drawSilhouetteShip(c, ship) {
+  const tier = hullTier(ship);
+  const light = tier === "light";
+  const heavy = tier === "heavy";
+  const bow = light ? 40 : heavy ? 50 : 46;
+  c.fillStyle = "#07090d";
+  c.beginPath();
+  c.moveTo(-bow, 2);
+  c.lineTo(-bow + 8, -12);
+  c.lineTo(bow - 16, -8);
+  c.lineTo(bow, -2);
+  c.quadraticCurveTo(8, 16, -bow + 4, 8);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#10141c";
+  c.fillRect(-bow, -14, 18, 10);
+  c.fillStyle = "#07090d";
+  const ports = light ? 3 : heavy ? 6 : 4;
+  for (let i = 0; i < ports; i++) {
+    c.fillRect(-bow + 22 + i * 9, -2, 4, 3);
+    if (heavy) c.fillRect(-bow + 22 + i * 9, 3, 4, 2);
+  }
+  c.strokeStyle = "#07090d";
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(bow - 4, -6);
+  c.lineTo(bow + 14, -14);
+  c.stroke();
+  const masts = light
+    ? [{ x: -2, top: -48, sail: 18 }]
+    : heavy
+      ? [{ x: -16, top: -50, sail: 16 }, { x: 0, top: -62, sail: 20 }, { x: 16, top: -44, sail: 14 }]
+      : [{ x: -14, top: -48, sail: 16 }, { x: 2, top: -58, sail: 18 }, { x: 16, top: -40, sail: 12 }];
+  c.fillStyle = "#07090d";
+  for (const m of masts) c.fillRect(m.x, m.top, 2.4, -m.top - 6);
+  const blues = [BRAND_BLUE, "#0460c4", "#7eb6ff"];
+  masts.forEach((m, i) => {
+    c.fillStyle = blues[i % blues.length];
+    c.beginPath();
+    c.moveTo(m.x + 2, m.top + 4);
+    c.lineTo(m.x + 2 + m.sail, (m.top + -6) / 2);
+    c.lineTo(m.x + 2, -8);
+    c.closePath();
+    c.fill();
+  });
+  if (ship && ship.boss) drawBossCrown(c);
+}
+
+/** Pen-and-ink hull: planks, rigging, billowed sails. Nose to +x. */
+function drawInkShip(c, ship) {
+  const tier = hullTier(ship);
+  const light = tier === "light";
+  const heavy = tier === "heavy";
+  const bow = light ? 38 : heavy ? 50 : 44;
+  c.fillStyle = "#8d6240";
+  c.strokeStyle = "#1a140f";
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(-bow + 6, -10);
+  c.lineTo(bow - 10, -8);
+  c.lineTo(bow, 0);
+  c.quadraticCurveTo(4, 18, -bow, 4);
+  c.lineTo(-bow + 4, -8);
   c.closePath();
   c.fill();
   c.stroke();
-  // hatch
-  c.strokeStyle = "rgba(30,20,12,0.35)";
+  c.strokeStyle = "rgba(26,20,15,0.35)";
   c.lineWidth = 1;
-  for (let i = -30; i < 30; i += 6) {
+  for (let x = -bow + 14; x < bow - 16; x += 7) {
     c.beginPath();
-    c.moveTo(i, -4);
-    c.lineTo(i + 8, 10);
+    c.moveTo(x, -6);
+    c.lineTo(x + 5, 8);
     c.stroke();
   }
   c.strokeStyle = "#1a140f";
+  c.lineWidth = 1.4;
+  c.beginPath();
+  c.moveTo(-bow + 10, -2);
+  c.lineTo(bow - 14, -2);
+  c.stroke();
+  const ports = light ? 2 : heavy ? 5 : 3;
+  c.fillStyle = "#1a140f";
+  for (let i = 0; i < ports; i++) {
+    c.beginPath();
+    c.arc(-bow + 20 + i * 10, 1, 2.1, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.strokeStyle = "#1a140f";
   c.lineWidth = 2;
   c.beginPath();
-  c.moveTo(-2, -8);
-  c.lineTo(-2, -52);
+  c.moveTo(bow - 6, -6);
+  c.lineTo(bow + 12, -13);
   c.stroke();
-  c.fillStyle = "#efe6d2";
+  const masts = light
+    ? [{ x: -2, top: -50, sail: 20 }]
+    : heavy
+      ? [{ x: -16, top: -48, sail: 16 }, { x: 0, top: -60, sail: 22 }, { x: 18, top: -42, sail: 14 }]
+      : [{ x: -14, top: -46, sail: 16 }, { x: 2, top: -56, sail: 20 }, { x: 16, top: -40, sail: 13 }];
+  c.strokeStyle = "#1a140f";
+  c.lineWidth = 1.6;
+  for (const m of masts) {
+    c.beginPath();
+    c.moveTo(m.x, -8);
+    c.lineTo(m.x, m.top);
+    c.stroke();
+  }
+  c.fillStyle = "#f4efe4";
+  masts.forEach((m) => {
+    c.beginPath();
+    c.moveTo(m.x, m.top + 3);
+    c.quadraticCurveTo(m.x + m.sail, m.top + 16, m.x + m.sail - 2, -12);
+    c.lineTo(m.x, -10);
+    c.closePath();
+    c.fill();
+    c.stroke();
+  });
+  c.strokeStyle = "rgba(26,20,15,0.45)";
+  c.lineWidth = 0.8;
+  if (masts.length > 1) {
+    c.beginPath();
+    c.moveTo(masts[0].x, masts[0].top + 2);
+    c.lineTo(masts[masts.length - 1].x, masts[masts.length - 1].top + 6);
+    c.stroke();
+  }
+  c.fillStyle = "#9d2c22";
   c.beginPath();
-  c.moveTo(-2, -50);
-  c.quadraticCurveTo(18, -40, 20, -28);
-  c.quadraticCurveTo(8, -24, -2, -22);
-  c.closePath();
+  c.arc(-bow + 16, -16, 3.2, 0, Math.PI * 2);
   c.fill();
-  c.stroke();
-  c.fillStyle = "#111";
-  c.beginPath();
-  c.moveTo(-2, -52);
-  c.lineTo(12, -58);
-  c.lineTo(12, -50);
-  c.closePath();
-  c.fill();
-  c.fillStyle = "#c0392b";
-  c.beginPath();
-  c.arc(-10, -18, 4, 0, Math.PI * 2);
-  c.fill();
-  c.fillStyle = "#222";
-  c.fillRect(24, -4, 16, 5);
+  if (ship && ship.boss) drawBossCrown(c);
 }
 
-function drawNeonShip(c, id) {
+/** Night-harbor wire hull. Glow only on the flagship and bosses — hordes stay cheap. */
+function drawNeonShip(c, ship) {
+  const id = ship && ship.id ? ship.id : 0;
   const glow = id % 2 === 0 ? "#2ef3ff" : "#ff3fd6";
-  c.shadowColor = glow;
-  c.shadowBlur = 12;
+  const tier = hullTier(ship);
+  const light = tier === "light";
+  const heavy = tier === "heavy";
+  const hot = ship && (ship.boss || ship.role === "player" || ship.gilded);
+  const bow = light ? 38 : heavy ? 50 : 44;
+  if (hot) {
+    c.shadowColor = glow;
+    c.shadowBlur = 12;
+  }
   c.strokeStyle = glow;
-  c.lineWidth = 2;
+  c.lineWidth = heavy ? 2.4 : 1.8;
   c.beginPath();
-  c.moveTo(-44, 2);
-  c.quadraticCurveTo(0, 18, 44, 2);
-  c.lineTo(34, -8);
-  c.lineTo(-34, -6);
+  c.moveTo(-bow + 4, -10);
+  c.lineTo(bow - 12, -8);
+  c.lineTo(bow, -1);
+  c.quadraticCurveTo(0, 16, -bow, 3);
   c.closePath();
   c.stroke();
+  c.lineWidth = 1.2;
+  const ports = light ? 2 : heavy ? 5 : 3;
+  for (let i = 0; i < ports; i++) {
+    c.beginPath();
+    c.arc(-bow + 18 + i * 11, 0, 1.7, 0, Math.PI * 2);
+    c.stroke();
+  }
   c.beginPath();
-  c.moveTo(-2, -6);
-  c.lineTo(-2, -50);
-  c.moveTo(-16, -4);
-  c.lineTo(-16, -38);
-  c.moveTo(14, -4);
-  c.lineTo(14, -34);
+  c.moveTo(bow - 8, -6);
+  c.lineTo(bow + 12, -13);
   c.stroke();
+  const masts = light
+    ? [{ x: -2, top: -48, sail: 16 }]
+    : heavy
+      ? [{ x: -16, top: -50, sail: 14 }, { x: 0, top: -62, sail: 18 }, { x: 16, top: -42, sail: 12 }]
+      : [{ x: -14, top: -46, sail: 14 }, { x: 2, top: -56, sail: 16 }, { x: 16, top: -38, sail: 12 }];
   c.beginPath();
-  c.moveTo(-2, -48);
-  c.lineTo(20, -34);
-  c.lineTo(-2, -20);
-  c.moveTo(-16, -36);
-  c.lineTo(-2, -28);
-  c.lineTo(-16, -18);
-  c.moveTo(14, -32);
-  c.lineTo(28, -24);
-  c.lineTo(14, -16);
+  for (const m of masts) {
+    c.moveTo(m.x, -8);
+    c.lineTo(m.x, m.top);
+  }
   c.stroke();
+  c.save();
+  c.globalAlpha = hot ? 0.28 : 0.4;
+  c.fillStyle = glow;
+  masts.forEach((m) => {
+    const mid = (m.top + -10) / 2;
+    c.beginPath();
+    c.moveTo(m.x, m.top + 8);
+    c.lineTo(m.x + m.sail, mid);
+    c.lineTo(m.x, -12);
+    c.closePath();
+    c.fill();
+  });
+  c.restore();
+  c.strokeStyle = glow;
+  c.lineWidth = 1.6;
+  masts.forEach((m) => {
+    const mid = (m.top + -10) / 2;
+    c.beginPath();
+    c.moveTo(m.x, m.top + 8);
+    c.lineTo(m.x + m.sail, mid);
+    c.lineTo(m.x, -12);
+    c.closePath();
+    c.stroke();
+  });
   c.shadowBlur = 0;
+  if (ship && ship.boss) drawBossCrown(c);
 }
 
 
 function drawShipSprite(c, ship) {
   switch (ship.style) {
     case "pixel":
-      drawPixelShip(c);
+      drawPixelShip(c, ship);
       break;
     case "silhouette":
-      drawSilhouetteShip(c);
+      drawSilhouetteShip(c, ship);
       break;
     case "ink":
-      drawInkShip(c);
+      drawInkShip(c, ship);
       break;
     case "neon":
     default:
-      drawNeonShip(c, ship.id);
+      drawNeonShip(c, ship);
       break;
   }
 }
 
+function flagTop(ship) {
+  const tier = hullTier(ship);
+  if (tier === "light") return -50;
+  if (tier === "heavy") return -66;
+  return -58;
+}
+
 function drawFlag(c, ship, t) {
   const player = ship.role === "player";
-  const wave = Math.sin(t * 0.006 + ship.id) * 1.3;
+  const wave = Math.sin(t * 0.006 + ship.id) * 1.6;
+  const top = flagTop(ship);
   c.save();
-  c.translate(-2, -48);
-  c.scale(1.4, 1.4);
-  c.translate(2, 48);
   c.strokeStyle = "#16120e";
   c.lineWidth = 1.6;
   c.beginPath();
-  c.moveTo(-2, -48);
-  c.lineTo(-2, -69);
+  c.moveTo(0, -6);
+  c.lineTo(0, top);
   c.stroke();
   c.beginPath();
-  c.moveTo(-2, -69);
-  c.lineTo(-19, -68 + wave);
-  c.lineTo(-19, -57 + wave);
-  c.lineTo(-2, -58);
+  c.moveTo(0, top);
+  c.lineTo(-26, top + 3 + wave);
+  c.lineTo(-26, top + 18 + wave);
+  c.lineTo(0, top + 15);
   c.closePath();
   c.fillStyle = player ? BRAND_BLUE : "#0d1117";
   c.fill();
@@ -205,19 +347,19 @@ function drawFlag(c, ship, t) {
   const kind = player ? "coupe" : ship.flag || "skull";
   const icon = FLAG_ICONS[kind];
   if (icon) {
-    const cell = 1.1;
-    const x0 = -10.5 - (11 * cell) / 2;
-    const y0 = -63.5 + wave * 0.5 - (4 * cell) / 2;
+    const cell = 1.15;
+    const x0 = -20;
+    const y0 = top + 4 + wave * 0.35;
     for (let r = 0; r < icon.length; r++) {
       for (let q = 0; q < icon[r].length; q++) {
-        if (icon[r][q] === "X") c.fillRect(x0 + q * cell, y0 + r * cell, cell + 0.15, cell + 0.15);
+        if (icon[r][q] === "X") c.fillRect(x0 + q * cell, y0 + r * cell, cell + 0.12, cell + 0.12);
       }
     }
   } else {
-    const cx = -10.5;
-    const cy = -63.5 + wave * 0.5;
+    const cx = -13;
+    const cy = top + 9 + wave * 0.35;
     c.beginPath();
-    c.arc(cx, cy - 0.6, 2.6, 0, Math.PI * 2);
+    c.arc(cx, cy - 0.8, 3.4, 0, Math.PI * 2);
     c.fill();
     c.fillRect(cx - 1.4, cy + 1, 2.8, 1.6);
     c.fillStyle = "#0d1117";
@@ -228,12 +370,19 @@ function drawFlag(c, ship, t) {
 }
 
 function drawHpBar(c, x, y, w, hp, maxHp, color) {
-  const pips = Math.max(1, Math.min(maxHp, 16));
-  const gap = 1.5;
-  const pw = (w - gap * (pips - 1)) / pips;
   c.save();
   c.fillStyle = "rgba(6,10,16,0.7)";
   c.fillRect(x - w / 2 - 2, y - 2, w + 4, 8);
+  if (maxHp > 12) {
+    const p = Math.max(0, Math.min(1, maxHp > 0 ? hp / maxHp : 0));
+    c.fillStyle = color;
+    c.fillRect(x - w / 2, y, Math.max(0, w * p), 4);
+    c.restore();
+    return;
+  }
+  const pips = Math.max(1, maxHp | 0);
+  const gap = 1.5;
+  const pw = (w - gap * (pips - 1)) / pips;
   for (let i = 0; i < pips; i++) {
     c.fillStyle = i < hp ? color : "rgba(255,255,255,0.14)";
     c.fillRect(x - w / 2 + i * (pw + gap), y, pw, 4);
@@ -284,7 +433,7 @@ function drawShipFull(c, ship, opts) {
   if (ship.gilded && !sinking) {
     c.shadowColor = "#f5c542";
     c.shadowBlur = 16;
-  } else if (ship.style === "silhouette") {
+  } else if (ship.style === "silhouette" && (ship.role === "player" || ship.boss)) {
     c.shadowColor = "rgba(90,170,255,0.9)";
     c.shadowBlur = 7;
   }
@@ -295,12 +444,13 @@ function drawShipFull(c, ship, opts) {
   drawFlag(c, ship, opts.t);
   c.restore();
 
-  if (opts.showHp && !sinking && ship.maxHp > 0) {
-    const w = Math.min(70, 14 + ship.maxHp * 6) * Math.max(0.9, s);
+  if (opts.showHp && !sinking && ship.maxHp > 0 && !ship.boss) {
+    const w = Math.min(78, 14 + Math.min(ship.maxHp, 12) * 6) * Math.max(0.9, Math.min(s, 1.4));
+    const barY = ship.y + bobY - 78 * Math.min(s, 1.35);
     drawHpBar(
       c,
       ship.x,
-      ship.y + bobY - 84 * s,
+      barY,
       w,
       ship.hp,
       ship.maxHp,
@@ -550,38 +700,206 @@ function drawHoverTag(c, ship, text) {
   c.restore();
 }
 
-function drawWater(c, w, h, t) {
+function drawWater(c, w, h, t, opts = {}) {
+  const dense = !!opts.dense;
   c.save();
-  c.globalAlpha = 0.22;
-  const g = c.createLinearGradient(0, h * 0.55, 0, h);
-  g.addColorStop(0, "transparent");
-  g.addColorStop(1, "#06203a");
+  const g = c.createLinearGradient(0, 0, 0, h);
+  if (dense) {
+    g.addColorStop(0, "rgba(8, 18, 36, 0.34)");
+    g.addColorStop(0.45, "rgba(6, 22, 44, 0.46)");
+    g.addColorStop(1, "rgba(3, 10, 24, 0.62)");
+  } else {
+    g.addColorStop(0, "rgba(8, 18, 36, 0.05)");
+    g.addColorStop(0.4, "rgba(6, 20, 40, 0.1)");
+    g.addColorStop(1, "rgba(3, 12, 28, 0.32)");
+  }
   c.fillStyle = g;
-  c.fillRect(0, h * 0.55, w, h * 0.45);
-  c.globalAlpha = 0.12;
+  c.fillRect(0, 0, w, h);
+  const rows = dense ? 12 : 8;
   c.strokeStyle = "#9ec9ff";
   c.lineWidth = 1;
+  for (let i = 0; i < rows; i++) {
+    const y = (h / (rows + 1)) * (i + 1);
+    c.globalAlpha = dense ? 0.1 + (i / rows) * 0.08 : 0.05 + (i / rows) * 0.07;
+    c.beginPath();
+    const step = 28;
+    for (let x = 0; x <= w; x += step) {
+      const yy = y + Math.sin(x * 0.02 + t * 0.0016 + i * 0.7) * (2.2 + (i % 3));
+      if (x === 0) c.moveTo(x, yy);
+      else c.lineTo(x, yy);
+    }
+    c.stroke();
+  }
+  c.restore();
+}
+
+function fadeAlpha(h) {
+  const u = h.max > 0 ? h.life / h.max : 1;
+  if (u < 0.12) return u / 0.12;
+  if (u > 0.82) return Math.max(0, (1 - u) / 0.18);
+  return 1;
+}
+
+function drawSinkhole(c, h, t) {
+  c.save();
+  c.translate(h.x, h.y);
+  c.rotate((h.phase || 0) * 0.6);
+  c.globalAlpha = 0.95 * fadeAlpha(h);
+  const rx = h.r * 1.05;
+  const ry = h.r * 0.46;
+  c.fillStyle = "rgba(3, 8, 16, 0.78)";
+  c.beginPath();
+  c.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = "rgba(170, 214, 235, 0.82)";
+  c.lineWidth = 1.6;
+  for (let i = 1; i <= 3; i++) {
+    c.beginPath();
+    c.ellipse(0, 0, rx * (0.28 + i * 0.22), ry * (0.28 + i * 0.22), 0, 0, Math.PI * 2);
+    c.stroke();
+  }
+  c.strokeStyle = "rgba(230, 244, 255, 0.7)";
+  c.lineWidth = 1.3;
+  c.beginPath();
+  c.ellipse(0, 0, rx * 0.62, ry * 0.62, 0.4, 0.15, Math.PI * 1.05);
+  c.stroke();
+  c.fillStyle = "rgba(1, 4, 10, 0.95)";
+  c.beginPath();
+  c.ellipse(0, 0, rx * 0.16, ry * 0.16, 0, 0, Math.PI * 2);
+  c.fill();
+  void t;
+  c.restore();
+}
+
+function drawMegalodon(c, h) {
+  const dir = h.vx >= 0 ? 1 : -1;
+  c.save();
+  c.translate(h.x, h.y);
+  c.globalAlpha = 0.92 * fadeAlpha(h);
+  c.scale(dir, 1);
+  c.fillStyle = "rgba(8, 24, 40, 0.45)";
+  c.beginPath();
+  c.ellipse(0, 8, 54, 16, 0, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = "#16324a";
+  c.beginPath();
+  c.ellipse(-4, 4, 46, 14, 0, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = "#0e2436";
+  c.beginPath();
+  c.moveTo(-36, 4);
+  c.lineTo(-62, -6);
+  c.lineTo(-62, 14);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#d7e6f2";
+  c.beginPath();
+  c.moveTo(8, -8);
+  c.lineTo(18, -34);
+  c.lineTo(24, -6);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#e8eef4";
+  c.beginPath();
+  c.moveTo(20, 6);
+  c.lineTo(46, 2);
+  c.lineTo(20, 12);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#9fd0ff";
+  c.beginPath();
+  c.arc(24, 2, 2.2, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+
+function drawReef(c, h) {
+  c.save();
+  c.translate(h.x, h.y);
+  c.globalAlpha = 0.9 * fadeAlpha(h);
+  c.fillStyle = "#3e4650";
+  c.strokeStyle = "rgba(220, 230, 240, 0.45)";
+  c.lineWidth = 1.2;
+  const r = h.r;
+  c.beginPath();
+  c.moveTo(-r * 0.8, 6);
+  c.lineTo(-r * 0.4, -r * 0.45);
+  c.lineTo(-r * 0.05, 4);
+  c.lineTo(r * 0.25, -r * 0.7);
+  c.lineTo(r * 0.55, 2);
+  c.lineTo(r * 0.85, -r * 0.25);
+  c.lineTo(r * 0.7, 10);
+  c.closePath();
+  c.fill();
+  c.stroke();
+  c.restore();
+}
+
+function drawMine(c, h, t) {
+  const blink = h.max - h.life < 4 ? 0.45 + 0.55 * Math.abs(Math.sin(t * 0.01)) : 1;
+  c.save();
+  c.translate(h.x, h.y + Math.sin((h.phase || 0) * 2) * 2);
+  c.globalAlpha = blink * fadeAlpha(h);
+  c.strokeStyle = "#8d97a3";
+  c.lineWidth = 1.4;
+  c.beginPath();
+  c.moveTo(0, -16);
+  c.lineTo(0, -8);
+  c.stroke();
+  c.fillStyle = "#2a313a";
+  c.beginPath();
+  c.arc(0, 0, 9, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = "#d0d6de";
   for (let i = 0; i < 6; i++) {
-    const y = h * 0.62 + i * 14;
+    const a = (i / 6) * Math.PI * 2;
     c.beginPath();
-    for (let x = 0; x <= w; x += 24) {
-      const yy = y + Math.sin(x * 0.03 + t * 0.002 + i) * 3;
-      if (x === 0) c.moveTo(x, yy);
-      else c.lineTo(x, yy);
-    }
+    c.moveTo(Math.cos(a) * 8, Math.sin(a) * 8);
+    c.lineTo(Math.cos(a) * 14, Math.sin(a) * 14);
     c.stroke();
   }
-  c.globalAlpha = 0.07;
-  for (let i = 0; i < 4; i++) {
-    const y = h * 0.8 + i * 18;
-    c.beginPath();
-    for (let x = 0; x <= w; x += 28) {
-      const yy = y + Math.sin(x * 0.02 - t * 0.0016 + i * 2) * 4;
-      if (x === 0) c.moveTo(x, yy);
-      else c.lineTo(x, yy);
-    }
-    c.stroke();
+  c.fillStyle = "#ff5a4a";
+  c.beginPath();
+  c.arc(0, 0, 2.4, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+
+function drawHazard(c, h, t) {
+  switch (h.kind) {
+    case "sinkhole":
+      drawSinkhole(c, h, t);
+      break;
+    case "megalodon":
+      drawMegalodon(c, h);
+      break;
+    case "reef":
+      drawReef(c, h);
+      break;
+    default:
+      drawMine(c, h, t);
+      break;
   }
+}
+
+function drawBossPlate(c, width, height, label, hp, maxHp) {
+  const bw = Math.min(460, Math.max(220, width * 0.42));
+  const x = (width - bw) / 2;
+  const y = Math.max(108, (height || 0) - 108);
+  const p = Math.max(0, Math.min(1, maxHp > 0 ? hp / maxHp : 0));
+  c.save();
+  c.fillStyle = "rgba(8, 12, 18, 0.82)";
+  c.fillRect(x, y, bw, 28);
+  c.fillStyle = "#f5c542";
+  c.fillRect(x, y, bw, 2);
+  c.font = '700 13px "Barlow Condensed", "Oswald", "Arial Narrow", system-ui, sans-serif';
+  c.fillStyle = "#f5c542";
+  c.textAlign = "left";
+  c.fillText(label || "Boss", x + 10, y + 18);
+  c.fillStyle = "rgba(255,255,255,0.12)";
+  c.fillRect(x + 10, y + 22, bw - 20, 4);
+  c.fillStyle = p < 0.28 ? "#ff5a4a" : "#f5c542";
+  c.fillRect(x + 10, y + 22, (bw - 20) * p, 4);
   c.restore();
 }
 
@@ -597,4 +915,6 @@ module.exports = {
   drawReticle,
   drawHoverTag,
   drawWater,
+  drawHazard,
+  drawBossPlate,
 };

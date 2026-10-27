@@ -190,7 +190,15 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.26 for brand icon and silent Windows update", () => {
+test("package version is 1.5.27 for the full-sea pirate game", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.26");
+  assert.equal(pkg.version, "1.5.27");
+});
+
+test("combat sails the whole overlay, not a lower water band", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.equal(/h \* 0\.42/.test(source), false);
+  assert.match(source, /Whole overlay is the sea/);
+  assert.match(source, /combat\.seaBounds\(window\.innerWidth, window\.innerHeight\)/);
+  assert.match(source, /A \/ ArrowLeft moves left/);
 });
