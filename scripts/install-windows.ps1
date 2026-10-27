@@ -75,7 +75,21 @@ Ensure-Packages
 New-Item -ItemType Directory -Force -Path $StartMenu | Out-Null
 
 $electronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
-$iconLocation = if (Test-Path $electronExe) { "$electronExe,0" } else { "" }
+$brandIcon = Join-Path $Root "assets\icon.ico"
+if (-not (Test-Path $brandIcon)) {
+  # Build-time / first install: materialize PNG+ICO from the shop favicon.
+  $ensureIcon = Join-Path $Root "scripts\ensure-icon.js"
+  if ((Test-Path $ensureIcon) -and (Get-Command node -ErrorAction SilentlyContinue)) {
+    try { & node $ensureIcon | Out-Null } catch { }
+  }
+}
+$iconLocation = if (Test-Path $brandIcon) {
+  $brandIcon
+} elseif (Test-Path $electronExe) {
+  "$electronExe,0"
+} else {
+  ""
+}
 
 # Launch electron.exe directly: no npm.cmd, no console window flash at login.
 # entry.js routes "--widget" to the Shop Widget process and everything else to Tools.
@@ -124,26 +138,30 @@ New-Shortcut `
   -Description "Shop widget windows (lot / book-today / notes)"
 
 # 30-minute user task that fast-forwards this git checkout (same spirit as Plasma timer).
+# Launch via wscript + background-update.vbs (window style 0). powershell.exe -WindowStyle
+# Hidden still flashes a console, and git.exe / npm.cmd are console-subsystem too.
 $updateScript = Join-Path $Root "scripts\update-git-checkout.ps1"
-if (Test-Path $updateScript) {
+$updateVbs = Join-Path $Root "scripts\background-update.vbs"
+if ((Test-Path $updateScript) -and (Test-Path $updateVbs)) {
   $taskName = "BlackForestShopDesktopUpdate"
   $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   if ($existing) {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
   }
   $action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$updateScript`"" `
+    -Execute "wscript.exe" `
+    -Argument "//B `"$updateVbs`"" `
     -WorkingDirectory $Root
   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
-  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -MultipleInstances IgnoreNew
   Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Pull shop-desktop from GitHub and npm install when main moves" | Out-Null
-  Write-Host "Auto-update task: $taskName (every 30 minutes)"
+    -Description "Pull shop-desktop from GitHub and npm install when main moves (hidden)" | Out-Null
+  Write-Host "Auto-update task: $taskName (every 30 minutes, hidden via wscript)"
 }
 
 $sessionDir = Join-Path $env:LOCALAPPDATA "blackforest-tools"

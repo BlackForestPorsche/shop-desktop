@@ -190,7 +190,7 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.25 for pirate overlay-on-shop fix", () => {
+test("package version is 1.5.26 for brand icon and silent Windows update", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.25");
+  assert.equal(pkg.version, "1.5.26");
 });

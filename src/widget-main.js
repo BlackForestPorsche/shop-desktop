@@ -45,7 +45,8 @@ const {
   relaunchAfterGitUpdate,
 } = require("./shell-update");
 
-const ICON_PATH = path.join(__dirname, "..", "assets", "icon.png");
+const { resolveAppIconPath } = require("./app-icon");
+const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
 const WIDGET_HTML = path.join(__dirname, "..", "assets", "widget.html");
 const STATE_NAME = "widget-window-state.json";
 const APP_ROOT = appRootFromMain(__dirname);

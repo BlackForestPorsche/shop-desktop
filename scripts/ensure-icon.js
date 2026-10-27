@@ -8,12 +8,15 @@ const zlib = require("node:zlib");
 
 const root = path.join(__dirname, "..");
 const dest = path.join(root, "assets", "icon.png");
+const destIco = path.join(root, "assets", "icon.ico");
 const sourceUrl =
   process.env.BLACKFOREST_ICON_URL ||
   "https://shop.blackforestautomotive.com/__grok/icon-180.png";
 
 const MIN_EDGE = 256;
 const TARGET_EDGE = 512;
+/** Multi-size ICO for Windows shortcuts, taskbar, and electron-builder. */
+const ICO_EDGES = [16, 32, 48, 256];
 
 function pngSize(buf) {
   if (!buf || buf.length < 24 || buf[0] !== 0x89) return null;
@@ -182,8 +185,7 @@ function encodePngRgba(width, height, rgba) {
   ]);
 }
 
-function upscaleNearest(buf, targetEdge) {
-  const { width, height, rgba } = decodePngRgba(buf);
+function scaleRgba(rgba, width, height, targetEdge) {
   const out = Buffer.alloc(targetEdge * targetEdge * 4);
   for (let y = 0; y < targetEdge; y++) {
     const srcY = Math.min(height - 1, Math.floor((y * height) / targetEdge));
@@ -197,7 +199,55 @@ function upscaleNearest(buf, targetEdge) {
       out[dst + 3] = rgba[src + 3];
     }
   }
-  return encodePngRgba(targetEdge, targetEdge, out);
+  return out;
+}
+
+function upscaleNearest(buf, targetEdge) {
+  const { width, height, rgba } = decodePngRgba(buf);
+  return encodePngRgba(targetEdge, targetEdge, scaleRgba(rgba, width, height, targetEdge));
+}
+
+/** PNG-compressed ICO (Vista+). electron-builder and Windows shortcuts accept this. */
+function encodeIcoFromPng(pngBuf) {
+  const { width, height, rgba } = decodePngRgba(pngBuf);
+  const images = ICO_EDGES.map((edge) => {
+    const scaled =
+      edge === width && edge === height ? pngBuf : encodePngRgba(edge, edge, scaleRgba(rgba, width, height, edge));
+    return { edge, png: scaled };
+  });
+
+  const headerSize = 6;
+  const entrySize = 16;
+  const offset0 = headerSize + entrySize * images.length;
+  const header = Buffer.alloc(headerSize);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(images.length, 4);
+
+  const entries = [];
+  let offset = offset0;
+  for (const image of images) {
+    const entry = Buffer.alloc(entrySize);
+    entry[0] = image.edge >= 256 ? 0 : image.edge;
+    entry[1] = image.edge >= 256 ? 0 : image.edge;
+    entry[2] = 0;
+    entry[3] = 0;
+    entry.writeUInt16LE(1, 4);
+    entry.writeUInt16LE(32, 6);
+    entry.writeUInt32LE(image.png.length, 8);
+    entry.writeUInt32LE(offset, 12);
+    entries.push(entry);
+    offset += image.png.length;
+  }
+
+  return Buffer.concat([header, ...entries, ...images.map((image) => image.png)]);
+}
+
+function writeIcoFromPngFile(pngPath, icoPath) {
+  const pngBuf = fs.readFileSync(pngPath);
+  const ico = encodeIcoFromPng(pngBuf);
+  fs.writeFileSync(icoPath, ico);
+  return ico.length;
 }
 
 function tryPythonUpscale(srcPath, destPath) {
@@ -221,48 +271,52 @@ async function main() {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   let body = null;
+  let pngReady = false;
   if (fs.existsSync(dest)) {
     body = fs.readFileSync(dest);
     const size = pngSize(body);
     if (size && size.width >= MIN_EDGE && size.height >= MIN_EDGE) {
       console.log(`Using existing icon ${size.width}x${size.height}`);
-      return;
+      pngReady = true;
     }
   }
 
-  if (!body) {
-    body = await download(sourceUrl);
+  if (!pngReady) {
+    if (!body) {
+      body = await download(sourceUrl);
+    }
+
+    const size = pngSize(body);
+    if (!size) {
+      throw new Error("Could not read PNG icon");
+    }
+
+    if (size.width >= MIN_EDGE && size.height >= MIN_EDGE) {
+      fs.writeFileSync(dest, body);
+      console.log(`Wrote ${dest} (${body.length} bytes, ${size.width}x${size.height})`);
+    } else {
+      const temp = path.join(root, "assets", ".icon-source.png");
+      fs.writeFileSync(temp, body);
+
+      if (tryPythonUpscale(temp, dest)) {
+        fs.rmSync(temp, { force: true });
+        const outSize = pngSize(fs.readFileSync(dest));
+        console.log(
+          `Upscaled shop icon ${size.width}x${size.height} -> ${outSize.width}x${outSize.height}`
+        );
+      } else {
+        const upscaled = upscaleNearest(body, TARGET_EDGE);
+        fs.writeFileSync(dest, upscaled);
+        fs.rmSync(temp, { force: true });
+        console.log(
+          `Nearest-neighbor upscaled shop icon ${size.width}x${size.height} -> ${TARGET_EDGE}x${TARGET_EDGE}`
+        );
+      }
+    }
   }
 
-  const size = pngSize(body);
-  if (!size) {
-    throw new Error("Could not read PNG icon");
-  }
-
-  if (size.width >= MIN_EDGE && size.height >= MIN_EDGE) {
-    fs.writeFileSync(dest, body);
-    console.log(`Wrote ${dest} (${body.length} bytes, ${size.width}x${size.height})`);
-    return;
-  }
-
-  const temp = path.join(root, "assets", ".icon-source.png");
-  fs.writeFileSync(temp, body);
-
-  if (tryPythonUpscale(temp, dest)) {
-    fs.rmSync(temp, { force: true });
-    const outSize = pngSize(fs.readFileSync(dest));
-    console.log(
-      `Upscaled shop icon ${size.width}x${size.height} -> ${outSize.width}x${outSize.height}`
-    );
-    return;
-  }
-
-  const upscaled = upscaleNearest(body, TARGET_EDGE);
-  fs.writeFileSync(dest, upscaled);
-  fs.rmSync(temp, { force: true });
-  console.log(
-    `Nearest-neighbor upscaled shop icon ${size.width}x${size.height} -> ${TARGET_EDGE}x${TARGET_EDGE}`
-  );
+  const icoBytes = writeIcoFromPngFile(dest, destIco);
+  console.log(`Wrote ${destIco} (${icoBytes} bytes, sizes ${ICO_EDGES.join("/")})`);
 }
 
 main().catch((error) => {

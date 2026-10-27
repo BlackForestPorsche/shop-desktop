@@ -32,17 +32,18 @@ function New-Shortcut {
 }
 
 $electronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
+$brandIcon = Join-Path $Root "assets\icon.ico"
 $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm -ErrorAction SilentlyContinue }
 
 if (Test-Path $electronExe) {
   $target = $electronExe
   $arguments = "`"$Root`""
-  $iconLocation = "$electronExe,0"
+  $iconLocation = if (Test-Path $brandIcon) { $brandIcon } else { "$electronExe,0" }
 } elseif ($npmCmdInfo) {
   $target = $npmCmdInfo.Source
   $arguments = "start"
-  $iconLocation = ""
+  $iconLocation = if (Test-Path $brandIcon) { $brandIcon } else { "" }
 } else {
   throw "Need electron under node_modules or npm on PATH. Run npm install in $Root first."
 }
