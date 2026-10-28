@@ -7,6 +7,7 @@ const {
   shouldMintAfterLeavingUnlock,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
+  shouldPollSharedSession,
 } = require("../src/session-sync-guards");
 
 test("shouldHandleGateCookieSet blocks during exchange/mint/lock and lock cooldown", () => {
@@ -112,4 +113,10 @@ test("shouldMintAfterLeavingUnlock mints Bearer after a PIN unlock, even inside 
   assert.equal(shouldMintAfterLeavingUnlock({ ...base, applyingRemoteLock: true }), false);
   assert.equal(shouldMintAfterLeavingUnlock({ ...base, exchangingGate: true }), false);
   assert.equal(shouldMintAfterLeavingUnlock({ ...base, mintingWidgetSession: true }), false);
+});
+
+test("shouldPollSharedSession covers Linux inotify misses and a failed watch", () => {
+  assert.equal(shouldPollSharedSession({ platform: "linux" }), true);
+  assert.equal(shouldPollSharedSession({ platform: "win32" }), false);
+  assert.equal(shouldPollSharedSession({ platform: "win32", watchFailed: true }), true);
 });

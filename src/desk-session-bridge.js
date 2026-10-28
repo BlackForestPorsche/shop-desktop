@@ -54,6 +54,10 @@ function json(res, status, body) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Accept, Content-Type",
+    // Shop is HTTPS. Chromium on Linux will not call this loopback bridge
+    // without Private Network Access on the preflight. Gate/lock stay here,
+    // never on the Labels print service.
+    "Access-Control-Allow-Private-Network": "true",
   });
   res.end(payload);
 }
@@ -182,29 +186,47 @@ function startDeskSessionBridge(opts = {}) {
       }));
   }
 
-  const server = http.createServer((req, res) => {
-    // Any synchronous throw here would be an uncaught exception in Tools' main process.
-    try {
-      handleRequest(req, res);
-    } catch (error) {
+  const servers = [];
+
+  function createServer() {
+    const server = http.createServer((req, res) => {
+      // Any synchronous throw here would be an uncaught exception in Tools' main process.
       try {
-        if (!res.headersSent) {
-          json(res, 500, { ok: false, error: "bridge_error" });
-        } else {
-          res.end();
+        handleRequest(req, res);
+      } catch (error) {
+        try {
+          if (!res.headersSent) {
+            json(res, 500, { ok: false, error: "bridge_error" });
+          } else {
+            res.end();
+          }
+        } catch {
+          // socket already gone
         }
-      } catch {
-        // socket already gone
       }
-    }
-  });
-  server.on("clientError", (_error, socket) => {
-    try {
-      socket.destroy();
-    } catch {
-      // ignore
-    }
-  });
+    });
+    server.on("clientError", (_error, socket) => {
+      try {
+        socket.destroy();
+      } catch {
+        // ignore
+      }
+    });
+    servers.push(server);
+    return server;
+  }
+
+  const server = createServer();
+  // Linux resolves "localhost" to ::1 first. A v4-only bind looks like Tools
+  // is signed out to Firefox/Chromium even though 127.0.0.1 would answer.
+  const alsoV6 = host === "127.0.0.1" && opts.ipv6 !== false;
+  let v6 = null;
+  if (alsoV6) {
+    v6 = createServer();
+    v6.on("error", () => {
+      // No IPv6, or ::1 already taken. 127.0.0.1 still serves the bridge.
+    });
+  }
 
   function handleRequest(req, res) {
     const method = req.method || "GET";
@@ -402,16 +424,46 @@ function startDeskSessionBridge(opts = {}) {
     json(res, 404, { ok: false, error: "not_found" });
   }
 
+  const ready = new Promise((resolve) => {
+    const finish = () => resolve();
+    server.once("listening", () => {
+      if (!v6) {
+        finish();
+        return;
+      }
+      const bound = server.address();
+      const boundPort = bound && bound.port ? bound.port : port;
+      v6.once("listening", finish);
+      v6.once("error", finish);
+      try {
+        v6.listen(boundPort, "::1");
+      } catch {
+        finish();
+      }
+    });
+    server.once("error", finish);
+  });
+
   server.listen(port, host);
 
   return {
     server,
     host,
     port,
+    ready,
     close() {
-      return new Promise((resolve) => {
-        server.close(() => resolve());
-      });
+      return Promise.all(
+        servers.map(
+          (item) =>
+            new Promise((resolve) => {
+              try {
+                item.close(() => resolve());
+              } catch {
+                resolve();
+              }
+            }),
+        ),
+      );
     },
   };
 }

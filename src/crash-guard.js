@@ -102,6 +102,13 @@ function installCrashGuards(options) {
     if (proc.platform === "win32") {
       app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
     }
+    // Manjaro starts Tools from a systemd user unit, often before KWallet or
+    // gnome-keyring is up. Chromium then refuses to store bf_shop_gate, so the
+    // window stays on /unlock and from-gate cannot mint the shared Bearer.
+    // "basic" keeps the cookie jar in the profile without the secret service.
+    if (proc.platform === "linux") {
+      app.commandLine.appendSwitch("password-store", "basic");
+    }
   } catch (error) {
     log.warn("GPU fallback could not be applied", error);
   }

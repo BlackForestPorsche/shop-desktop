@@ -11,6 +11,41 @@ const {
   PATH_LOCK,
 } = require("../src/desk-session-bridge");
 
+test("loopback bridge answers on ::1 and allows private-network preflight", async () => {
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => null,
+    peekSession: () => null,
+  });
+  await bridge.ready;
+  const { port } = bridge.server.address();
+  try {
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get("access-control-allow-private-network"), "true");
+    const preflight = await fetch(`http://127.0.0.1:${port}/v1/widget-session`, {
+      method: "OPTIONS",
+      headers: { "access-control-request-private-network": "true" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-private-network"), "true");
+    try {
+      const v6 = await fetch(`http://[::1]:${port}/health`);
+      assert.equal(v6.status, 200);
+      const body = await v6.json();
+      assert.equal(body.ok, true);
+      assert.equal(body.service, "blackforest-tools-desk-bridge");
+    } catch (error) {
+      if (error && (error.code === "ECONNREFUSED" || error.cause?.code === "ECONNREFUSED")) {
+        return;
+      }
+      throw error;
+    }
+  } finally {
+    await bridge.close();
+  }
+});
+
 test("bridgeHost refuses non-loopback binds", () => {
   assert.equal(bridgeHost({ BLACKFOREST_DESK_BRIDGE_HOST: "0.0.0.0" }), "127.0.0.1");
   assert.equal(bridgeHost({ BLACKFOREST_DESK_BRIDGE_HOST: "127.0.0.1" }), "127.0.0.1");

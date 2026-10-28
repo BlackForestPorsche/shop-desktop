@@ -83,6 +83,16 @@ function shouldClearLocalLockOnSharedPublish({
 }
 
 /**
+ * Linux inotify often misses the Plasma helper's atomic mv of widget-session.json
+ * (event names the .tmp file, and the dest event never arrives). Poll so a shop
+ * or widget sign-in still reaches the Tools window. Windows directory watches
+ * are reliable; poll only if that watch fails.
+ */
+function shouldPollSharedSession({ platform = "", watchFailed = false } = {}) {
+  return watchFailed || platform === "linux";
+}
+
+/**
  * SPA left /unlock onto a shop page (PIN just worked) but no shared Bearer exists.
  * The gate cookie SET fires while the URL is still /unlock, and ensureSharedSession
  * refuses on spa_on_unlock, so this navigation is where Desk gets its Bearer.
@@ -112,4 +122,5 @@ module.exports = {
   shouldHandleGateCookieSet,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
+  shouldPollSharedSession,
 };

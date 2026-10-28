@@ -300,6 +300,20 @@ async function revokeWidgetSession(token, fetchImpl = fetch) {
   clearSession();
 }
 
+/**
+ * Cookie header for POST /api/widget/session/from-gate.
+ * session.fetch on Linux drops SameSite=Lax (and sometimes None) on this POST,
+ * so the jar can hold a live gate while Tools still looks signed out.
+ * Reject CR/LF so a cookie value cannot inject another header.
+ */
+function gateCookieHeader(value, cookieName = "bf_shop_gate") {
+  const token = String(value || "");
+  if (!token || /[\r\n;]/.test(token)) {
+    return "";
+  }
+  return `${cookieName}=${token}`;
+}
+
 function apiError(code, status, message) {
   const err = new Error(message || code);
   err.code = code;
@@ -417,7 +431,9 @@ function parseGateSetCookie(header, cookieName = "bf_shop_gate") {
     path: "/",
     secure: true,
     httpOnly: false,
-    sameSite: "lax",
+    // Shop HTTPS gate is SameSite=None. Electron rejects the string "none";
+    // "lax" is omitted on the POST that mints the shared Bearer.
+    sameSite: "no_restriction",
   };
   for (const part of parts.slice(1)) {
     const lower = part.toLowerCase();
@@ -434,7 +450,9 @@ function parseGateSetCookie(header, cookieName = "bf_shop_gate") {
       }
     } else if (lower.startsWith("samesite=")) {
       const same = part.slice(9).trim().toLowerCase();
-      if (same === "none" || same === "lax" || same === "strict") {
+      if (same === "none" || same === "no_restriction") {
+        details.sameSite = "no_restriction";
+      } else if (same === "lax" || same === "strict") {
         details.sameSite = same;
       }
     } else if (lower.startsWith("domain=")) {
@@ -562,4 +580,5 @@ module.exports = {
   requestFirefoxHandoff,
   readSetCookieHeaders,
   parseGateSetCookie,
+  gateCookieHeader,
 };
