@@ -190,9 +190,9 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.28 for shop pirate boards", () => {
+test("package version is 1.5.29 for shop pirate boards", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.28");
+  assert.equal(pkg.version, "1.5.29");
 });
 
 test("death screen shows shop day, week, month, and this revision", () => {

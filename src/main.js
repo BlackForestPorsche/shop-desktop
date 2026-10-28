@@ -50,6 +50,7 @@ const {
   exchangeWidgetSession,
   requestFirefoxHandoff,
   parseGateSetCookie,
+  gateCookieHeader,
   SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
@@ -72,6 +73,7 @@ const {
   shouldMintAfterLeavingUnlock,
   unlockAutoExchangeAction,
   shouldClearLocalLockOnSharedPublish,
+  shouldPollSharedSession,
 } = require("./session-sync-guards");
 const {
   SESSION_VANISH_SETTLE_MS,
@@ -1364,12 +1366,33 @@ function timedFetch(url, init) {
   return fetch(url, withFetchTimeout(init));
 }
 
-function partitionFetch(url, init) {
+async function partitionFetch(url, init) {
   const shopSession = shopPartition();
-  if (typeof shopSession.fetch === "function") {
-    return shopSession.fetch(url, withFetchTimeout(init));
+  const base = init || {};
+  const headers = { ...(base.headers || {}) };
+  const hasCookie = Object.keys(headers).some((key) => String(key).toLowerCase() === "cookie");
+  // session.fetch on Linux omits the gate on this cross-site POST (SameSite).
+  // Send the jar value explicitly so from-gate can mint the shared Bearer.
+  if (!hasCookie) {
+    try {
+      const found = await shopSession.cookies.get({
+        url: `${SHOP_BASE}/`,
+        name: GATE_COOKIE,
+      });
+      const gate = found.find((cookie) => cookie && cookie.value);
+      const header = gate ? gateCookieHeader(gate.value, GATE_COOKIE) : "";
+      if (header) {
+        headers.Cookie = header;
+      }
+    } catch {
+      // Jar unreadable — fetch still runs; from-gate may 401.
+    }
   }
-  return timedFetch(url, init);
+  const next = withFetchTimeout({ ...base, headers, credentials: "include" });
+  if (typeof shopSession.fetch === "function") {
+    return shopSession.fetch(url, next);
+  }
+  return timedFetch(url, next);
 }
 
 /**
@@ -1388,7 +1411,8 @@ async function injectGateCookieFromExchange(result) {
       path: "/",
       secure: true,
       httpOnly: true,
-      sameSite: "lax",
+      // Match the shop gate (SameSite=None). "lax" is not sent on from-gate POST.
+      sameSite: "no_restriction",
     };
     const parsed = result.expiresAt ? Date.parse(result.expiresAt) : NaN;
     if (Number.isFinite(parsed)) {
@@ -1901,6 +1925,12 @@ function watchSharedSessionFile() {
     }
   };
 
+  const ensureSessionPoll = () => {
+    if (!sharedSessionPoll) {
+      sharedSessionPoll = setInterval(onChange, SESSION_POLL_MS);
+    }
+  };
+
   try {
     if (sharedSessionWatcher) {
       sharedSessionWatcher.close();
@@ -1926,12 +1956,16 @@ function watchSharedSessionFile() {
         // ignore
       }
       sharedSessionWatcher = null;
-      if (!sharedSessionPoll) {
-        sharedSessionPoll = setInterval(onChange, SESSION_POLL_MS);
-      }
+      ensureSessionPoll();
     });
   } catch (error) {
     console.error("Could not watch shared session file:", error);
+    ensureSessionPoll();
+  }
+
+  // Linux: Plasma's `mv widget-session.json.tmp` often never notifies inotify.
+  if (shouldPollSharedSession({ platform: process.platform })) {
+    ensureSessionPoll();
   }
 }
 

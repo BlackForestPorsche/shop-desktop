@@ -21,6 +21,7 @@ const {
   purgeExpiredSession,
   mintWidgetSessionFromGate,
   parseGateSetCookie,
+  gateCookieHeader,
   SHOP_BASE,
 } = require("../src/shared-session");
 
@@ -236,6 +237,13 @@ test("exchangeWidgetSession returns gateToken when Set-Cookie headers are invisi
   assert.equal(got.expiresAt, "2099-01-01T00:00:00.000Z");
 });
 
+test("gateCookieHeader sends the shop gate and rejects header injection", () => {
+  assert.equal(gateCookieHeader("v2.1.logan.desk.abc"), "bf_shop_gate=v2.1.logan.desk.abc");
+  assert.equal(gateCookieHeader(""), "");
+  assert.equal(gateCookieHeader("bad\r\nX-Injected: 1"), "");
+  assert.equal(gateCookieHeader("a; b=c"), "");
+});
+
 test("parseGateSetCookie reads bf_shop_gate Set-Cookie details", () => {
   const details = parseGateSetCookie(
     "bf_shop_gate=v2.99.logan.desk.mac; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=120",
@@ -246,6 +254,11 @@ test("parseGateSetCookie reads bf_shop_gate Set-Cookie details", () => {
   assert.equal(details.httpOnly, true);
   assert.equal(details.secure, true);
   assert.equal(details.sameSite, "lax");
+  const none = parseGateSetCookie(
+    "bf_shop_gate=v2.99.logan.desk.mac; Path=/; HttpOnly; Secure; SameSite=None",
+  );
+  assert.equal(none.sameSite, "no_restriction");
+  assert.equal(parseGateSetCookie("bf_shop_gate=v2.plain; Path=/").sameSite, "no_restriction");
   assert.equal(details.url, `${SHOP_BASE}/`);
   assert.ok(details.expirationDate > Math.floor(Date.now() / 1000));
   assert.equal(parseGateSetCookie("other=1; Path=/"), null);

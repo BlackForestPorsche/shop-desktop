@@ -123,6 +123,8 @@ test("installCrashGuards disables CalculateNativeWinOcclusion on Windows only", 
     installCrashGuards({ app, proc, env: { BF_TOOLS_LOG_DIR: dir }, console: fakeConsole });
     const hit = switches.includes("disable-features=CalculateNativeWinOcclusion");
     assert.equal(hit, expect, platform);
+    const basicStore = switches.includes("password-store=basic");
+    assert.equal(basicStore, platform === "linux", platform);
   }
 });
 
