@@ -39,7 +39,20 @@ function withCache(result, allowCache, box) {
   };
 }
 
-function fromResponse(res, revision) {
+function sessionIdentity(readSession) {
+  try {
+    const session = readSession && readSession();
+    if (!session || !session.token || !session.person) return null;
+    const person = String(session.person).trim().toLowerCase();
+    if (!person) return null;
+    const name = session.name ? String(session.name) : person.charAt(0).toUpperCase() + person.slice(1);
+    return { person, name };
+  } catch {
+    return null;
+  }
+}
+
+function fromResponse(res, revision, readSession) {
   const status = (res && res.status) || 0;
   const body = res && res.body;
   if (status === 200 && body && body.ok && body.boards) {
@@ -52,7 +65,13 @@ function fromResponse(res, revision) {
     return lockedBoard("The shop board is for a desk sign-in.");
   }
   if (status === 404) {
-    return unavailableBoard("The shop has not published the pirate board yet.");
+    const board = unavailableBoard("The shop has not published the pirate board yet.");
+    const who = sessionIdentity(readSession);
+    if (who) {
+      board.you = who.person;
+      board.name = who.name;
+    }
+    return board;
   }
   if (status === 400) {
     return unavailableBoard("The shop did not accept that score.");
@@ -90,7 +109,7 @@ async function fetchPirateBoard(opts = {}) {
   const path = `${BOARD_PATH}?revision=${encodeURIComponent(revision)}`;
   try {
     const res = await request("GET", path, { token });
-    return withCache(fromResponse(res, revision), true, box);
+    return withCache(fromResponse(res, revision, readSession), true, box);
   } catch {
     return withCache(unavailableBoard("Could not reach the shop board."), true, box);
   }
@@ -120,7 +139,7 @@ async function submitPirateScore(opts = {}) {
       token,
       body: { score: body.score, wave: body.wave, sunk: body.sunk, revision },
     });
-    const board = withCache(fromResponse(res, revision), true, box);
+    const board = withCache(fromResponse(res, revision, readSession), true, box);
     if (board.ok && !board.message && board.name) {
       board.message = board.posted
         ? `Posted for ${board.name}.`
