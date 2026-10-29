@@ -1,20 +1,8 @@
 [
   {
-    "path": "src/main.js",
-    "prefix": "src__main.js",
-    "chunks": 3,
-    "sha256": "63d478cd8006a375a80517454aa15c9eafaf02d253eb9dc45e2bacc2796b9285"
-  },
-  {
-    "path": "src/shared-session.js",
-    "prefix": "src__shared-session.js",
-    "chunks": 1,
-    "sha256": "332ab6d5928bc0f89041f8218d33bae55d804445031a3295073bbdf4c5277ffc"
-  },
-  {
-    "path": "test/shared-session.test.js",
-    "prefix": "test__shared-session.test.js",
-    "chunks": 1,
-    "sha256": "099797c484685c4cd56b014f47ba880fa6e5eefc61fb54a7d2084943d63e1b1"
+    "path": "src/shell-chrome.js",
+    "prefix": "shell-chrome.js",
+    "chunks": 2,
+    "sha256": "3310a1c208b6df725ad528aa6b6c54f4a5f71f0399fb25c4e5b90c74f6983c78"
   }
 ]
