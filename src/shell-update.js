@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
+const { readGitTip } = require("./revision");
 const {
   ensureElectronBinary,
   ensureLauncherScriptsExecutable,
@@ -136,6 +137,17 @@ function pickPortableAsset(assets) {
   return portable || assets.find((asset) => /\.exe$/i.test(asset.name || "")) || null;
 }
 
+/** NSIS installer published beside the portable exe (version is in the file name). */
+function pickInstallerAsset(assets) {
+  if (!Array.isArray(assets)) return null;
+  return (
+    assets.find(
+      (asset) =>
+        /packaged-installer/i.test(asset.name || "") && /\.exe$/i.test(asset.name || ""),
+    ) || null
+  );
+}
+
 function runNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const install = spawnSync(npm, ["install"], {
@@ -186,9 +198,77 @@ function finishPendingNpmInstall(root, { env = cleanUpdateEnv() } = {}) {
   return { ran: true };
 }
 
-/** Never let git stop to ask for credentials in a window-less process. */
+/**
+ * Never let git stop to ask for credentials in a window-less process.
+ * A stale Git Credential Manager token or `gh auth setup-git` extraheader
+ * makes `git fetch` fail on a public repo (the other Windows desk, with no
+ * saved token, still fetches). Command-line config below clears that header.
+ */
 function gitEnv(env = process.env) {
   return { ...env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+}
+
+/**
+ * Config that must win over a desk's global/local git setup:
+ * - safe.directory: Setup run as admin owns %USERPROFILE%\shop-desktop, and
+ *   git then refuses every command ("dubious ownership").
+ * - credential.helper empty: drop a saved GitHub login so a public fetch
+ *   stays anonymous.
+ * - extraheader empty: `gh auth setup-git` stores a Basic token that GitHub
+ *   rejects after it expires, and git does not fall back to anonymous.
+ */
+function gitConfigArgs(root) {
+  const dir = path.resolve(root || "").replace(/\\/g, "/");
+  return [
+    "-c",
+    "safe.directory=*",
+    "-c",
+    `safe.directory=${dir}`,
+    "-c",
+    "credential.helper=",
+    "-c",
+    "http.https://github.com/.extraheader=",
+  ];
+}
+
+/**
+ * Electron started from a login shortcut often has a PATH from before Git
+ * was installed. Git for Windows still lives under Program Files.
+ */
+function resolveGitBin({
+  platform = process.platform,
+  env = process.env,
+  exists = fs.existsSync,
+} = {}) {
+  if (platform !== "win32") return "git";
+  const pathValue = env.Path || env.PATH || "";
+  const candidates = [];
+  for (const dir of String(pathValue).split(";")) {
+    if (!dir.trim()) continue;
+    candidates.push(path.win32.join(dir.trim(), "git.exe"));
+  }
+  const programFiles = env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const localAppData = env.LOCALAPPDATA || "";
+  candidates.push(path.win32.join(programFiles, "Git", "cmd", "git.exe"));
+  candidates.push(path.win32.join(programFiles, "Git", "bin", "git.exe"));
+  candidates.push(path.win32.join(programFilesX86, "Git", "cmd", "git.exe"));
+  if (localAppData) {
+    candidates.push(path.win32.join(localAppData, "Programs", "Git", "cmd", "git.exe"));
+  }
+  for (const candidate of candidates) {
+    try {
+      if (exists(candidate)) return candidate;
+    } catch {
+      // try the next well-known location
+    }
+  }
+  return "git";
+}
+
+function normalizeSha(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{40}$/.test(text) ? text : "";
 }
 
 /**
@@ -199,8 +279,8 @@ function gitEnv(env = process.env) {
 function runGitAsync(root, args) {
   return new Promise((resolve, reject) => {
     execFile(
-      "git",
-      ["-C", root, ...args],
+      resolveGitBin(),
+      ["-C", root, ...gitConfigArgs(root), ...args],
       { encoding: "utf8", timeout: 60_000, windowsHide: true, env: gitEnv() },
       (error, stdout, stderr) => {
         if (error) {
@@ -215,7 +295,7 @@ function runGitAsync(root, args) {
 }
 
 function runGit(root, args) {
-  const result = spawnSync("git", ["-C", root, ...args], {
+  const result = spawnSync(resolveGitBin(), ["-C", root, ...gitConfigArgs(root), ...args], {
     encoding: "utf8",
     timeout: 120_000,
     windowsHide: true,
@@ -308,10 +388,18 @@ async function checkGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH
   };
 }
 
-async function checkReleaseUpdate(currentVersion, { repo = DEFAULT_REPO } = {}) {
+async function checkReleaseUpdate(currentVersion, { repo = DEFAULT_REPO, preferInstaller = false } = {}) {
   const release = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
-  const asset = pickPortableAsset(release.assets || []);
+  const assets = release.assets || [];
+  const portable = pickPortableAsset(assets);
+  const installer = pickInstallerAsset(assets);
+  // Tag names are windows-<run>, which is not a semver. Read the version from
+  // the published exe. A packaged install should download the installer, not
+  // only the portable bootstrap.
+  const asset = preferInstaller && installer ? installer : portable;
   const remoteVersion =
+    versionFromReleaseAssetName(portable?.name) ||
+    versionFromReleaseAssetName(installer?.name) ||
     versionFromReleaseAssetName(asset?.name) ||
     parseSemver(release.tag_name || "")?.raw ||
     parseSemver(release.name || "")?.raw;
@@ -338,6 +426,16 @@ async function checkReleaseUpdate(currentVersion, { repo = DEFAULT_REPO } = {}) 
   };
 }
 
+function captureLaunchSha(root, opts) {
+  const gitRoot = resolveGitUpdateRoot(root, opts);
+  if (!gitRoot) return null;
+  try {
+    return readGitTip(gitRoot);
+  } catch {
+    return null;
+  }
+}
+
 async function checkShellUpdate({
   root = appRootFromMain(),
   currentVersion,
@@ -345,18 +443,71 @@ async function checkShellUpdate({
   repo = DEFAULT_REPO,
   branch = DEFAULT_BRANCH,
   deskRoots,
+  hasRemote,
+  launchedSha = null,
+  checkGit = checkGitUpdate,
+  checkRelease = checkReleaseUpdate,
 } = {}) {
   // Git in-place wins over packaged/Portable: Setup (Windows) and Manjaro clones
   // update via git pull. `packaged` alone must not force a Portable download.
-  const gitRoot = resolveGitUpdateRoot(root, { deskRoots });
+  const resolveOpts = { deskRoots };
+  if (typeof hasRemote === "function") resolveOpts.hasRemote = hasRemote;
+  const gitRoot = resolveGitUpdateRoot(root, resolveOpts);
   if (gitRoot) {
-    const info = await checkGitUpdate(gitRoot, { branch });
-    return { ...info, root: gitRoot };
+    try {
+      const info = await checkGit(gitRoot, { branch });
+      const withRoot = { ...info, root: gitRoot };
+      const launched = normalizeSha(launchedSha);
+      const current = normalizeSha(info.current);
+      const upstream = normalizeSha(info.upstream);
+      // The 30-minute task may already have pulled. HEAD then matches GitHub
+      // while this process is still the previous copy — say so, don't claim
+      // the running window is current.
+      if (!withRoot.available && launched && current && launched !== current && current === upstream) {
+        return {
+          ...withRoot,
+          available: true,
+          restartOnly: true,
+          summary: "The Tools folder already has this update. Restart to load it.",
+        };
+      }
+      // Packaged installer next to a checkout that is already current: the
+      // running exe's version can still be older than the published release.
+      if (!withRoot.available && packaged && currentVersion) {
+        try {
+          const release = await checkRelease(currentVersion, { repo, preferInstaller: true });
+          if (release && release.available) return { ...release, root: gitRoot };
+        } catch {
+          // Release feed failed; the git result still stands.
+        }
+      }
+      return withRoot;
+    } catch (error) {
+      // Fetch failed (bad saved token, git missing, ownership). The published
+      // Windows release is still the thing this check is supposed to see.
+      if (currentVersion) {
+        try {
+          const release = await checkRelease(currentVersion, {
+            repo,
+            preferInstaller: Boolean(packaged),
+          });
+          if (release && release.remoteVersion) {
+            return {
+              ...release,
+              root: gitRoot,
+              gitError: error instanceof Error ? error.message : String(error),
+            };
+          }
+        } catch {
+          // Keep the original git failure if the release feed is down too.
+        }
+      }
+      throw error;
+    }
   }
   // True portable / AppImage / no shop-desktop remote: offer release download.
   // (Portable asset is the bootstrap fallback; Setup desks should not land here.)
-  void packaged;
-  return checkReleaseUpdate(currentVersion, { repo });
+  return checkRelease(currentVersion, { repo, preferInstaller: Boolean(packaged) });
 }
 
 /**
@@ -465,6 +616,11 @@ module.exports = {
   compareSemver,
   versionFromReleaseAssetName,
   pickPortableAsset,
+  pickInstallerAsset,
+  gitConfigArgs,
+  resolveGitBin,
+  normalizeSha,
+  captureLaunchSha,
   cleanUpdateEnv,
   ensureElectronBinary,
   runNpmInstall,
