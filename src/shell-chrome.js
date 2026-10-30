@@ -206,59 +206,61 @@ function mountShellChrome(options = {}) {
         backface-visibility: hidden;
       }
       .overlay.play {
-        background:
-          radial-gradient(ellipse 120% 60% at 50% 100%, rgba(8, 18, 36, 0.7), transparent 70%),
-          linear-gradient(180deg, rgba(4, 8, 16, 0.3), rgba(4, 8, 16, 0.6));
+        background: #061018;
       }
       .overlay.play canvas.live { cursor: none; }
       canvas { width: 100%; height: 100%; display: block; }
       .hint {
         position: absolute;
         left: 50%;
-        bottom: 18px;
+        bottom: 14px;
         transform: translateX(-50%);
         margin: 0;
-        padding: 6px 12px;
+        max-width: min(720px, calc(100vw - 24px));
+        padding: 8px 14px;
         border-radius: 999px;
-        background: rgba(8, 12, 20, 0.55);
-        color: rgba(235, 240, 248, 0.85);
-        font: 500 12px/1.3 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-        letter-spacing: 0.02em;
+        background: rgba(4, 10, 18, 0.88);
+        border: 1px solid rgba(214, 236, 255, 0.28);
+        color: #f4f8fc;
+        font: 600 13px/1.35 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.01em;
         pointer-events: none;
-        white-space: nowrap;
+        text-align: center;
       }
       .hud { position: absolute; inset: 0; pointer-events: none; }
       .panel {
         position: absolute;
-        top: 16px;
-        padding: 10px 14px;
-        background: rgba(11, 15, 20, 0.78);
-        border: 1px solid var(--line);
-        border-top: 2px solid var(--blue);
+        top: 14px;
+        padding: 12px 14px 11px;
+        background: rgba(5, 10, 16, 0.9);
+        border: 1px solid rgba(214, 236, 255, 0.22);
+        border-top: 3px solid var(--blue);
         border-radius: 4px;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
       }
-      .panel.left { left: 16px; width: 230px; }
-      .panel.mid { left: 50%; transform: translateX(-50%); text-align: center; min-width: 190px; }
+      .panel.left { left: 14px; width: 240px; }
+      .panel.mid { left: 50%; transform: translateX(-50%); text-align: center; min-width: 210px; }
       .cond {
         font-family: "Barlow Condensed", "Oswald", "Arial Narrow", system-ui, sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.06em;
       }
-      .ship-name { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+      .ship-name { font-size: 18px; font-weight: 700; margin-bottom: 8px; color: #f7fbff; }
       .bar {
         position: relative;
-        height: 10px;
-        background: rgba(255, 255, 255, 0.12);
+        height: 14px;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 2px;
         overflow: hidden;
       }
-      .bar + .bar { margin-top: 6px; height: 5px; }
+      .bar + .bar { margin-top: 6px; height: 7px; }
       .bar i { display: block; height: 100%; background: var(--blue); width: 0; transition: width 0.12s linear; }
       .bar.low i { background: #ff5a4a; }
-      .bar.reload i { background: #cfe3ff; transition: none; }
-      .bar-label { margin-top: 5px; font-size: 11px; color: rgba(235, 240, 248, 0.7); }
-      .wave { font-size: 13px; letter-spacing: 0.16em; color: rgba(235, 240, 248, 0.7); }
-      .score { font-size: 32px; font-weight: 700; line-height: 1.05; }
+      .bar.reload i { background: #e7f3ff; transition: none; }
+      .bar-label { margin-top: 6px; font-size: 13px; font-weight: 700; color: #f4f8fc; letter-spacing: 0.04em; }
+      .wave { font-size: 16px; letter-spacing: 0.12em; color: #d5e8ff; }
+      .score { font-size: 36px; font-weight: 700; line-height: 1.02; color: #ffffff; }
       .combo { font-size: 15px; min-height: 18px; color: #f5c542; font-weight: 700; }
       .best { font-size: 11px; letter-spacing: 0.12em; color: rgba(235, 240, 248, 0.55); }
       .purse { font-size: 13px; color: #f5c542; font-weight: 700; letter-spacing: 0.08em; min-height: 16px; }
@@ -322,16 +324,17 @@ function mountShellChrome(options = {}) {
       }
       .stand {
         position: absolute;
-        top: 16px;
-        right: 16px;
-        padding: 9px 14px;
-        background: rgba(11, 15, 20, 0.78);
-        border: 1px solid var(--line);
+        top: 14px;
+        right: 14px;
+        padding: 10px 14px;
+        background: rgba(5, 10, 16, 0.9);
+        border: 1px solid rgba(214, 236, 255, 0.22);
         border-radius: 4px;
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
+        color: #f4f8fc;
       }
       .stand:hover, .stand:focus-visible { border-color: var(--blue); outline: none; }
       kbd {
