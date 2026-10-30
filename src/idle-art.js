@@ -426,12 +426,15 @@ function drawFlag(c, ship, t) {
 
 function drawHpBar(c, x, y, w, hp, maxHp, color) {
   c.save();
-  c.fillStyle = "rgba(6,10,16,0.7)";
-  c.fillRect(x - w / 2 - 2, y - 2, w + 4, 8);
+  c.fillStyle = "rgba(4, 8, 14, 0.88)";
+  c.strokeStyle = "rgba(255,255,255,0.35)";
+  c.lineWidth = 1;
+  c.fillRect(x - w / 2 - 2, y - 3, w + 4, 10);
+  c.strokeRect(x - w / 2 - 2, y - 3, w + 4, 10);
   if (maxHp > 12) {
     const p = Math.max(0, Math.min(1, maxHp > 0 ? hp / maxHp : 0));
     c.fillStyle = color;
-    c.fillRect(x - w / 2, y, Math.max(0, w * p), 4);
+    c.fillRect(x - w / 2, y - 1, Math.max(0, w * p), 6);
     c.restore();
     return;
   }
@@ -439,8 +442,8 @@ function drawHpBar(c, x, y, w, hp, maxHp, color) {
   const gap = 1.5;
   const pw = (w - gap * (pips - 1)) / pips;
   for (let i = 0; i < pips; i++) {
-    c.fillStyle = i < hp ? color : "rgba(255,255,255,0.14)";
-    c.fillRect(x - w / 2 + i * (pw + gap), y, pw, 4);
+    c.fillStyle = i < hp ? color : "rgba(255,255,255,0.2)";
+    c.fillRect(x - w / 2 + i * (pw + gap), y - 1, Math.max(1, pw), 6);
   }
   c.restore();
 }
@@ -459,23 +462,46 @@ function drawShipFull(c, ship, opts) {
   const y = ship.y + bobY + sinkDrop;
   const s = ship.scale;
 
+  const headed = Number.isFinite(ship.heading);
+  const hullRot = headed ? Math.atan2(-Math.cos(ship.heading), -Math.sin(ship.heading)) : 0;
+
   c.save();
-  c.globalAlpha = fade * 0.28;
-  c.fillStyle = "#02060c";
+  c.globalAlpha = fade * 0.4;
+  c.fillStyle = "#01040a";
+  c.translate(ship.x, ship.y + 16);
+  if (headed) c.rotate(hullRot);
   c.beginPath();
-  c.ellipse(ship.x, ship.y + 17, 48 * s, 7 * s, 0, 0, Math.PI * 2);
+  c.ellipse(0, 0, 50 * s, 8 * s, 0, 0, Math.PI * 2);
   c.fill();
   c.restore();
 
   if (ship.role === "player" && !sinking) {
+    const fx = headed ? -Math.sin(ship.heading) : ship.facing || 1;
+    const fy = headed ? -Math.cos(ship.heading) : 0;
     c.save();
-    c.globalAlpha = 0.55 + Math.sin(opts.t * 0.004) * 0.2;
+    c.globalAlpha = 0.85;
     c.strokeStyle = BRAND_BLUE;
     c.shadowColor = BRAND_BLUE;
-    c.shadowBlur = 10;
-    c.lineWidth = 2;
+    c.shadowBlur = 12;
+    c.lineWidth = 2.4;
+    c.translate(ship.x, ship.y + 14);
+    if (headed) c.rotate(hullRot);
     c.beginPath();
-    c.ellipse(ship.x, ship.y + 15, 56 * s, 10 * s, 0, 0, Math.PI * 2);
+    c.ellipse(0, 0, 58 * s, 12 * s, 0, 0, Math.PI * 2);
+    c.stroke();
+    c.restore();
+    c.save();
+    c.translate(ship.x + fx * 70 * s, y + fy * 70 * s);
+    c.rotate(Math.atan2(fy, fx));
+    c.strokeStyle = "#d7ecff";
+    c.shadowColor = BRAND_BLUE;
+    c.shadowBlur = 8;
+    c.lineWidth = 2.6;
+    c.beginPath();
+    c.moveTo(12, 0);
+    c.lineTo(-7, -8);
+    c.moveTo(12, 0);
+    c.lineTo(-7, 8);
     c.stroke();
     c.restore();
   }
@@ -557,21 +583,29 @@ function drawBall(c, ball) {
   c.save();
   if (ball.side || ball.style === "neon" || ball.style === "silhouette") {
     c.shadowColor = ball.side === "player" ? BRAND_BLUE : glow;
-    c.shadowBlur = 10;
+    c.shadowBlur = 14;
   }
   if (ball.side) {
-    c.globalAlpha = 0.35;
+    const ox = ball.px ?? ball.x;
+    const oy = ball.py ?? ball.y;
+    c.globalAlpha = 0.55;
     c.strokeStyle = glow;
-    c.lineWidth = 2;
+    c.lineWidth = ball.side === "enemy" ? 3.2 : 2.6;
     c.beginPath();
-    c.moveTo(ball.px ?? ball.x, ball.py ?? ball.y);
+    c.moveTo(ox, oy);
+    c.lineTo(ball.x, ball.y);
+    c.stroke();
+    c.globalAlpha = 0.28;
+    c.lineWidth = 6;
+    c.beginPath();
+    c.moveTo(ox, oy);
     c.lineTo(ball.x, ball.y);
     c.stroke();
     c.globalAlpha = 1;
   }
   c.fillStyle = ball.style === "ink" && !ball.side ? "#111" : glow;
   c.beginPath();
-  c.arc(ball.x, ball.y, ball.side ? 4.2 : ball.style === "pixel" ? 3.5 : 3, 0, Math.PI * 2);
+  c.arc(ball.x, ball.y, ball.side === "enemy" ? 5.4 : ball.side ? 4.6 : ball.style === "pixel" ? 3.5 : 3, 0, Math.PI * 2);
   c.fill();
   if (ball.side) {
     c.fillStyle = "rgba(255,255,255,0.8)";
@@ -596,19 +630,28 @@ function drawBall(c, ball) {
 function drawLandingMarker(c, ball, t) {
   const u = Math.min(1, ball.t / ball.dur);
   c.save();
-  c.globalAlpha = 0.25 + u * 0.55;
-  c.strokeStyle = "#ff5a4a";
-  c.lineWidth = 1.6;
-  c.setLineDash([5, 4]);
+  c.translate(ball.x1, ball.y1 + 14);
+  c.globalAlpha = 0.45 + u * 0.5;
+  c.strokeStyle = "#ff6a3a";
+  c.lineWidth = 2.4;
+  c.setLineDash([4, 3]);
   c.beginPath();
-  c.ellipse(ball.x1, ball.y1 + 14, 12 + (1 - u) * 22, 5 + (1 - u) * 9, 0, 0, Math.PI * 2);
+  c.ellipse(0, 0, 14 + (1 - u) * 26, 6 + (1 - u) * 10, 0, 0, Math.PI * 2);
   c.stroke();
   c.setLineDash([]);
-  c.globalAlpha = 0.18 + 0.12 * Math.sin(t * 0.02);
+  c.globalAlpha = 0.35 + 0.15 * Math.sin(t * 0.02);
   c.fillStyle = "#ff5a4a";
   c.beginPath();
-  c.ellipse(ball.x1, ball.y1 + 14, 12, 5, 0, 0, Math.PI * 2);
+  c.ellipse(0, 0, 14, 6, 0, 0, Math.PI * 2);
   c.fill();
+  c.globalAlpha = 0.9;
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(-10, 0);
+  c.lineTo(10, 0);
+  c.moveTo(0, -6);
+  c.lineTo(0, 6);
+  c.stroke();
   c.restore();
 }
 
@@ -814,9 +857,9 @@ function drawWater(c, w, h, t, opts = {}) {
   c.save();
   const g = c.createLinearGradient(0, 0, 0, h);
   if (dense) {
-    g.addColorStop(0, "rgba(8, 18, 36, 0.34)");
-    g.addColorStop(0.45, "rgba(6, 22, 44, 0.46)");
-    g.addColorStop(1, "rgba(3, 10, 24, 0.62)");
+    g.addColorStop(0, "#12304a");
+    g.addColorStop(0.42, "#0c3d52");
+    g.addColorStop(1, "#062033");
   } else {
     g.addColorStop(0, "rgba(8, 18, 36, 0.05)");
     g.addColorStop(0.4, "rgba(6, 20, 40, 0.1)");
@@ -824,30 +867,52 @@ function drawWater(c, w, h, t, opts = {}) {
   }
   c.fillStyle = g;
   c.fillRect(0, 0, w, h);
-  c.globalAlpha = dense ? 0.07 : 0.035;
-  c.fillStyle = "#b7d7ff";
-  const blobs = dense ? 5 : 3;
+  if (dense) {
+    const sheen = c.createLinearGradient(0, h * 0.15, 0, h * 0.72);
+    sheen.addColorStop(0, "rgba(120, 196, 214, 0)");
+    sheen.addColorStop(0.5, "rgba(150, 214, 220, 0.08)");
+    sheen.addColorStop(1, "rgba(120, 196, 214, 0)");
+    c.fillStyle = sheen;
+    c.fillRect(0, 0, w, h);
+  }
+  c.fillStyle = dense ? "#d5f4ff" : "#b7d7ff";
+  const blobs = dense ? 7 : 3;
   for (let i = 0; i < blobs; i++) {
-    const cx = ((w * (0.12 + i * 0.18) + Math.sin(t * 0.00035 + i) * 40) % w + w) % w;
-    const cy = h * (0.28 + (i % 3) * 0.18) + Math.cos(t * 0.00028 + i) * 14;
+    const drift = t * (dense ? 0.012 : 0.00035);
+    const cx = ((w * (0.08 + i * 0.14) + Math.sin(drift + i) * (dense ? 70 : 40)) % w + w) % w;
+    const cy = h * (0.16 + (i % 4) * 0.18) + Math.cos(drift * 0.8 + i) * (dense ? 18 : 14);
+    c.globalAlpha = dense ? 0.05 + (i % 3) * 0.02 : 0.035;
     c.beginPath();
-    c.ellipse(cx, cy, 78, 14, 0.15 + i * 0.05, 0, Math.PI * 2);
+    c.ellipse(cx, cy, dense ? 110 : 78, dense ? 16 : 14, 0.12 + i * 0.04, 0, Math.PI * 2);
     c.fill();
   }
-  const rows = dense ? 12 : 8;
-  c.strokeStyle = "#9ec9ff";
-  c.lineWidth = 1;
+  const rows = dense ? 16 : 8;
+  c.strokeStyle = dense ? "#c5ecff" : "#9ec9ff";
+  c.lineWidth = dense ? 1.35 : 1;
   for (let i = 0; i < rows; i++) {
     const y = (h / (rows + 1)) * (i + 1);
-    c.globalAlpha = dense ? 0.1 + (i / rows) * 0.08 : 0.05 + (i / rows) * 0.07;
+    const crest = dense && i % 3 === 0;
+    c.globalAlpha = dense ? (crest ? 0.28 : 0.12) + (i / rows) * 0.08 : 0.05 + (i / rows) * 0.07;
+    c.lineWidth = crest ? 1.8 : dense ? 1.15 : 1;
     c.beginPath();
-    const step = 28;
+    const step = dense ? 22 : 28;
     for (let x = 0; x <= w; x += step) {
-      const yy = y + Math.sin(x * 0.02 + t * 0.0016 + i * 0.7) * (2.2 + (i % 3));
+      const swell = Math.sin(x * 0.012 + t * 0.0011 + i * 0.65) * (dense ? 5.5 : 2.2);
+      const chop = Math.sin(x * 0.041 - t * 0.0018 + i) * (dense ? 1.6 : 0);
+      const yy = y + swell + chop + (i % 3);
       if (x === 0) c.moveTo(x, yy);
       else c.lineTo(x, yy);
     }
     c.stroke();
+  }
+  if (dense) {
+    c.fillStyle = "#f4fbff";
+    for (let i = 0; i < 28; i++) {
+      const fx = ((i * 97 + t * 0.02) % w + w) % w;
+      const fy = ((i * 53 + Math.sin(t * 0.001 + i) * 24) % h + h) % h;
+      c.globalAlpha = 0.12 + (i % 5) * 0.03;
+      c.fillRect(fx, fy, i % 4 === 0 ? 7 : 3, 1.4);
+    }
   }
   c.restore();
 }
