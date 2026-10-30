@@ -695,8 +695,9 @@ function clampToBounds(ship, bounds) {
 
 /**
  * Ship helm. Heading 0 noses screen-up. A / left increases heading so the
- * nose turns screen-left. D decreases it. W thrusts along the nose, S astern.
- * Not inverted: A never turns right.
+ * nose turns screen-left. D decreases it (screen-right). W thrusts along the
+ * nose, S astern. Yaw is a rate, not a strafe. The keel dumps sideways speed
+ * quickly so the hull follows the bow instead of sliding the old way.
  * @param {{ x:number,y:number,vx:number,vy:number,facing:number,heading?:number }} ship
  * @param {{ left?:boolean, right?:boolean, up?:boolean, down?:boolean }} input
  */
@@ -705,17 +706,17 @@ function steerPlayer(ship, input, dt, bounds, stats) {
     ship.heading = ship.facing < 0 ? Math.PI / 2 : -Math.PI / 2;
   }
   const turn = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-  const turnRate = stats && stats.turn ? stats.turn : 2.7;
+  const turnRate = stats && stats.turn ? stats.turn : 4.4;
   ship.heading += turn * turnRate * dt;
   const thrust = (input.up ? 1 : 0) - (input.down ? 0.55 : 0);
   const forward = headingForward(ship.heading);
   const along = ship.vx * forward.x + ship.vy * forward.y;
   const target = thrust * stats.speed;
-  const blend = Math.min(1, (thrust !== 0 ? 3.4 : 1.6) * dt);
+  const blend = Math.min(1, (thrust !== 0 ? 12 : 5.5) * dt);
   const nextAlong = along + (target - along) * blend;
   const latX = ship.vx - forward.x * along;
   const latY = ship.vy - forward.y * along;
-  const latDamp = Math.max(0, 1 - 5 * dt);
+  const latDamp = Math.max(0, 1 - 16 * dt);
   ship.vx = forward.x * nextAlong + latX * latDamp;
   ship.vy = forward.y * nextAlong + latY * latDamp;
   ship.x += ship.vx * dt;
