@@ -45,18 +45,30 @@ Write-Host "and starts Tools at login."
 Ensure-Cmd -Name "git" -WingetId "Git.Git" -HintUrl "https://git-scm.com"
 Ensure-Cmd -Name "npm" -WingetId "OpenJS.NodeJS.LTS" -HintUrl "https://nodejs.org"
 
+# Same overrides as the in-app check: a saved GitHub token or an elevated
+# checkout must not block a public fetch of shop-desktop.
+$env:GIT_TERMINAL_PROMPT = "0"
+$env:GCM_INTERACTIVE = "never"
+function Invoke-SetupGit {
+  param([Parameter(Mandatory = $true)][string[]]$GitArgs)
+  & git -c "safe.directory=*" -c "credential.helper=" -c "http.https://github.com/.extraheader=" @GitArgs
+  return $LASTEXITCODE
+}
+
 if (-not (Test-Path (Join-Path $Target ".git"))) {
   if (Test-Path $Target) {
     throw "$Target exists but is not a git checkout. Move it aside and re-run Setup."
   }
   Write-Step "Cloning shop-desktop..."
-  git clone --branch $Branch --single-branch $RepoUrl $Target
+  $cloneExit = Invoke-SetupGit -GitArgs @("clone", "--branch", $Branch, "--single-branch", $RepoUrl, $Target)
+  if ($cloneExit -ne 0) { throw "git clone failed" }
 } else {
   Write-Step "Updating existing checkout..."
-  git -C $Target fetch --quiet origin $Branch
-  git -C $Target checkout $Branch 2>$null
-  git -C $Target merge --ff-only "origin/$Branch"
-  if ($LASTEXITCODE -ne 0) {
+  $fetchExit = Invoke-SetupGit -GitArgs @("-C", $Target, "fetch", "--quiet", "origin", $Branch)
+  if ($fetchExit -ne 0) { throw "git fetch failed" }
+  Invoke-SetupGit -GitArgs @("-C", $Target, "checkout", $Branch) | Out-Null
+  $mergeExit = Invoke-SetupGit -GitArgs @("-C", $Target, "merge", "--ff-only", "origin/$Branch")
+  if ($mergeExit -ne 0) {
     Write-Host "Could not fast-forward (local changes?). Continuing with current tree."
   }
 }

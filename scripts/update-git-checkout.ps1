@@ -14,7 +14,24 @@ if (-not (Test-Path (Join-Path $Root ".git"))) {
   exit 1
 }
 
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+function Resolve-GitExe {
+  $cmd = Get-Command git.exe -ErrorAction SilentlyContinue
+  if ($cmd -and $cmd.Source) { return $cmd.Source }
+  $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+  $candidates = @(
+    (Join-Path $env:ProgramFiles "Git\cmd\git.exe"),
+    (Join-Path $env:ProgramFiles "Git\bin\git.exe"),
+    $(if ($programFilesX86) { Join-Path $programFilesX86 "Git\cmd\git.exe" }),
+    (Join-Path $env:LOCALAPPDATA "Programs\Git\cmd\git.exe")
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
+  }
+  return $null
+}
+
+$GitExe = Resolve-GitExe
+if (-not $GitExe) {
   Write-Error "git is not on PATH."
   exit 1
 }
@@ -53,7 +70,10 @@ function Invoke-Git {
   param([Parameter(Mandatory = $true)][string]$GitArgs)
   $env:GIT_TERMINAL_PROMPT = "0"
   $env:GCM_INTERACTIVE = "never"
-  return Invoke-NoWindow -FilePath "git.exe" -Arguments $GitArgs
+  # Drop a stale GitHub token / credential helper and trust this checkout
+  # (Setup-as-admin leaves dubious ownership). Same flags as the in-app check.
+  $prefix = "-c safe.directory=* -c credential.helper= -c http.https://github.com/.extraheader="
+  return Invoke-NoWindow -FilePath $GitExe -Arguments "$prefix $GitArgs"
 }
 
 Push-Location $Root
