@@ -120,20 +120,67 @@ function bubbles(fx, x, y, n, rng = Math.random) {
   }
 }
 
-function wake(fx, x, y, facing) {
+function wake(fx, x, y, facing, color, heading) {
+  let ox = -(facing || 1) * 30;
+  let oy = 12;
+  let vx = -(facing || 1) * 8;
+  let vy = 0;
+  if (Number.isFinite(heading)) {
+    const fxw = -Math.sin(heading);
+    const fyw = -Math.cos(heading);
+    ox = -fxw * 30;
+    oy = -fyw * 16;
+    vx = -fxw * 8;
+    vy = -fyw * 4;
+  }
+  const wakeColor = color === "gold" ? "#f5c542" : color === "blue" ? "#7eb6ff" : color || "#e6f2ff";
   push(fx, {
     kind: "wake",
-    x: x - facing * 30,
-    y: y + 12,
-    vx: -facing * 8,
-    vy: 0,
+    x: x + ox,
+    y: y + oy,
+    vx,
+    vy,
     g: 0,
     life: 0,
     max: 1.1,
     size: 7,
     rot: 0,
     vr: 0,
-    color: "#e6f2ff",
+    color: wakeColor,
+  });
+}
+
+function ring(fx, x, y, color = "#ffb15a") {
+  push(fx, {
+    kind: "ring",
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    g: 0,
+    life: 0,
+    max: 0.48,
+    size: 8,
+    rot: 0,
+    vr: 0,
+    color,
+  });
+}
+
+function gust(fx, x, y, vx, vy) {
+  push(fx, {
+    kind: "streak",
+    x,
+    y,
+    vx,
+    vy,
+    g: 0,
+    life: 0,
+    max: 0.4,
+    size: 12,
+    rot: 0,
+    vr: 0,
+    color: "rgba(190,220,255,0.85)",
   });
 }
 
@@ -205,6 +252,8 @@ module.exports = {
   sparks,
   bubbles,
   wake,
+  ring,
+  gust,
   coins,
   floatText,
   addShake,

@@ -52,30 +52,30 @@ test("upgrades respect caps and never offer a capped refit", () => {
   assert.equal(c.applyUpgrade(c.createPlayerStats(), "twin").stats.shots, 2);
 });
 
-test("steerPlayer: A sails screen-left, D screen-right, W up, S down", () => {
-  const bounds = { minX: 0, maxX: 2000, minY: 0, maxY: 2000 };
+test("steerPlayer: A turns the nose left, D turns it right, W sails ahead", () => {
+  const bounds = { minX: 0, maxX: 4000, minY: 0, maxY: 4000 };
   const stats = c.createPlayerStats();
-  const mk = () => ({ x: 1000, y: 1000, vx: 0, vy: 0, facing: 1 });
-  const left = mk();
-  for (let i = 0; i < 20; i++) c.steerPlayer(left, { left: true }, 0.05, bounds, stats);
-  assert.ok(left.x < 1000 && left.vx < 0);
-  assert.equal(left.facing, -1);
-  const right = mk();
-  for (let i = 0; i < 20; i++) c.steerPlayer(right, { right: true }, 0.05, bounds, stats);
-  assert.ok(right.x > 1000 && right.facing === 1);
-  const up = mk();
-  for (let i = 0; i < 20; i++) c.steerPlayer(up, { up: true }, 0.05, bounds, stats);
-  assert.ok(up.y < 1000);
-  const down = mk();
-  for (let i = 0; i < 20; i++) c.steerPlayer(down, { down: true }, 0.05, bounds, stats);
-  assert.ok(down.y > 1000);
+  const ship = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 0 };
+  for (let i = 0; i < 24; i++) c.steerPlayer(ship, { up: true }, 0.05, bounds, stats);
+  assert.ok(ship.vy < -20, "W moves along the nose, which starts facing up");
+  const yaw0 = ship.heading;
+  for (let i = 0; i < 12; i++) c.steerPlayer(ship, { up: true, left: true }, 0.05, bounds, stats);
+  const leftTurn = Math.atan2(Math.sin(ship.heading - yaw0), Math.cos(ship.heading - yaw0));
+  assert.ok(leftTurn > 0.05, `A turns left, got ${leftTurn}`);
+  assert.ok(c.headingForward(ship.heading).x < -0.05, "after A the nose points screen-left");
+
+  const other = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 0 };
+  for (let i = 0; i < 16; i++) c.steerPlayer(other, { up: true, right: true }, 0.05, bounds, stats);
+  const rightTurn = Math.atan2(Math.sin(other.heading), Math.cos(other.heading));
+  assert.ok(rightTurn < -0.05, `D turns right, got ${rightTurn}`);
 });
 
 test("steerPlayer stays inside the water band", () => {
   const bounds = { minX: 100, maxX: 200, minY: 100, maxY: 200 };
-  const ship = { x: 150, y: 150, vx: 0, vy: 0, facing: 1 };
-  for (let i = 0; i < 200; i++) c.steerPlayer(ship, { right: true, down: true }, 0.05, bounds, c.createPlayerStats());
+  const ship = { x: 150, y: 150, vx: 0, vy: 0, facing: 1, heading: Math.PI * 1.25 };
+  for (let i = 0; i < 200; i++) c.steerPlayer(ship, { up: true }, 0.05, bounds, c.createPlayerStats());
   assert.ok(ship.x <= 200 && ship.y <= 200);
+  assert.ok(ship.x >= 100 && ship.y >= 100);
 });
 
 test("leadPoint leads a moving target and ballHitsShip is an ellipse", () => {
@@ -197,6 +197,176 @@ test("flag + names stay generic: no official brand marks, only pixel silhouettes
     for (const row of c.FLAG_ICONS[kind]) assert.match(row, /^[X.]{11}$/);
   }
   assert.ok(c.SHIP_NAMES.length >= 12);
+});
+
+test("later waves mix fireships, privateers, prize ships, and wraiths", () => {
+  for (const id of c.planWave(1, Math.random)) {
+    assert.equal(c.ENEMY_TYPES[id].behavior, undefined);
+  }
+  const seen = new Set();
+  for (let k = 0; k < 80; k++) for (const id of c.planWave(9)) seen.add(id);
+  assert.ok(seen.has("fireship"));
+  assert.ok(seen.has("privateer"));
+  assert.ok(seen.has("prize"));
+  assert.ok(seen.has("wraith"));
+  assert.equal(c.ENEMY_TYPES.fireship.behavior, "charge");
+  assert.equal(c.ENEMY_TYPES.prize.behavior, "flee");
+  assert.equal(c.ENEMY_TYPES.wraith.phase, true);
+});
+
+test("sea events are a set, not one extra hull", () => {
+  assert.ok(c.EVENT_KINDS.length >= 6);
+  const seen = new Set();
+  for (let i = 0; i < 40; i++) seen.add(c.pickEventKind(6, Math.random));
+  assert.ok(seen.size >= 4);
+  const bounds = { minX: 0, maxX: 800, minY: 0, maxY: 600 };
+  const fog = c.createEvent("fog", bounds, () => 0.5, 4);
+  const from = { x: 40, y: 40 };
+  const hidden = { x: fog.x, y: fog.y };
+  assert.equal(c.fogBlocksAim([fog], from, hidden), true);
+  assert.equal(c.fogBlocksAim([fog], hidden, hidden), false);
+
+  const squall = c.createEvent("squall", bounds, () => 0, 3);
+  squall.vx = 1;
+  squall.vy = 0;
+  squall.force = 100;
+  const pushed = c.eventInfluence(squall, { id: 1, x: 100, y: 100, sinking: 0 }, 0.5);
+  assert.ok(pushed.dx > 0);
+
+  const barrage = c.createEvent("barrage", bounds, () => 0.2, 4);
+  barrage.shots.forEach((shot) => {
+    shot.boom = true;
+  });
+  const target = { id: 9, x: barrage.shots[0].x, y: barrage.shots[0].y, sinking: 0 };
+  assert.ok(c.eventInfluence(barrage, target, 0.016).damage > 0);
+  assert.equal(c.eventInfluence(barrage, target, 0.016).damage, 0);
+
+  const kraken = c.createEvent("kraken", bounds, () => 0.5, 5);
+  kraken.slammed = true;
+  kraken.x = 200;
+  kraken.y = 200;
+  const bitten = c.eventInfluence(kraken, { id: 3, x: 210, y: 200, sinking: 0, boss: false }, 0.016);
+  assert.ok(bitten.damage > 0);
+
+  const supply = c.createEvent("supply", bounds, () => 0.3, 2);
+  const loot = c.eventInfluence(supply, { id: 4, role: "player", x: supply.x, y: supply.y, sinking: 0 }, 0.016);
+  assert.equal(loot.pickup, true);
+  assert.equal(c.stepEvent(supply, 0.01, bounds), false);
+
+  const board = c.createEvent("boarding", bounds, () => 0.1, 3);
+  const pressure = c.boardingPressure(
+    board,
+    { x: 100, y: 100 },
+    [{ x: 120, y: 100, sinking: 0, entering: false }],
+    0.5,
+  );
+  assert.ok(pressure && pressure.damage > 0 && pressure.slow < 1);
+  assert.equal(c.bossOpening("manowar"), "barrage");
+  assert.equal(c.bossOpening("blackgalleon"), "fog");
+  assert.equal(c.bossOpening("dreadnought"), "squall");
+  assert.ok(c.eventInterval(8) < c.eventInterval(1));
+});
+
+test("wraith phases every other hit and a fireship is a charge", () => {
+  const wraith = { phase: true };
+  assert.equal(c.mitigateDamage(wraith, 2), 2);
+  assert.equal(c.mitigateDamage(wraith, 2), 0);
+  assert.equal(c.mitigateDamage(wraith, 2), 2);
+  const bounds = { minX: 0, maxX: 1000, minY: 0, maxY: 800 };
+  const player = { x: 500, y: 400 };
+  const fire = { type: "fireship", x: 100, y: 400, vx: 0, vy: 0, facing: 1, phase: 0 };
+  const before = Math.hypot(player.x - fire.x, player.y - fire.y);
+  for (let i = 0; i < 30; i++) c.stepEnemyAI(fire, player, 0.05, bounds);
+  assert.ok(Math.hypot(player.x - fire.x, player.y - fire.y) < before);
+});
+
+test("doubloons buy permanent refits and cosmetics that round-trip on this desk", () => {
+  let save = c.bankDoubloons(c.emptySave(), 200);
+  assert.equal(save.doubloons, 200);
+  const poor = c.buyPerm(c.emptySave(), "ribs");
+  assert.equal(poor.ok, false);
+  const bought = c.buyPerm(save, "ribs");
+  assert.equal(bought.ok, true);
+  assert.equal(bought.save.perms.ribs, 1);
+  assert.ok(bought.save.doubloons < save.doubloons);
+  const stats = c.createPlayerStats(bought.save);
+  assert.equal(stats.maxHp, c.PLAYER_BASE.maxHp + 1);
+  const look = c.buyCosmetic(bought.save, "trim-gold");
+  assert.equal(look.ok, true);
+  assert.equal(look.save.cosmetics.trim, "gold");
+  assert.ok(look.save.owned.includes("trim-gold"));
+  const again = c.buyCosmetic(look.save, "trim-gold");
+  assert.equal(again.ok, true);
+  assert.equal(again.save.doubloons, look.save.doubloons);
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  c.writeSave(storage, again.save);
+  const loaded = c.readSave(storage);
+  assert.equal(loaded.cosmetics.trim, "gold");
+  assert.equal(loaded.perms.ribs, 1);
+  assert.equal(c.doubloonsForSink("prize"), 18);
+  assert.equal(c.chestDoubloons(), 10);
+  assert.ok(c.waveDoubloons(3) >= 5);
+});
+
+test("prestige spends the run's score for a bigger hull and does not raise the best", () => {
+  const fresh = c.createPlayerStats();
+  assert.equal(fresh.maxHp, c.PLAYER_BASE.maxHp);
+  assert.equal(fresh.speed, c.PLAYER_BASE.speed);
+  const short = c.spendRunOnPrestige(c.emptySave(), { score: 100 });
+  assert.equal(short.ok, false);
+  const spent = c.spendRunOnPrestige(c.emptySave(), { score: c.prestigeCost(0) });
+  assert.equal(spent.ok, true);
+  assert.equal(spent.save.hull, 1);
+  assert.equal(spent.hull.title, "Brig");
+  const stats = c.createPlayerStats(spent.save);
+  assert.ok(stats.maxHp > c.PLAYER_BASE.maxHp);
+  assert.ok(stats.speed > c.PLAYER_BASE.speed);
+  const tracked = c.recordRun(spent.save, { score: 5000, wave: 6, sunk: 4, spent: true });
+  assert.equal(tracked.newBest, false);
+  assert.equal(tracked.save.best, 0);
+  assert.equal(tracked.save.sunk, 4);
+  assert.equal(c.prestigeCost(c.HULLS.length), null);
+});
+
+test("desk boards keep today, week, month, and revision for the signed-in person", () => {
+  const when = new Date(2026, 9, 29, 15, 0, 0);
+  let save = c.emptySave();
+  save = c.recordDeskScore(save, {
+    person: "logan",
+    name: "Logan",
+    score: 1400,
+    wave: 4,
+    sunk: 8,
+    revision: "1.5.30",
+  }, when);
+  save = c.recordDeskScore(save, {
+    person: "logan",
+    name: "Logan",
+    score: 900,
+    wave: 2,
+    sunk: 3,
+    revision: "1.5.30",
+  }, when);
+  save = c.recordDeskScore(save, {
+    person: "stephen",
+    name: "Stephen",
+    score: 2000,
+    wave: 5,
+    sunk: 11,
+    revision: "1.5.29",
+  }, when);
+  const boards = c.deskBoards(save, { now: when, revision: "1.5.30" });
+  assert.deepEqual(Object.keys(boards), ["day", "week", "month", "revision"]);
+  assert.equal(boards.day.rows[0].person, "stephen");
+  assert.equal(boards.day.rows.find((row) => row.person === "logan").score, 1400);
+  assert.equal(boards.revision.rows.length, 1);
+  assert.equal(boards.revision.rows[0].person, "logan");
+  assert.equal(boards.revision.label, "This revision (1.5.30)");
+  const old = c.readSave({ getItem: () => JSON.stringify({ best: 10, bestWave: 2, sunk: 1, runs: 1 }) });
+  assert.equal(old.best, 10);
+  assert.equal(old.doubloons, 0);
+  assert.equal(old.hull, 0);
 });
 
 test("save round-trips, survives bad data, and tracks the best run", () => {

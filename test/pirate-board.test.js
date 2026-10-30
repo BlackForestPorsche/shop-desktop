@@ -153,6 +153,8 @@ test("a missing shop route is not filled in with a local ranking", async () => {
   });
   assert.equal(board.ok, false);
   assert.match(board.message, /not published/);
+  assert.equal(board.you, "logan");
+  assert.equal(board.name, "Logan");
   assert.equal(board.boards.day.rows.length, 0);
   assert.equal(board.boards.revision.rows.length, 0);
 });

@@ -39,6 +39,7 @@ function boot() {
     // launchOnly: Esc / stand down / water click closes the overlay (back to shop).
     chrome = mountShellChrome({
       idleIntervalMs: 24 * 60 * 60 * 1000,
+      revision: require("../package.json").version,
       launchOnly: true,
       onStatus: (info) => {
         const event = info && info.event;

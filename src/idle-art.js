@@ -7,6 +7,14 @@ const { FLAG_ICONS } = require("./idle-combat");
 
 const SINK_SECONDS = 1.35;
 
+function sailPalette(ship) {
+  const kind = ship && ship.cosmetics && ship.cosmetics.sails;
+  if (kind === "solid") return ["#f3ecdf", "#f3ecdf", "#e7dcc8"];
+  if (kind === "check") return ["#f4efe4", "#1a140f", "#f4efe4"];
+  if (kind === "blue") return ["#0582ff", "#d7e8ff", "#0460c4"];
+  return null;
+}
+
 function hullTier(ship) {
   if (!ship) return "full";
   if (
@@ -80,8 +88,9 @@ function drawPixelShip(c, ship) {
     const sw = m.sw / stripes;
     const sailTop = -6 - m.h;
     const sailH = Math.round(m.h * 0.62);
+    const palette = sailPalette(ship);
     for (let i = 0; i < stripes; i++) {
-      c.fillStyle = i % 2 ? "#f3ecdf" : "#9d2c22";
+      c.fillStyle = palette ? palette[i % palette.length] : i % 2 ? "#f3ecdf" : "#9d2c22";
       c.fillRect(m.x + 4 + i * sw, sailTop, sw + 0.4, sailH);
     }
     c.fillStyle = "#5c3b24";
@@ -126,7 +135,7 @@ function drawSilhouetteShip(c, ship) {
       : [{ x: -14, top: -48, sail: 16 }, { x: 2, top: -58, sail: 18 }, { x: 16, top: -40, sail: 12 }];
   c.fillStyle = "#07090d";
   for (const m of masts) c.fillRect(m.x, m.top, 2.4, -m.top - 6);
-  const blues = [BRAND_BLUE, "#0460c4", "#7eb6ff"];
+  const blues = sailPalette(ship) || [BRAND_BLUE, "#0460c4", "#7eb6ff"];
   masts.forEach((m, i) => {
     c.fillStyle = blues[i % blues.length];
     c.beginPath();
@@ -197,7 +206,8 @@ function drawInkShip(c, ship) {
     c.lineTo(m.x, m.top);
     c.stroke();
   }
-  c.fillStyle = "#f4efe4";
+  const inkSails = sailPalette(ship);
+  c.fillStyle = inkSails ? inkSails[0] : "#f4efe4";
   masts.forEach((m) => {
     c.beginPath();
     c.moveTo(m.x, m.top + 3);
@@ -266,9 +276,10 @@ function drawNeonShip(c, ship) {
     c.lineTo(m.x, m.top);
   }
   c.stroke();
+  const neonSails = sailPalette(ship);
   c.save();
   c.globalAlpha = hot ? 0.28 : 0.4;
-  c.fillStyle = glow;
+  c.fillStyle = neonSails ? neonSails[0] : glow;
   masts.forEach((m) => {
     const mid = (m.top + -10) / 2;
     c.beginPath();
@@ -320,6 +331,49 @@ function flagTop(ship) {
   return -58;
 }
 
+function drawTrim(c, ship) {
+  const trim = ship && ship.cosmetics && ship.cosmetics.trim;
+  if (!trim || trim === "none") return;
+  const color = trim === "gold" ? "#f5c542" : trim === "blood" ? "#9d2c22" : BRAND_BLUE;
+  c.save();
+  c.strokeStyle = color;
+  c.globalAlpha = 0.95;
+  c.lineWidth = 2.2;
+  c.beginPath();
+  c.moveTo(-34, 7);
+  c.lineTo(30, 5);
+  c.stroke();
+  c.restore();
+}
+
+function drawFigurehead(c, ship) {
+  const fig = ship && ship.cosmetics && ship.cosmetics.figure;
+  if (!fig || fig === "none") return;
+  c.save();
+  c.translate(42, -4);
+  if (fig === "bull") {
+    c.fillStyle = "#1a140f";
+    c.beginPath();
+    c.moveTo(-2, 4);
+    c.lineTo(16, -1);
+    c.lineTo(6, 8);
+    c.closePath();
+    c.fill();
+    c.fillRect(4, -10, 2, 7);
+    c.fillRect(9, -10, 2, 7);
+  } else {
+    c.strokeStyle = "#7ea35a";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(4, 2, 8, 0.4, Math.PI * 1.45);
+    c.stroke();
+    c.beginPath();
+    c.arc(8, 0, 4, 0.2, Math.PI);
+    c.stroke();
+  }
+  c.restore();
+}
+
 function drawFlag(c, ship, t) {
   const player = ship.role === "player";
   const wave = Math.sin(t * 0.006 + ship.id) * 1.6;
@@ -344,7 +398,8 @@ function drawFlag(c, ship, t) {
   c.stroke();
 
   c.fillStyle = "#ffffff";
-  const kind = player ? "coupe" : ship.flag || "skull";
+  const pennant = ship.cosmetics && ship.cosmetics.pennant;
+  const kind = pennant && pennant !== "skull" ? pennant : player ? "coupe" : ship.flag || "skull";
   const icon = FLAG_ICONS[kind];
   if (icon) {
     const cell = 1.15;
@@ -425,10 +480,35 @@ function drawShipFull(c, ship, opts) {
     c.restore();
   }
 
+  const speed = Math.hypot(ship.vx || 0, ship.vy || 0);
+  if (!sinking && Number.isFinite(ship.heading) && speed > 24) {
+    const fx = -Math.sin(ship.heading);
+    const fy = -Math.cos(ship.heading);
+    const wake = ship.cosmetics && ship.cosmetics.wake;
+    c.save();
+    c.translate(ship.x - fx * 34 * s, y - fy * 16 * s);
+    c.rotate(Math.atan2(fy, fx));
+    c.globalAlpha = 0.4;
+    c.strokeStyle = wake === "gold" ? "#f5c542" : wake === "blue" ? BRAND_BLUE : "#e7f3ff";
+    c.lineWidth = 1.4;
+    c.beginPath();
+    c.moveTo(0, 0);
+    c.lineTo(-18, -8);
+    c.moveTo(0, 0);
+    c.lineTo(-18, 8);
+    c.stroke();
+    c.restore();
+  }
+
   c.save();
   c.globalAlpha = fade;
   c.translate(ship.x, y);
-  c.scale(ship.facing * s, s * (sinking ? 0.85 : 1));
+  if (Number.isFinite(ship.heading)) {
+    c.rotate(Math.atan2(-Math.cos(ship.heading), -Math.sin(ship.heading)));
+    c.scale(s * (sinking ? 0.85 : 1), s * (sinking ? 0.85 : 1));
+  } else {
+    c.scale(ship.facing * s, s * (sinking ? 0.85 : 1));
+  }
   c.rotate(ship.hpTilt);
   if (ship.gilded && !sinking) {
     c.shadowColor = "#f5c542";
@@ -441,6 +521,8 @@ function drawShipFull(c, ship, opts) {
   drawShipSprite(c, ship);
   c.filter = "none";
   c.shadowBlur = 0;
+  drawTrim(c, ship);
+  drawFigurehead(c, ship);
   drawFlag(c, ship, opts.t);
   c.restore();
 
@@ -489,8 +571,14 @@ function drawBall(c, ball) {
   }
   c.fillStyle = ball.style === "ink" && !ball.side ? "#111" : glow;
   c.beginPath();
-  c.arc(ball.x, ball.y, ball.side ? 4 : ball.style === "pixel" ? 3.5 : 3, 0, Math.PI * 2);
+  c.arc(ball.x, ball.y, ball.side ? 4.2 : ball.style === "pixel" ? 3.5 : 3, 0, Math.PI * 2);
   c.fill();
+  if (ball.side) {
+    c.fillStyle = "rgba(255,255,255,0.8)";
+    c.beginPath();
+    c.arc(ball.x - 1.1, ball.y - 1.1, 1.3, 0, Math.PI * 2);
+    c.fill();
+  }
   if (ball.style === "ink" && !ball.side) {
     c.strokeStyle = "rgba(255,255,255,0.25)";
     c.setLineDash([2, 4]);
@@ -582,7 +670,28 @@ function drawParticle(c, p) {
     case "coin":
       c.globalAlpha = 1 - u * u;
       c.fillStyle = p.color;
-      c.fillRect(p.x - 2, p.y - 2, 4, 4);
+      c.beginPath();
+      c.arc(p.x, p.y, p.size + 1.2, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = "rgba(255,255,255,0.7)";
+      c.fillRect(p.x - 0.6, p.y - 1.4, 1.2, 2.4);
+      break;
+    case "ring":
+      c.globalAlpha = 1 - u;
+      c.strokeStyle = p.color;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(p.x, p.y, p.size + u * 36, 0, Math.PI * 2);
+      c.stroke();
+      break;
+    case "streak":
+      c.globalAlpha = 0.55 * (1 - u);
+      c.strokeStyle = p.color;
+      c.lineWidth = 1.4;
+      c.beginPath();
+      c.moveTo(p.x, p.y);
+      c.lineTo(p.x - p.vx * 0.05, p.y - p.vy * 0.05);
+      c.stroke();
       break;
     case "spark":
       c.globalAlpha = 1 - u;
@@ -715,6 +824,16 @@ function drawWater(c, w, h, t, opts = {}) {
   }
   c.fillStyle = g;
   c.fillRect(0, 0, w, h);
+  c.globalAlpha = dense ? 0.07 : 0.035;
+  c.fillStyle = "#b7d7ff";
+  const blobs = dense ? 5 : 3;
+  for (let i = 0; i < blobs; i++) {
+    const cx = ((w * (0.12 + i * 0.18) + Math.sin(t * 0.00035 + i) * 40) % w + w) % w;
+    const cy = h * (0.28 + (i % 3) * 0.18) + Math.cos(t * 0.00028 + i) * 14;
+    c.beginPath();
+    c.ellipse(cx, cy, 78, 14, 0.15 + i * 0.05, 0, Math.PI * 2);
+    c.fill();
+  }
   const rows = dense ? 12 : 8;
   c.strokeStyle = "#9ec9ff";
   c.lineWidth = 1;
@@ -865,6 +984,96 @@ function drawMine(c, h, t) {
   c.restore();
 }
 
+function drawEvent(c, ev, t) {
+  if (!ev) return;
+  if (ev.kind === "fog") {
+    c.save();
+    c.translate(ev.x, ev.y);
+    const a = 0.22 * (ev.max ? Math.min(1, ev.life / 0.4) : 1);
+    const g = c.createRadialGradient(0, 0, ev.r * 0.2, 0, 0, ev.r);
+    g.addColorStop(0, `rgba(214, 224, 232, ${a + 0.12})`);
+    g.addColorStop(1, "rgba(214, 224, 232, 0)");
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(0, 0, ev.r, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    return;
+  }
+  if (ev.kind === "squall") {
+    c.save();
+    c.strokeStyle = "rgba(190, 220, 255, 0.45)";
+    c.lineWidth = 1.2;
+    const ang = Math.atan2(ev.vy || 0, ev.vx || 1);
+    for (let i = 0; i < 14; i++) {
+      const px = (ev.x || 0) + Math.cos(ang + 1.2) * (i * 28) + Math.sin(t * 0.004 + i) * 10;
+      const py = (ev.y || 0) + Math.sin(ang + 1.2) * (i * 18);
+      c.beginPath();
+      c.moveTo(px, py);
+      c.lineTo(px + Math.cos(ang) * 22, py + Math.sin(ang) * 10);
+      c.stroke();
+    }
+    c.restore();
+    return;
+  }
+  if (ev.kind === "barrage") {
+    for (const shot of ev.shots || []) {
+      const u = shot.boom ? 1 : Math.max(0, Math.min(1, ev.life / shot.arm));
+      c.save();
+      c.translate(shot.x, shot.y);
+      c.globalAlpha = shot.boom ? 0.35 : 0.3 + u * 0.5;
+      c.strokeStyle = shot.boom ? "#ffb15a" : "#ff5a4a";
+      c.lineWidth = shot.boom ? 3 : 1.5;
+      c.beginPath();
+      c.arc(0, 0, shot.boom ? 18 : 10 + (1 - u) * 16, 0, Math.PI * 2);
+      c.stroke();
+      if (!shot.boom) {
+        c.beginPath();
+        c.moveTo(-6, 0);
+        c.lineTo(6, 0);
+        c.moveTo(0, -6);
+        c.lineTo(0, 6);
+        c.stroke();
+      }
+      c.restore();
+    }
+    return;
+  }
+  if (ev.kind === "kraken") {
+    c.save();
+    c.translate(ev.x, ev.y);
+    c.strokeStyle = "#6e8f52";
+    c.lineWidth = 5;
+    c.lineCap = "round";
+    c.globalAlpha = ev.slammed ? 0.45 : 0.9;
+    c.beginPath();
+    c.moveTo(-50, 30);
+    c.quadraticCurveTo(-10, ev.slammed ? 8 : -28, 18, ev.slammed ? 6 : -6);
+    c.stroke();
+    c.fillStyle = "#24361c";
+    c.beginPath();
+    c.arc(18, ev.slammed ? 6 : -6, ev.slammed ? 16 : 8, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    return;
+  }
+  if (ev.kind === "supply") {
+    const bob = Math.sin((t || 0) * 0.004 + (ev.x || 0)) * 3;
+    c.save();
+    c.translate(ev.x, ev.y + bob);
+    c.fillStyle = "#6b3e22";
+    c.fillRect(-12, -10, 24, 18);
+    c.fillStyle = "#c9a36a";
+    c.fillRect(-12, -10, 24, 4);
+    c.strokeStyle = "#1a140f";
+    c.strokeRect(-12, -10, 24, 18);
+    c.fillStyle = "#f5c542";
+    c.fillRect(-3, -6, 6, 8);
+    c.restore();
+  }
+  void t;
+}
+
 function drawHazard(c, h, t) {
   switch (h.kind) {
     case "sinkhole":
@@ -916,5 +1125,6 @@ module.exports = {
   drawHoverTag,
   drawWater,
   drawHazard,
+  drawEvent,
   drawBossPlate,
 };

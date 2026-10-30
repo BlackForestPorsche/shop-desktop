@@ -186,6 +186,7 @@ function boot() {
   try {
     chrome = mountShellChrome({
       idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
+      revision: require("../package.json").version,
       onError: (error) => reportShellError("idle-overlay", error),
       onStatus: (info) => reportPirateStatus(info && info.event, info && info.reason),
       submitPirateScore: (run) => ipcRenderer.invoke("shell:pirate-board", run),

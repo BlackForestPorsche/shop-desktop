@@ -5,9 +5,10 @@
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
  * - Ships sail, fire, collide, and sink; sunk hulls respawn toward the idle target.
  *   Idle-only people get this forever: no prompts, no pressure to play.
- * - Pirate combat (opt-in): click a ship to take the helm. WASD sails the whole
- *   window (A is screen-left), click fires. Waves escalate, bosses every 5th
- *   wave, random hazards (sinkhole, megalodon, reef, mine).
+ * - Pirate combat (opt-in): click a ship to take the helm. W sails ahead,
+ *   A turns the nose left, D turns it right, click fires. Waves escalate,
+ *   bosses every 5th wave, hazards, and separate sea events (fog, squall,
+ *   broadside, kraken, supply, boarding). Doubloons buy desk upgrades.
  *   Overlay dismisses on a click on empty water only (never hover, never keys).
  * - Settings menu launcher (launchGame) opens the overlay and takes the helm at once.
  * - A sunk run posts to the shop pirate boards (day, week, month, and this
@@ -37,6 +38,7 @@ const combat = require("./idle-combat");
 const fxlib = require("./idle-fx");
 const art = require("./idle-art");
 const pirateBoard = require("./pirate-board");
+const pirateAudio = require("./pirate-audio");
 
 const ROOT_ID = "bf-tools-shell-root";
 
@@ -46,9 +48,9 @@ const LAUNCH_FLEET = 3;
 const MAX_CANVAS_PIXELS = 8_500_000;
 
 const HINT_AMBIENT = "Click to return to the shop";
-const HINT_PLAY = "WASD sails the whole sea · A is left · Click to fire · Space nearest · Esc stands down";
+const HINT_PLAY = "W sails ahead · A turns left · D turns right · Click to fire · Space nearest · Esc stands down";
 
-/** Screen-space helm. A / ArrowLeft moves left. Never inverted. */
+/** Ship helm. A turns the nose left. D turns it right. W ahead, S astern. */
 const KEY_MAP = Object.freeze({
   KeyA: "left",
   ArrowLeft: "left",
@@ -91,6 +93,7 @@ function mountShellChrome(options = {}) {
       // reporting must never throw
     }
   }
+  const revision = String(options.revision || "");
   const idleIntervalMs = options.idleIntervalMs ?? IDLE_INTERVAL_MS;
   const maxShips = options.maxShips ?? MAX_SHIPS;
   const now = options.now ?? Date.now;
@@ -113,6 +116,12 @@ function mountShellChrome(options = {}) {
     } catch {
       storage = null;
     }
+  }
+  const audio = pirateAudio.createPirateAudio();
+  try {
+    if (storage && storage.getItem("bf-tools-pirate-sound") === "off") audio.setMuted(true);
+  } catch {
+    // Storage can be blocked. Combat still runs; sound follows the default.
   }
 
   const existing = document.getElementById(ROOT_ID);
@@ -252,6 +261,59 @@ function mountShellChrome(options = {}) {
       .score { font-size: 32px; font-weight: 700; line-height: 1.05; }
       .combo { font-size: 15px; min-height: 18px; color: #f5c542; font-weight: 700; }
       .best { font-size: 11px; letter-spacing: 0.12em; color: rgba(235, 240, 248, 0.55); }
+      .purse { font-size: 13px; color: #f5c542; font-weight: 700; letter-spacing: 0.08em; min-height: 16px; }
+      .yard-open { top: 58px; }
+      .stand.mute { top: 100px; }
+      .stand.mute.off { color: rgba(235, 240, 248, 0.45); }
+      .yard {
+        position: absolute;
+        left: 16px;
+        bottom: 56px;
+        width: min(440px, calc(100vw - 32px));
+        max-height: min(48vh, 380px);
+        overflow: auto;
+        padding: 12px 12px 14px;
+        background: rgba(11, 15, 20, 0.92);
+        border: 1px solid var(--line);
+        border-top: 2px solid #f5c542;
+        border-radius: 4px;
+        pointer-events: auto;
+        text-align: left;
+      }
+      .yard h3 {
+        margin: 12px 0 6px;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        color: rgba(235, 240, 248, 0.65);
+      }
+      .yard-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+      .yard-head b { font-size: 18px; }
+      .yard-row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip {
+        pointer-events: auto;
+        padding: 8px 10px;
+        min-height: 36px;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.05);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-align: left;
+      }
+      .chip:hover, .chip:focus-visible { border-color: var(--blue); outline: none; }
+      .chip.on { border-color: #f5c542; color: #f5c542; }
+      .chip:disabled { opacity: 0.45; cursor: default; }
+      .yard-note { margin: 8px 0 0; font-size: 12px; color: rgba(235, 240, 248, 0.72); }
+      .yard.in-wreck {
+        position: static;
+        left: auto;
+        bottom: auto;
+        width: auto;
+        max-height: 240px;
+        margin-top: 14px;
+      }
+      .chip { flex: 1 1 148px; }
       button {
         pointer-events: auto;
         font: inherit;
@@ -335,13 +397,15 @@ function mountShellChrome(options = {}) {
       .wreck {
         position: absolute;
         left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
+        top: 18px;
+        transform: translateX(-50%);
         min-width: min(860px, calc(100vw - 36px));
         max-width: calc(100vw - 36px);
+        max-height: calc(100vh - 36px);
+        overflow: auto;
         padding: 26px 30px 24px;
         text-align: center;
-        background: rgba(11, 15, 20, 0.9);
+        background: #0b0f14;
         border: 1px solid var(--line);
         border-top: 3px solid var(--blue);
         border-radius: 4px;
@@ -425,11 +489,22 @@ function mountShellChrome(options = {}) {
           <div class="score"></div>
           <div class="combo"></div>
           <div class="best"></div>
+          <div class="purse"></div>
         </div>
         <button class="stand cond" type="button">Stand down <kbd>Esc</kbd></button>
+        <button class="stand yard-open cond" type="button">Yard</button>
+        <button class="stand mute cond" type="button" aria-pressed="true">Sound on</button>
         <div class="banner cond"><b></b><span></span></div>
         <div class="cards-title cond" hidden>Pick a refit</div>
         <div class="cards cond" hidden></div>
+        <div class="yard cond" hidden>
+          <div class="yard-head"><b>Yard</b><span class="yard-purse"></span></div>
+          <h3>PERMANENT</h3>
+          <div class="yard-row yard-perms"></div>
+          <h3>LOOKS</h3>
+          <div class="yard-row yard-cos"></div>
+          <p class="yard-note"></p>
+        </div>
         <div class="wreck" hidden>
           <h2 class="cond">Sunk</h2>
           <div class="meta wreck-ship"></div>
@@ -438,6 +513,7 @@ function mountShellChrome(options = {}) {
           <div class="new cond wreck-new"></div>
           <div class="wreck-boards"></div>
           <div class="row">
+            <button class="btn cond prestige" type="button" hidden>Commission a bigger ship</button>
             <button class="btn primary cond again" type="button">Sail again</button>
             <button class="btn cond sea" type="button">Back to the sea</button>
           </div>
@@ -479,7 +555,16 @@ function mountShellChrome(options = {}) {
     score: shadow.querySelector(".score"),
     combo: shadow.querySelector(".combo"),
     best: shadow.querySelector(".best"),
+    purse: shadow.querySelector(".purse"),
     stand: shadow.querySelector(".stand"),
+    yardOpen: shadow.querySelector(".yard-open"),
+    mute: shadow.querySelector(".mute"),
+    yard: shadow.querySelector(".yard"),
+    yardPurse: shadow.querySelector(".yard-purse"),
+    yardPerms: shadow.querySelector(".yard-perms"),
+    yardCos: shadow.querySelector(".yard-cos"),
+    yardNote: shadow.querySelector(".yard-note"),
+    prestige: shadow.querySelector(".prestige"),
     banner: shadow.querySelector(".banner"),
     bannerTitle: shadow.querySelector(".banner b"),
     bannerSub: shadow.querySelector(".banner span"),
@@ -506,6 +591,8 @@ function mountShellChrome(options = {}) {
   let pickups = [];
   /** @type {Array<any>} */
   let hazards = [];
+  /** @type {Array<any>} */
+  let seaEvents = [];
   const fx = fxlib.createFx();
   let lastActivity = now();
   let appActive = !document.hidden;
@@ -609,6 +696,7 @@ function mountShellChrome(options = {}) {
       splashes = [];
       pickups = [];
       hazards = [];
+      seaEvents = [];
       fxlib.clearFx(fx);
       overlay.classList.remove("on");
       overlay.setAttribute("aria-hidden", "true");
@@ -807,13 +895,21 @@ function mountShellChrome(options = {}) {
 
   function damageShip(ship, dmg, by) {
     if (ship.sinking > 0) return false;
-    const result = applyCannonHit(ship, dmg);
+    if (ship.exploded && by !== "blast") return false;
+    const dealt = combat.mitigateDamage(ship, dmg);
+    if (dealt <= 0) {
+      if (inPlay()) fxlib.floatText(fx, ship.x, ship.y - 60, "Phased", "#c9d4e4", 14);
+      return false;
+    }
+    const result = applyCannonHit(ship, dealt);
     ship.hit = 0.14;
     fxlib.splinters(fx, ship.x, ship.y - 14, result.sunk ? 8 : 5, Math.random, 0.8);
     fxlib.sparks(fx, ship.x, ship.y - 14, 5);
     if (inPlay()) {
       fxlib.addShake(fx, ship.role === "player" ? 5 : 1.6);
       if (ship.role === "player") run.flash = 0.35;
+      if (result.sunk) audio.cue(ship.role === "player" ? "wreck" : "sink");
+      else audio.cue(ship.role === "player" ? "player-hit" : "hit");
     }
     if (result.sunk) {
       sinkBurst(ship);
@@ -825,11 +921,11 @@ function mountShellChrome(options = {}) {
   function onSunk(ship, by) {
     if (!inPlay()) return;
     if (ship.role === "player") {
+      audio.stopBed();
       run.phase = "wrecked";
       run.wreckT = 1.5;
       balls = balls.filter((b) => b.side !== "enemy");
       fxlib.addShake(fx, 9);
-      finishRun();
       for (const s of fleet) if (s.role === "enemy") toAmbient(s);
       return;
     }
@@ -839,13 +935,14 @@ function mountShellChrome(options = {}) {
     const pts = combat.scoreForSink(ship.type, { gilded: ship.gilded, combo: run.combo });
     run.score += pts;
     run.sunk += 1;
+    grantDoubloons(combat.doubloonsForSink(ship.type, { gilded: ship.gilded, combo: run.combo }), ship.x, ship.y - 96);
     fxlib.floatText(fx, ship.x, ship.y - 70, `+${pts}`, ship.gilded ? "#f5c542" : "#ffffff", 20);
     if (run.combo > 1) {
       fxlib.floatText(fx, ship.x, ship.y - 48, `x${combat.comboMultiplier(run.combo)} combo`, "#f5c542", 14);
     }
     fxlib.addShake(fx, ship.boss ? 10 : 4);
     if (ship.boss) showBanner("Boss sunk", combat.ENEMY_TYPES[ship.type]?.label || "The flagship goes down", true);
-    if (ship.boss || ship.gilded || ship.type === "galleon") {
+    if (ship.boss || ship.gilded || ship.prize || ship.type === "galleon") {
       pickups.push({ x: ship.x, y: ship.y, kind: "chest", life: 14 });
       fxlib.coins(fx, ship.x, ship.y - 20, ship.boss ? 18 : 10);
     } else if (Math.random() < 0.32) {
@@ -866,6 +963,11 @@ function mountShellChrome(options = {}) {
     ship.maxHp = 0;
     ship.hp = SHIP_HP;
     ship.gilded = false;
+    ship.phase = false;
+    ship.blast = 0;
+    ship.prize = false;
+    ship.cosmetics = null;
+    ship.heading = undefined;
     ship.entering = false;
     ship.retire = 0;
     const motion = pickSailMotion();
@@ -886,7 +988,12 @@ function mountShellChrome(options = {}) {
     ship.type = typeId;
     ship.boss = !!type.boss;
     ship.enraged = false;
-    ship.gilded = !ship.boss && Math.random() < combat.GILDED_CHANCE;
+    ship.gilded = !ship.boss && !type.prize && Math.random() < combat.GILDED_CHANCE;
+    ship.phase = !!type.phase;
+    ship.blast = type.blast || 0;
+    ship.prize = !!type.prize;
+    ship.behavior = type.behavior || "";
+    ship.heading = ship.facing < 0 ? Math.PI / 2 : -Math.PI / 2;
     ship.maxHp = scaled.hp + (ship.gilded ? 2 : 0);
     ship.hp = ship.maxHp;
     ship.scale = type.scale * (ship.boss ? 1 : 0.94 + Math.random() * 0.12);
@@ -928,8 +1035,11 @@ function mountShellChrome(options = {}) {
     run.bossArm = 0;
     run.spawnT = 0.4;
     run.hazardT = combat.hazardInterval(run.wave) * 0.4;
+    run.eventT = combat.eventInterval(run.wave) * 0.45;
+    run.opening = combat.bossOpening(run.bossKind);
     run.phase = "fight";
     if (run.bossKind) {
+      audio.cue("horn");
       const label = combat.ENEMY_TYPES[run.bossKind].label;
       showBanner(label, `Boss wave ${run.wave}`, true);
     } else {
@@ -943,7 +1053,8 @@ function mountShellChrome(options = {}) {
     pickups = [];
     lastPlayerStyle = flagship.style;
     lastPlayerName = flagship.name;
-    const stats = combat.createPlayerStats();
+    const stats = combat.createPlayerStats(save);
+    const hull = combat.hullByTier(save.hull);
     run = {
       wave: 1,
       score: 0,
@@ -965,6 +1076,12 @@ function mountShellChrome(options = {}) {
       bossSpawned: true,
       bossArm: 0,
       hazardT: 7.5,
+      eventT: 6.5,
+      opening: null,
+      slow: 1,
+      grappled: false,
+      spent: false,
+      loot: 0,
     };
 
     flagship.role = "player";
@@ -972,7 +1089,10 @@ function mountShellChrome(options = {}) {
     flagship.boss = false;
     flagship.maxHp = stats.maxHp;
     flagship.hp = stats.maxHp;
-    flagship.scale = 1.38;
+    flagship.scale = hull.scale;
+    flagship.heading = 0;
+    flagship.cosmetics = { ...save.cosmetics };
+    flagship.phase = false;
     flagship.vx = 0;
     flagship.vy = 0;
     flagship.sinking = 0;
@@ -988,6 +1108,7 @@ function mountShellChrome(options = {}) {
     for (const s of others.slice(keep.length)) s.retire = 1;
     run.queue = plan.slice(keep.length);
     hazards = [];
+    seaEvents = [];
 
     overlay.classList.add("play");
     hud.hidden = false;
@@ -995,9 +1116,12 @@ function mountShellChrome(options = {}) {
     el.cards.hidden = true;
     el.cardsTitle.hidden = true;
     el.wreck.hidden = true;
+    parkYard();
     hudKey = "";
     showBanner("Wave 1", "The sea fills with sails");
     updateHud(true);
+    audio.startBed();
+    paintSound();
   }
 
   /**
@@ -1106,6 +1230,7 @@ function mountShellChrome(options = {}) {
 
   function sailAgain() {
     if (mode !== "play" || !run || run.phase !== "wrecked") return;
+    finishRun();
     const bounds = waterBounds();
     const ship = baseShip(lastPlayerStyle || pickShipStyle());
     if (lastPlayerName) ship.name = lastPlayerName;
@@ -1118,15 +1243,69 @@ function mountShellChrome(options = {}) {
   function finishRun() {
     if (!run || run.recorded) return;
     run.recorded = true;
-    if (run.score > 0 || run.sunk > 0) {
-      const res = combat.recordRun(save, { score: run.score, wave: run.wave, sunk: run.sunk });
+    if (run.spent) return;
+    const snapshot = { score: run.score | 0, wave: run.wave | 0, sunk: run.sunk | 0 };
+    if (snapshot.score > 0 || snapshot.sunk > 0) {
+      const res = combat.recordRun(save, snapshot);
       save = res.save;
       run.newBest = res.newBest;
       combat.writeSave(storage, save);
     }
-    // Shop boards, not the local best. Person is the signed-in desk session.
-    const snapshot = { score: run.score | 0, wave: run.wave | 0, sunk: run.sunk | 0 };
-    run.boardPromise = requestShopBoard(snapshot);
+    if (snapshot.score <= 0) return;
+    // Shop boards, not a made-up company ranking. Person comes back from the desk session.
+    const posting = requestShopBoard(snapshot);
+    run.boardPromise = posting;
+    posting.then((board) => {
+      if (!board || !board.you || snapshot.score <= 0) return;
+      save = combat.recordDeskScore(
+        save,
+        {
+          person: board.you,
+          name: board.name || board.you,
+          score: snapshot.score,
+          wave: snapshot.wave,
+          sunk: snapshot.sunk,
+          revision,
+        },
+        new Date(now()),
+      );
+      combat.writeSave(storage, save);
+    });
+  }
+
+  function grantDoubloons(amount, x, y) {
+    const n = Math.max(0, amount | 0);
+    if (!n || !inPlay()) return;
+    save = combat.bankDoubloons(save, n);
+    run.loot = (run.loot || 0) + n;
+    combat.writeSave(storage, save);
+    if (x != null) {
+      fxlib.coins(fx, x, (y || 0) + 16, Math.min(12, 4 + Math.ceil(n / 3)));
+      fxlib.floatText(fx, x, y, `+${n} doubloons`, "#f5c542", 15);
+    }
+    paintPurse();
+  }
+
+  function pushEvent(kind) {
+    if (!kind || !run) return;
+    const bounds = waterBounds();
+    const ev = combat.createEvent(kind, bounds, Math.random, run.wave);
+    const p = player();
+    if (p && kind !== "squall" && kind !== "boarding" && kind !== "barrage") {
+      if (Math.hypot((ev.x || 0) - p.x, (ev.y || 0) - p.y) < 150) {
+        ev.x = Math.min(bounds.maxX, Math.max(bounds.minX, p.x + (p.x < (bounds.minX + bounds.maxX) / 2 ? -180 : 180)));
+      }
+    }
+    seaEvents.push(ev);
+    const label = combat.EVENT_LABELS[kind] || kind;
+    fxlib.floatText(fx, ev.x || (p ? p.x : bounds.minX + 40), (ev.y || (p ? p.y : bounds.minY + 40)) - 30, label, "#9fd0ff", 16);
+    if (kind === "squall") fxlib.gust(fx, ev.x || 0, ev.y || 0, (ev.vx || 1) * 80, (ev.vy || 0) * 40);
+  }
+
+  function wakeTint(ship) {
+    const wake = ship && ship.cosmetics && ship.cosmetics.wake;
+    if (wake === "gold" || wake === "blue") return wake;
+    return "";
   }
 
   function requestShopBoard(snapshot) {
@@ -1143,20 +1322,11 @@ function mountShellChrome(options = {}) {
       .catch(() => pirateBoard.unavailableBoard("Could not reach the shop board. This run was not posted."));
   }
 
-  function paintShopBoards(board) {
-    const host = el.wreckBoards;
-    host.replaceChildren();
-    if (board && board.message) {
-      const note = document.createElement("p");
-      note.className = "board-note";
-      note.textContent = board.message;
-      host.appendChild(note);
-    }
-    if (!board || !board.ok) return;
+  function appendBoardGrid(host, columns, you) {
     const grid = document.createElement("div");
     grid.className = "board-grid";
     for (const id of pirateBoard.BOARD_IDS) {
-      const column = board.boards[id];
+      const column = columns[id];
       const card = document.createElement("section");
       card.className = "board";
       const title = document.createElement("h3");
@@ -1171,7 +1341,7 @@ function mountShellChrome(options = {}) {
         const list = document.createElement("ol");
         for (const row of rows) {
           const li = document.createElement("li");
-          if (row.person && row.person === board.you) li.className = "you";
+          if (row.person && row.person === you) li.className = "you";
           li.textContent = `${row.name}  ${pirateBoard.formatScore(row.score)}`;
           list.appendChild(li);
         }
@@ -1182,12 +1352,52 @@ function mountShellChrome(options = {}) {
     host.appendChild(grid);
   }
 
+  function deskPreviewSave(you, name) {
+    if (!you || !run || run.spent || !(run.score > 0)) return save;
+    return combat.recordDeskScore(
+      save,
+      {
+        person: you,
+        name: name || you,
+        score: run.score,
+        wave: run.wave,
+        sunk: run.sunk,
+        revision,
+      },
+      new Date(now()),
+    );
+  }
+
+  function paintShopBoards(board) {
+    const host = el.wreckBoards;
+    host.replaceChildren();
+    if (board && board.message) {
+      const note = document.createElement("p");
+      note.className = "board-note";
+      note.textContent = board.message;
+      host.appendChild(note);
+    }
+    const unpublished = !!(board && !board.ok && /not published/i.test(board.message || ""));
+    if (unpublished) {
+      const columns = combat.deskBoards(deskPreviewSave(board.you, board.name), {
+        now: new Date(now()),
+        revision,
+      });
+      appendBoardGrid(host, columns, board.you || "");
+      return;
+    }
+    if (!board || !board.ok) return;
+    appendBoardGrid(host, board.boards, board.you);
+  }
+
   /** Leave combat state without touching the fleet (used by dismiss / dispose). */
   function leavePlayState() {
+    audio.stopBed();
     if (mode === "play") finishRun();
     mode = "ambient";
     run = null;
     hazards = [];
+    seaEvents = [];
     pointer.down = false;
     keys.left = keys.right = keys.up = keys.down = false;
     overlay.classList.remove("play");
@@ -1195,6 +1405,7 @@ function mountShellChrome(options = {}) {
     el.cards.hidden = true;
     el.cardsTitle.hidden = true;
     el.wreck.hidden = true;
+    parkYard();
     hint.textContent = HINT_AMBIENT;
   }
 
@@ -1232,9 +1443,11 @@ function mountShellChrome(options = {}) {
   function waveCleared() {
     run.phase = "intermission";
     hazards = [];
+    seaEvents = [];
     const bonus = combat.waveClearBonus(run.wave);
     run.score += bonus;
     const p = player();
+    if (p) grantDoubloons(combat.waveDoubloons(run.wave), p.x, p.y - 100);
     if (p) {
       p.hp = Math.min(p.maxHp, p.hp + 1);
       fxlib.floatText(fx, p.x, p.y - 80, `Wave clear +${bonus}`, "#ffffff", 20);
@@ -1277,6 +1490,7 @@ function mountShellChrome(options = {}) {
     }
     el.cards.hidden = true;
     el.cardsTitle.hidden = true;
+    audio.cue("upgrade");
     run.wave += 1;
     beginWave();
   }
@@ -1313,7 +1527,11 @@ function mountShellChrome(options = {}) {
     if (!p || !inPlay() || run.reload > 0 || p.sinking > 0) return;
     if (run.phase !== "fight" && run.phase !== "intermission") return;
     const from = { x: p.x, y: p.y - 16 };
-    const aim = combat.resolvePlayerAim(from, { x: px, y: py }, liveEnemies());
+    let aim = combat.resolvePlayerAim(from, { x: px, y: py }, liveEnemies());
+    if (aim.target && combat.fogBlocksAim(seaEvents, from, combat.shipCenter(aim.target))) {
+      const raw = Math.hypot(px - from.x, py - from.y);
+      aim = { x: px, y: py, dur: combat.flightTime(raw), target: null };
+    }
     let ax = aim.x;
     let ay = aim.y;
     const dist = Math.hypot(ax - from.x, ay - from.y);
@@ -1329,11 +1547,12 @@ function mountShellChrome(options = {}) {
     run.reload = run.stats.reload;
     p.vx -= side * 26;
     fxlib.addShake(fx, 1.2);
+    audio.cue("shot");
   }
 
   function enemyFire(e, p) {
     const type = combat.ENEMY_TYPES[e.type] || combat.ENEMY_TYPES.sloop;
-    const shots = type.boss ? type.shots || 3 : 1;
+    const shots = type.shots || (type.boss ? 3 : 1);
     const aim = combat.enemyAim({ x: e.x, y: e.y - 16 }, p, run.wave);
     const side = aim.x >= e.x ? 1 : -1;
     const offsets = combat.volleyOffsets(shots);
@@ -1348,8 +1567,10 @@ function mountShellChrome(options = {}) {
         { muzzleSide: side },
       );
     });
+    audio.cue("enemy-shot");
   }
 
+  /** Ambient broadsides stay silent. This overlay is a screensaver until someone takes the helm. */
   function maybeFire(liveFleet) {
     const pool = liveFleet || fleet.filter((s) => !(s.sinking > 0));
     if (pool.length < 2) return;
@@ -1404,9 +1625,12 @@ function mountShellChrome(options = {}) {
       if (ship.sinking > 0 || ship.role === "ambient") {
         stepShipSail(ship, dt, bounds);
       } else if (ship.role === "player") {
-        combat.steerPlayer(ship, keys, dt, bounds, run.stats);
+        const slowed = { ...run.stats, speed: Math.round(run.stats.speed * (run.slow || 1)) };
+        combat.steerPlayer(ship, keys, dt, bounds, slowed);
       } else if (ship.role === "enemy" && p && p.sinking <= 0) {
         combat.stepEnemyAI(ship, p, dt, bounds);
+        const travel = Math.hypot(ship.vx, ship.vy);
+        if (travel > 10) ship.heading = Math.atan2(-ship.vx, -ship.vy);
         ship.reloadT -= dt;
         if (!ship.entering && ship.reloadT <= 0 && run.phase === "fight") {
           const type = combat.ENEMY_TYPES[ship.type];
@@ -1435,7 +1659,7 @@ function mountShellChrome(options = {}) {
       ship.wakeT -= dt;
       const moved = Math.hypot(ship.x - px, ship.y - py) / Math.max(dt, 0.001);
       if (ship.wakeT <= 0 && moved > 18 && !(ship.sinking > 0)) {
-        fxlib.wake(fx, ship.x, ship.y, ship.facing);
+        fxlib.wake(fx, ship.x, ship.y, ship.facing, wakeTint(ship), ship.heading);
         ship.wakeT = moved > 80 ? 0.1 : 0.17;
       }
 
@@ -1534,9 +1758,8 @@ function mountShellChrome(options = {}) {
             p.hp += gain;
             fxlib.floatText(fx, p.x, p.y - 82, gain > 0 ? `+${gain} hull` : "Hull full", "#3ddc84", 16);
           } else {
-            run.score += 250;
-            fxlib.floatText(fx, p.x, p.y - 82, "+250 doubloons", "#f5c542", 16);
-            fxlib.coins(fx, p.x, p.y - 20, 8);
+            run.score += 100;
+            grantDoubloons(combat.chestDoubloons(), p.x, p.y - 82);
           }
         }
       }
@@ -1547,6 +1770,11 @@ function mountShellChrome(options = {}) {
         if (!shipsCollide(p, e, 40)) continue;
         p.ramCool = 1.6;
         e.ramCool = 1.6;
+        const type = combat.ENEMY_TYPES[e.type];
+        if (type && type.blast) {
+          detonateFireship(e);
+          continue;
+        }
         damageShip(e, 1, "ram");
         damageShip(p, 1, "ram");
         const dir = p.x <= e.x ? -1 : 1;
@@ -1594,6 +1822,17 @@ function mountShellChrome(options = {}) {
         run.spawnT = combat.spawnGap(run.wave) * (thin ? 0.55 : 1);
       }
 
+      if (run.opening && run.bossSpawned) {
+        pushEvent(run.opening);
+        run.opening = null;
+      }
+      run.eventT -= dt;
+      if (run.eventT <= 0 && seaEvents.length < 2) {
+        pushEvent(combat.pickEventKind(run.wave));
+        run.eventT = combat.eventInterval(run.wave);
+      }
+      stepSeaEvents(dt, bounds);
+
       run.hazardT -= dt;
       if (run.hazardT <= 0 && hazards.length < 4) {
         const kind = combat.pickHazardKind(run.wave);
@@ -1624,6 +1863,7 @@ function mountShellChrome(options = {}) {
   }
 
   function detonateMine(h) {
+    if (inPlay()) audio.cue("blast");
     fxlib.addShake(fx, 6);
     fxlib.sparks(fx, h.x, h.y, 16, Math.random, "#ffb15a");
     fxlib.spray(fx, h.x, h.y, 12, Math.random, 1.3);
@@ -1659,6 +1899,200 @@ function mountShellChrome(options = {}) {
     hazards = next;
   }
 
+  function detonateFireship(e) {
+    if (!e || e.exploded) return;
+    e.exploded = true;
+    if (inPlay()) audio.cue("blast");
+    const type = combat.ENEMY_TYPES[e.type] || {};
+    const blast = type.blast || 88;
+    const dmg = type.blastDamage || 3;
+    fxlib.addShake(fx, 7);
+    fxlib.sparks(fx, e.x, e.y - 8, 22, Math.random, "#ff6a2a");
+    fxlib.ring(fx, e.x, e.y, "#ff8a3d");
+    splashes.push({ x: e.x, y: e.y, t: 0, style: e.style, big: true });
+    for (const ship of fleet) {
+      if (ship === e || ship.sinking > 0 || ship.retire > 0) continue;
+      if (Math.hypot(ship.x - e.x, ship.y - e.y) <= blast) damageShip(ship, dmg, "blast");
+    }
+    if (!(e.sinking > 0)) damageShip(e, e.hp || 99, "blast");
+  }
+
+  function stepSeaEvents(dt, bounds) {
+    const ships = fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
+    const next = [];
+    for (const ev of seaEvents) {
+      const alive = combat.stepEvent(ev, dt, bounds);
+      if (ev.kind === "barrage") {
+        for (const shot of ev.shots || []) {
+          if (shot.boom && !shot.rang) {
+            shot.rang = true;
+            if (inPlay()) audio.cue("blast");
+            fxlib.ring(fx, shot.x, shot.y, "#ffb15a");
+            fxlib.spray(fx, shot.x, shot.y, 6);
+          }
+        }
+      }
+      for (const ship of ships) {
+        const inf = combat.eventInfluence(ev, ship, dt);
+        if (inf.dx || inf.dy) {
+          ship.x += inf.dx;
+          ship.y += inf.dy;
+        }
+        if (inf.damage > 0) absorbHazardDamage(ship, inf.damage, ev.kind);
+        if (inf.pickup && ship.role === "player") {
+          grantDoubloons(combat.supplyDoubloons(run.wave), ev.x, ev.y - 24);
+          ship.hp = Math.min(ship.maxHp, ship.hp + 1);
+        }
+      }
+      if (ev.kind === "boarding") {
+        const who = player();
+        const pressure = who && combat.boardingPressure(ev, who, liveEnemies(), dt);
+        if (pressure) {
+          run.grappled = true;
+          run.slow = pressure.slow;
+          absorbHazardDamage(who, pressure.damage, "boarding");
+        }
+      }
+      if (alive && !ev.taken) next.push(ev);
+    }
+    seaEvents = next;
+  }
+
+  function parkYard() {
+    if (el.yard.parentElement !== hud) hud.appendChild(el.yard);
+    el.yard.classList.remove("in-wreck");
+    el.yard.hidden = true;
+  }
+
+  function paintSound() {
+    if (!el.mute) return;
+    const on = !audio.muted;
+    el.mute.textContent = on ? "Sound on" : "Sound off";
+    el.mute.setAttribute("aria-pressed", on ? "true" : "false");
+    el.mute.classList.toggle("off", !on);
+  }
+
+  function paintPurse() {
+    const hull = combat.hullByTier(save.hull);
+    const text = `${hull.title} · ${save.doubloons.toLocaleString()} doubloons`;
+    if (el.purse) el.purse.textContent = text;
+    if (el.yardPurse) el.yardPurse.textContent = text;
+  }
+
+  function refreshPrestige() {
+    const next = save.hull + 1 < combat.HULLS.length ? combat.HULLS[save.hull + 1] : null;
+    const cost = combat.prestigeCost(save.hull);
+    if (!el.prestige) return;
+    if (!next || !run || run.phase !== "wrecked" || run.spent) {
+      el.prestige.hidden = true;
+      return;
+    }
+    el.prestige.hidden = false;
+    el.prestige.disabled = !(cost != null && run.score >= cost);
+    el.prestige.textContent =
+      cost != null && run.score >= cost
+        ? `Commission the ${next.title}`
+        : `${next.title} needs ${(cost || 0).toLocaleString()}`;
+  }
+
+  function paintYard() {
+    paintPurse();
+    const hull = combat.hullByTier(save.hull);
+    el.yardNote.textContent = `${hull.title}. Permanent refits and looks stay on this desk.`;
+    el.yardPerms.replaceChildren();
+    for (const spec of combat.PERM_UPGRADES) {
+      const rank = (save.perms && save.perms[spec.id]) || 0;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      const maxed = rank >= spec.max;
+      b.disabled = maxed || save.doubloons < spec.cost;
+      b.textContent = maxed ? `${spec.title} maxed` : `${spec.title} · ${spec.cost} · ${rank}/${spec.max}`;
+      b.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const before = combat.createPlayerStats(save);
+        const res = combat.buyPerm(save, spec.id);
+        if (!res.ok) return;
+        save = res.save;
+        combat.writeSave(storage, save);
+        audio.cue("upgrade");
+        if (inPlay() && run) {
+          const after = combat.createPlayerStats(save);
+          run.stats = {
+            ...run.stats,
+            maxHp: run.stats.maxHp + (after.maxHp - before.maxHp),
+            speed: run.stats.speed + (after.speed - before.speed),
+            reload: Math.max(
+              combat.PLAYER_CAPS.reload,
+              +(run.stats.reload + (after.reload - before.reload)).toFixed(3),
+            ),
+            damage: run.stats.damage + (after.damage - before.damage),
+            range: (run.stats.range || before.range) + (after.range - before.range),
+          };
+          const who = player();
+          if (who) {
+            const gain = Math.max(0, run.stats.maxHp - who.maxHp);
+            who.maxHp = run.stats.maxHp;
+            who.hp = Math.min(who.maxHp, who.hp + gain);
+            who.cosmetics = { ...save.cosmetics };
+          }
+        }
+        paintYard();
+      });
+      el.yardPerms.appendChild(b);
+    }
+    el.yardCos.replaceChildren();
+    for (const spec of combat.COSMETICS) {
+      const owned = save.owned.includes(spec.id);
+      const worn = save.cosmetics[spec.slot] === spec.value;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = worn ? "chip on" : "chip";
+      b.disabled = !owned && save.doubloons < spec.cost;
+      b.textContent = worn ? `${spec.title} worn` : owned ? spec.title : `${spec.title} · ${spec.cost}`;
+      b.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const res = combat.buyCosmetic(save, spec.id);
+        if (!res.ok) return;
+        save = res.save;
+        combat.writeSave(storage, save);
+        audio.cue("upgrade");
+        const who = player();
+        if (who) who.cosmetics = { ...save.cosmetics };
+        paintYard();
+      });
+      el.yardCos.appendChild(b);
+    }
+    refreshPrestige();
+  }
+
+  function commissionShip() {
+    if (!run || run.phase !== "wrecked" || run.spent || run.recorded) return;
+    const res = combat.spendRunOnPrestige(save, run);
+    if (!res.ok) return;
+    save = res.save;
+    const tracked = combat.recordRun(save, {
+      score: run.score,
+      wave: run.wave,
+      sunk: run.sunk,
+      spent: true,
+    });
+    save = tracked.save;
+    audio.cue("prestige");
+    run.spent = true;
+    run.recorded = true;
+    run.newBest = false;
+    combat.writeSave(storage, save);
+    el.wreckNew.textContent = `Commissioned the ${res.hull.title}. This run's score was the price.`;
+    paintYard();
+    const shown = run.boardPromise;
+    if (shown && typeof shown.then === "function") {
+      shown.then((board) => {
+        if (run && run.phase === "wrecked") paintShopBoards(board);
+      });
+    }
+  }
+
   function showWreck() {
     el.wreckShip.textContent = run.shipName || "";
     el.wreckScore.textContent = run.score.toLocaleString();
@@ -1670,8 +2104,17 @@ function mountShellChrome(options = {}) {
     pending.textContent = "Loading the shop board…";
     el.wreckBoards.appendChild(pending);
     el.wreck.hidden = false;
+    el.wreckNew.textContent =
+      !run.spent && run.score > save.best && run.score > 0 ? "New best if you keep this run" : "";
+    const row = el.wreck.querySelector(".row");
+    if (row) row.after(el.yard);
+    el.yard.classList.add("in-wreck");
+    el.yard.hidden = false;
+    paintYard();
     const token = (showWreck.token = (showWreck.token || 0) + 1);
-    const promise = run.boardPromise || requestShopBoard({ score: run.score | 0, wave: run.wave | 0, sunk: run.sunk | 0 });
+    // Read the shop boards without posting. The score posts if this run is kept.
+    const promise = requestShopBoard({ score: 0, wave: run.wave | 0, sunk: run.sunk | 0 });
+    run.boardPromise = promise;
     promise.then((board) => {
       if (token !== showWreck.token || !run || run.phase !== "wrecked") return;
       paintShopBoards(board);
@@ -1681,6 +2124,19 @@ function mountShellChrome(options = {}) {
 
   function step(dt) {
     fireCooldown -= dt;
+    if (mode === "play" && run && run.phase === "fight") {
+      run.slow = 1;
+      run.grappled = false;
+      const who = player();
+      if (who) {
+        for (const ev of seaEvents) {
+          const pressure = combat.boardingPressure(ev, who, liveEnemies(), 0);
+          if (!pressure) continue;
+          run.grappled = true;
+          run.slow = pressure.slow;
+        }
+      }
+    }
     const bounds = waterBounds();
     const live = stepShips(dt, bounds);
 
@@ -1758,6 +2214,8 @@ function mountShellChrome(options = {}) {
       p ? p.hp : 0,
       p ? p.maxHp : 0,
       save.best,
+      save.doubloons,
+      save.hull,
       sails,
       bossUp ? 1 : 0,
     ].join("|");
@@ -1774,6 +2232,7 @@ function mountShellChrome(options = {}) {
       const mult = run.combo > 0 && run.comboT > 0 ? combat.comboMultiplier(run.combo) : 0;
       el.combo.textContent = mult > 1 ? `Combo x${mult}` : "";
       el.best.textContent = save.best ? `Best ${save.best.toLocaleString()}` : "";
+      paintPurse();
     }
     const u = run.stats.reload > 0 ? 1 - Math.min(1, run.reload / run.stats.reload) : 1;
     el.reloadFill.style.width = `${u * 100}%`;
@@ -1795,6 +2254,9 @@ function mountShellChrome(options = {}) {
     for (const hz of hazards) {
       if (hz.kind !== "megalodon") art.drawHazard(ctx, hz, t);
     }
+    for (const ev of seaEvents) {
+      if (ev.kind !== "fog") art.drawEvent(ctx, ev, t);
+    }
 
     for (const p of fx.parts) {
       if (p.kind === "wake" || p.kind === "bubble") art.drawParticle(ctx, p);
@@ -1807,6 +2269,9 @@ function mountShellChrome(options = {}) {
     const showHp = mode === "play";
     const sorted = fleet.slice().sort((a, b) => a.y - b.y);
     for (const ship of sorted) art.drawShipFull(ctx, ship, { t, showHp: showHp && ship.role !== "ambient" });
+    for (const ev of seaEvents) {
+      if (ev.kind === "fog") art.drawEvent(ctx, ev, t);
+    }
 
     for (const ball of balls) {
       if (ball.side === "enemy") art.drawLandingMarker(ctx, ball, t);
@@ -1832,6 +2297,10 @@ function mountShellChrome(options = {}) {
     ctx.restore();
 
     if (inPlay()) {
+      if (run.grappled) {
+        ctx.fillStyle = "rgba(160, 36, 28, 0.16)";
+        ctx.fillRect(0, 0, w, h);
+      }
       if (run.flash > 0) {
         const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
         g.addColorStop(0, "rgba(255,60,40,0)");
@@ -2022,8 +2491,28 @@ function mountShellChrome(options = {}) {
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("resize", resize);
   el.stand.addEventListener("click", standDown);
+  el.mute.addEventListener("click", (event) => {
+    event.stopPropagation();
+    audio.setMuted(!audio.muted);
+    try {
+      if (storage) storage.setItem("bf-tools-pirate-sound", audio.muted ? "off" : "on");
+    } catch {
+      // Storage can be blocked. The mute still holds for this sitting.
+    }
+    paintSound();
+  });
   el.sea.addEventListener("click", standDown);
   el.again.addEventListener("click", sailAgain);
+  el.yardOpen.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!inPlay()) return;
+    el.yard.hidden = !el.yard.hidden;
+    if (!el.yard.hidden) paintYard();
+  });
+  el.prestige.addEventListener("click", (event) => {
+    event.stopPropagation();
+    commissionShip();
+  });
 
   ensureHostAttached();
   pinHostToViewport();
@@ -2048,6 +2537,26 @@ function mountShellChrome(options = {}) {
 
   resize();
 
+  if (options.qa && typeof window !== "undefined") {
+    window.__controlsTest = {
+      getYaw() {
+        const who = player();
+        return who && Number.isFinite(who.heading) ? who.heading : 0;
+      },
+      getSpeed() {
+        const who = player();
+        return who ? Math.hypot(who.vx, who.vy) : 0;
+      },
+      setKeys(codes) {
+        const list = Array.isArray(codes) ? codes : [];
+        keys.left = list.includes("KeyA") || list.includes("ArrowLeft");
+        keys.right = list.includes("KeyD") || list.includes("ArrowRight");
+        keys.up = list.includes("KeyW") || list.includes("ArrowUp");
+        keys.down = list.includes("KeyS") || list.includes("ArrowDown");
+      },
+    };
+  }
+
   return {
     launchGame,
     isOverlayVisible,
@@ -2061,6 +2570,7 @@ function mountShellChrome(options = {}) {
     },
     dispose() {
       disposed = true;
+      audio.dispose();
       window.clearInterval(tickTimer);
       stopLoop();
       for (const name of softActivityEvents) {
@@ -2112,6 +2622,21 @@ function mountShellChrome(options = {}) {
       standDown,
       playerFire,
       shipAt,
+      readout() {
+        return {
+          phase: run && run.phase,
+          score: run && run.score,
+          sunk: run && run.sunk,
+          wave: run && run.wave,
+          doubloons: save.doubloons,
+          hull: save.hull,
+          yardOpen: !!(el.yard && !el.yard.hidden),
+          wreckOpen: !!(el.wreck && !el.wreck.hidden),
+          boards: el.wreckBoards ? el.wreckBoards.textContent : "",
+          heading: player() && player().heading,
+          speed: player() ? Math.hypot(player().vx, player().vy) : 0,
+        };
+      },
     },
   };
 }

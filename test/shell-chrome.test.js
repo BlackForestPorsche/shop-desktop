@@ -190,9 +190,9 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.29 for shop pirate boards", () => {
+test("package version is 1.5.31 for shop pirate boards", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.29");
+  assert.equal(pkg.version, "1.5.31");
 });
 
 test("death screen shows shop day, week, month, and this revision", () => {
@@ -220,5 +220,22 @@ test("combat sails the whole overlay, not a lower water band", () => {
   assert.equal(/h \* 0\.42/.test(source), false);
   assert.match(source, /Whole overlay is the sea/);
   assert.match(source, /combat\.seaBounds\(window\.innerWidth, window\.innerHeight\)/);
-  assert.match(source, /A \/ ArrowLeft moves left/);
+  assert.match(source, /A turns the nose left/);
+});
+
+test("combat has sound and the screensaver stays quiet", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.match(source, /require\("\.\/pirate-audio"\)/);
+  assert.match(source, /audio\.startBed\(\)/);
+  assert.match(source, /audio\.stopBed\(\)/);
+  assert.match(source, /audio\.cue\("shot"\)/);
+  assert.match(source, /"player-hit"/);
+  assert.match(source, /audio\.cue\(ship\.role === "player" \? "wreck" : "sink"\)/);
+  assert.match(source, /audio\.cue\("upgrade"\)/);
+  assert.match(source, /audio\.cue\("prestige"\)/);
+  assert.match(source, /Ambient broadsides stay silent/);
+  const start = source.indexOf("function maybeFire");
+  const end = source.indexOf("function stepShips");
+  assert.ok(start > 0 && end > start);
+  assert.equal(/audio\./.test(source.slice(start, end)), false);
 });
