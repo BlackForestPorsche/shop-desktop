@@ -1,66 +1,66 @@
 name: Apply large desktop sources
-# One-shot: assemble Tools 1.5.33 screen sail, then restore this workflow.
+# Template for agent large-file uploads. Incomplete chunks exit green
+# (wait for the rest) so mid-upload pushes do not spam failure email.
+# Prefer workflow_dispatch after all parts are on the branch; avoid
+# merging this file to main with a push trigger on a live cursor/* branch.
 on:
-  push:
-    paths:
-      - tmp/large-sources/CARDINAL-READY
+  workflow_dispatch:
 permissions:
   contents: write
 concurrency:
   group: apply-large-sources-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cursor/pirate-cardinal-4218
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Assemble screen sail
+      - name: Decode sources from large-sources chunks
         shell: bash
         run: |
-          python3 << 'PY'
-          import pathlib, gzip, base64, hashlib, subprocess, sys
+          python3 <<'PY'
+          import pathlib, gzip, base64, hashlib, json, sys, subprocess
           root = pathlib.Path("tmp/large-sources")
-          parts = []
-          for i in range(13):
-              p = root / f"cardinal-1533.{i:02d}"
-              if not p.exists():
-                  print("missing", p, file=sys.stderr)
+          manifest_path = root / "manifest.json"
+          if not manifest_path.exists():
+              print("No manifest — nothing to apply (green).")
+              sys.exit(0)
+          manifest = json.loads(manifest_path.read_text())
+          changed = []
+          for item in manifest:
+              parts = []
+              missing = False
+              for i in range(item["chunks"]):
+                  p = root / f"{item['prefix']}.{i:02d}"
+                  if not p.exists():
+                      print(f"incomplete payload, waiting for {p} (green)")
+                      missing = True
+                      break
+                  parts.append(p.read_text().strip())
+              if missing:
+                  # Mid-upload: do not fail the job (avoids Actions failure email).
+                  sys.exit(0)
+              data = gzip.decompress(base64.b64decode("".join(parts)))
+              if item.get("sha256") and hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  print(f"sha mismatch {item['path']}", file=sys.stderr)
                   sys.exit(1)
-              parts.append(p.read_text().strip())
-          data = gzip.decompress(base64.b64decode("".join(parts)))
-          want = "5072aeee2660c706835271adc7170d220d9c6118611301a7ae4e492a52910030"
-          got = hashlib.sha256(data).hexdigest()
-          if got != want:
-              print("payload sha", got, file=sys.stderr)
-              sys.exit(1)
-          i = 0
-          wrote = []
-          while i < len(data):
-              nl = data.index(b"\n", i)
-              rel = data[i:nl].decode()
-              i = nl + 1
-              nl = data.index(b"\n", i)
-              n = int(data[i:nl])
-              i = nl + 1
-              blob = data[i:i+n]
-              i += n
-              path = pathlib.Path(rel)
+              path = pathlib.Path(item["path"])
               path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_bytes(blob)
-              wrote.append(rel)
-              print("wrote", rel, len(blob))
-          orig = base64.b64decode("bmFtZTogQXBwbHkgbGFyZ2UgZGVza3RvcCBzb3VyY2VzCiMgVGVtcGxhdGUgZm9yIGFnZW50IGxhcmdlLWZpbGUgdXBsb2Fkcy4gSW5jb21wbGV0ZSBjaHVua3MgZXhpdCBncmVlbgojICh3YWl0IGZvciB0aGUgcmVzdCkgc28gbWlkLXVwbG9hZCBwdXNoZXMgZG8gbm90IHNwYW0gZmFpbHVyZSBlbWFpbC4KIyBQcmVmZXIgd29ya2Zsb3dfZGlzcGF0Y2ggYWZ0ZXIgYWxsIHBhcnRzIGFyZSBvbiB0aGUgYnJhbmNoOyBhdm9pZAojIG1lcmdpbmcgdGhpcyBmaWxlIHRvIG1haW4gd2l0aCBhIHB1c2ggdHJpZ2dlciBvbiBhIGxpdmUgY3Vyc29yLyogYnJhbmNoLgpvbjoKICB3b3JrZmxvd19kaXNwYXRjaDoKcGVybWlzc2lvbnM6CiAgY29udGVudHM6IHdyaXRlCmNvbmN1cnJlbmN5OgogIGdyb3VwOiBhcHBseS1sYXJnZS1zb3VyY2VzLSR7eyBnaXRodWIucmVmIH19CiAgY2FuY2VsLWluLXByb2dyZXNzOiB0cnVlCmpvYnM6CiAgYXBwbHk6CiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICBzdGVwczoKICAgICAgLSB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHY0CiAgICAgICAgd2l0aDoKICAgICAgICAgIHJlZjogJHt7IGdpdGh1Yi5yZWZfbmFtZSB9fQogICAgICAgICAgZmV0Y2gtZGVwdGg6IDAKICAgICAgLSBuYW1lOiBEZWNvZGUgc291cmNlcyBmcm9tIGxhcmdlLXNvdXJjZXMgY2h1bmtzCiAgICAgICAgc2hlbGw6IGJhc2gKICAgICAgICBydW46IHwKICAgICAgICAgIHB5dGhvbjMgPDwnUFknCiAgICAgICAgICBpbXBvcnQgcGF0aGxpYiwgZ3ppcCwgYmFzZTY0LCBoYXNobGliLCBqc29uLCBzeXMsIHN1YnByb2Nlc3MKICAgICAgICAgIHJvb3QgPSBwYXRobGliLlBhdGgoInRtcC9sYXJnZS1zb3VyY2VzIikKICAgICAgICAgIG1hbmlmZXN0X3BhdGggPSByb290IC8gIm1hbmlmZXN0Lmpzb24iCiAgICAgICAgICBpZiBub3QgbWFuaWZlc3RfcGF0aC5leGlzdHMoKToKICAgICAgICAgICAgICBwcmludCgiTm8gbWFuaWZlc3Qg4oCUIG5vdGhpbmcgdG8gYXBwbHkgKGdyZWVuKS4iKQogICAgICAgICAgICAgIHN5cy5leGl0KDApCiAgICAgICAgICBtYW5pZmVzdCA9IGpzb24ubG9hZHMobWFuaWZlc3RfcGF0aC5yZWFkX3RleHQoKSkKICAgICAgICAgIGNoYW5nZWQgPSBbXQogICAgICAgICAgZm9yIGl0ZW0gaW4gbWFuaWZlc3Q6CiAgICAgICAgICAgICAgcGFydHMgPSBbXQogICAgICAgICAgICAgIG1pc3NpbmcgPSBGYWxzZQogICAgICAgICAgICAgIGZvciBpIGluIHJhbmdlKGl0ZW1bImNodW5rcyJdKToKICAgICAgICAgICAgICAgICAgcCA9IHJvb3QgLyBmIntpdGVtWydwcmVmaXgnXX0ue2k6MDJkfSIKICAgICAgICAgICAgICAgICAgaWYgbm90IHAuZXhpc3RzKCk6CiAgICAgICAgICAgICAgICAgICAgICBwcmludChmImluY29tcGxldGUgcGF5bG9hZCwgd2FpdGluZyBmb3Ige3B9IChncmVlbikiKQogICAgICAgICAgICAgICAgICAgICAgbWlzc2luZyA9IFRydWUKICAgICAgICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgICAgICAgIHBhcnRzLmFwcGVuZChwLnJlYWRfdGV4dCgpLnN0cmlwKCkpCiAgICAgICAgICAgICAgaWYgbWlzc2luZzoKICAgICAgICAgICAgICAgICAgIyBNaWQtdXBsb2FkOiBkbyBub3QgZmFpbCB0aGUgam9iIChhdm9pZHMgQWN0aW9ucyBmYWlsdXJlIGVtYWlsKS4KICAgICAgICAgICAgICAgICAgc3lzLmV4aXQoMCkKICAgICAgICAgICAgICBkYXRhID0gZ3ppcC5kZWNvbXByZXNzKGJhc2U2NC5iNjRkZWNvZGUoIiIuam9pbihwYXJ0cykpKQogICAgICAgICAgICAgIGlmIGl0ZW0uZ2V0KCJzaGEyNTYiKSBhbmQgaGFzaGxpYi5zaGEyNTYoZGF0YSkuaGV4ZGlnZXN0KCkgIT0gaXRlbVsic2hhMjU2Il06CiAgICAgICAgICAgICAgICAgIHByaW50KGYic2hhIG1pc21hdGNoIHtpdGVtWydwYXRoJ119IiwgZmlsZT1zeXMuc3RkZXJyKQogICAgICAgICAgICAgICAgICBzeXMuZXhpdCgxKQogICAgICAgICAgICAgIHBhdGggPSBwYXRobGliLlBhdGgoaXRlbVsicGF0aCJdKQogICAgICAgICAgICAgIHBhdGgucGFyZW50Lm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgICAgICAgICAgICBpZiBwYXRoLmV4aXN0cygpIGFuZCBwYXRoLnJlYWRfYnl0ZXMoKSA9PSBkYXRhOgogICAgICAgICAgICAgICAgICBwcmludChmInVuY2hhbmdlZCB7aXRlbVsncGF0aCddfSIpCiAgICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgICAgcGF0aC53cml0ZV9ieXRlcyhkYXRhKQogICAgICAgICAgICAgIGNoYW5nZWQuYXBwZW5kKGl0ZW1bInBhdGgiXSkKICAgICAgICAgICAgICBwcmludChmIndyb3RlIHtpdGVtWydwYXRoJ119IHtsZW4oZGF0YSl9IGJ5dGVzIikKICAgICAgICAgIGlmIG5vdCBjaGFuZ2VkOgogICAgICAgICAgICAgIHByaW50KCJObyBjaGFuZ2VzIikKICAgICAgICAgICAgICBzeXMuZXhpdCgwKQogICAgICAgICAgc3VicHJvY2Vzcy5jaGVja19jYWxsKFsiZ2l0IiwgImNvbmZpZyIsICJ1c2VyLm5hbWUiLCAiZ2l0aHViLWFjdGlvbnNbYm90XSJdKQogICAgICAgICAgc3VicHJvY2Vzcy5jaGVja19jYWxsKFsiZ2l0IiwgImNvbmZpZyIsICJ1c2VyLmVtYWlsIiwgIjQxODk4MjgyK2dpdGh1Yi1hY3Rpb25zW2JvdF1AdXNlcnMubm9yZXBseS5naXRodWIuY29tIl0pCiAgICAgICAgICBzdWJwcm9jZXNzLmNoZWNrX2NhbGwoWyJnaXQiLCAiYWRkIiwgIi0tIl0gKyBjaGFuZ2VkKQogICAgICAgICAgc3VicHJvY2Vzcy5jaGVja19jYWxsKFsiZ2l0IiwgImNvbW1pdCIsICItbSIsICJmaXgodG9vbHMpOiBhcHBseSBzb3VyY2VzIGZyb20gbGFyZ2Utc291cmNlcyBjaHVua3MiXSkKICAgICAgICAgIHN1YnByb2Nlc3MuY2hlY2tfY2FsbChbImdpdCIsICJwdXNoIiwgIm9yaWdpbiIsICJIRUFEIl0pCiAgICAgICAgICBQWQo=")
-          wf = pathlib.Path(".github/workflows/apply-large-sources.yml")
-          wf.write_bytes(orig)
+              if path.exists() and path.read_bytes() == data:
+                  print(f"unchanged {item['path']}")
+                  continue
+              path.write_bytes(data)
+              changed.append(item["path"])
+              print(f"wrote {item['path']} {len(data)} bytes")
+          if not changed:
+              print("No changes")
+              sys.exit(0)
           subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
           subprocess.check_call(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
-          subprocess.check_call(["git", "add", "--"] + wrote + [".github/workflows/apply-large-sources.yml"])
-          for i in range(13):
-              subprocess.check_call(["git", "rm", "-f", f"tmp/large-sources/cardinal-1533.{i:02d}"])
-          subprocess.check_call(["git", "rm", "-f", "tmp/large-sources/CARDINAL-READY"])
-          subprocess.check_call(["git", "commit", "-m", "Tools 1.5.33: sail the screen, no yaw"])
-          subprocess.check_call(["git", "push", "origin", "HEAD:cursor/pirate-cardinal-4218"])
+          subprocess.check_call(["git", "add", "--"] + changed)
+          subprocess.check_call(["git", "commit", "-m", "fix(tools): apply sources from large-sources chunks"])
+          subprocess.check_call(["git", "push", "origin", "HEAD"])
           PY

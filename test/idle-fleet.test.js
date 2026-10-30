@@ -14,6 +14,7 @@ const {
   growFleet,
   pickSailMotion,
   stepShipSail,
+  headingForAim,
   applyCannonHit,
   stepShipSink,
   shipsCollide,
@@ -95,6 +96,44 @@ test("stepShipSail translates the hull over time", () => {
   const before = ship.x;
   stepShipSail(ship, 0.5, { minX: 50, maxX: 800, minY: 200, maxY: 500 }, () => 0.5);
   assert.ok(ship.x > before, "ship should sail forward");
+});
+
+test("stepShipSail changes course onto up, down, left, or right", () => {
+  const bounds = { minX: 0, maxX: 1400, minY: 0, maxY: 900 };
+  const dirs = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: -1 },
+    { x: 0, y: 1 },
+  ];
+  dirs.forEach((dir, index) => {
+    const ship = {
+      x: 400,
+      y: 450,
+      vx: 36,
+      vy: 0,
+      facing: 1,
+      speed: 36,
+      turnTimer: 0,
+      sinking: 0,
+      aimVx: 36,
+      aimVy: 0,
+    };
+    let calls = 0;
+    const rng = () => {
+      calls += 1;
+      return calls === 1 ? 0.5 : (index + 0.1) / 4;
+    };
+    stepShipSail(ship, 1 / 60, bounds, rng);
+    const ax = Math.abs(ship.aimVx);
+    const ay = Math.abs(ship.aimVy);
+    assert.ok((ax < 0.01 && ay > 10) || (ay < 0.01 && ax > 10), `aim not cardinal: ${ship.aimVx},${ship.aimVy}`);
+    assert.equal(Math.sign(ship.aimVx), dir.x);
+    assert.equal(Math.sign(ship.aimVy), dir.y);
+    assert.equal(ship.heading, headingForAim(ship.aimVx, ship.aimVy));
+    const moved = Math.hypot(ship.x - 400, ship.y - 450);
+    assert.ok(moved < 2, `course change jumped ${moved}px`);
+  });
 });
 
 test("stepShipSail changes course by easing, not by jumping across the sea", () => {
