@@ -7,7 +7,7 @@
 # KEEP THIS FILE ASCII-ONLY (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 if (-not (Test-Path (Join-Path $Root ".git"))) {
   Write-Error "shop-desktop is not a git checkout; cannot auto-update."
@@ -92,15 +92,30 @@ try {
   $depsChanged = $changed | Where-Object {
     $_ -eq "package.json" -or $_ -eq "package-lock.json" -or $_ -like "labels/package*.json" -or $_ -like "scripts/postinstall-*"
   }
-  if (-not $depsChanged) {
-    Write-Host "Dependencies unchanged; skipping npm install."
-    exit 0
+  $launchChanged = $changed | Where-Object {
+    $_ -eq "scripts/install-windows.ps1" -or
+    $_ -eq "scripts/enable-tools-autostart.ps1" -or
+    $_ -eq "scripts/launch-tools.vbs" -or
+    $_ -eq "scripts/launch-widget.vbs"
   }
-  # npm.cmd is a batch file; run through cmd.exe with CreateNoWindow.
-  $npm = Invoke-NoWindow -FilePath "cmd.exe" -Arguments "/c npm install"
-  if ($npm.ExitCode -ne 0) {
-    Write-Error "npm install failed after pull: $($npm.StdErr)"
-    exit 1
+  if ($depsChanged) {
+    # npm.cmd is a batch file; run through cmd.exe with CreateNoWindow.
+    $npm = Invoke-NoWindow -FilePath "cmd.exe" -Arguments "/c npm install"
+    if ($npm.ExitCode -ne 0) {
+      Write-Error "npm install failed after pull: $($npm.StdErr)"
+      exit 1
+    }
+  } else {
+    Write-Host "Dependencies unchanged; skipping npm install."
+  }
+  # Refresh Start Menu / Desktop / Startup shortcuts when launch wiring changes so
+  # desks stop opening bare electron.exe (default Electron page) after this pull.
+  if ($launchChanged -and (Test-Path (Join-Path $Root "scripts\install-windows.ps1"))) {
+    Write-Host "Refreshing Windows shortcuts..."
+    $refresh = Invoke-NoWindow -FilePath "powershell.exe" -Arguments "-NoProfile -ExecutionPolicy Bypass -File `"$Root\scripts\install-windows.ps1`" -NoAutostart"
+    if ($refresh.ExitCode -ne 0) {
+      Write-Host "Shortcut refresh failed (non-fatal): $($refresh.StdErr)"
+    }
   }
 } finally {
   Pop-Location

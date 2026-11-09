@@ -11,9 +11,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $StartMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Black Forest Automotive"
 $Desktop = [Environment]::GetFolderPath("Desktop")
+$LaunchTools = Join-Path $Root "scripts\launch-tools.vbs"
+$LaunchWidget = Join-Path $Root "scripts\launch-widget.vbs"
 
 function Ensure-Npm {
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
@@ -91,18 +93,28 @@ $iconLocation = if (Test-Path $brandIcon) {
   ""
 }
 
-# Launch electron.exe directly: no npm.cmd, no console window flash at login.
-# entry.js routes "--widget" to the Shop Widget process and everything else to Tools.
-if (Test-Path $electronExe) {
+# Prefer VBS launchers: they always pass `electron .` with WorkingDirectory = checkout.
+# Pointing a shortcut at electron.exe with a bad/missing app path opens the default
+# Electron welcome page instead of Black Forest Tools.
+if ((Test-Path $LaunchTools) -and (Test-Path $electronExe)) {
+  $launchTarget = $LaunchTools
+  $toolsArgs = ""
+  $widgetArgs = ""
+  $widgetTarget = $LaunchWidget
+  if (-not (Test-Path $widgetTarget)) { $widgetTarget = $LaunchTools; $widgetArgs = "--widget" }
+} elseif (Test-Path $electronExe) {
+  # Fallback if VBS files are missing: electron.exe with "." (not a bare absolute PathInfo).
   $launchTarget = $electronExe
-  $toolsArgs = "`"$Root`""
-  $widgetArgs = "`"$Root`" --widget"
+  $toolsArgs = "."
+  $widgetArgs = ". --widget"
+  $widgetTarget = $electronExe
 } else {
   $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
   if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm }
   $launchTarget = $npmCmdInfo.Source
   $toolsArgs = "start"
   $widgetArgs = "run widget"
+  $widgetTarget = $launchTarget
 }
 
 New-Shortcut `
@@ -123,7 +135,7 @@ New-Shortcut `
 
 New-Shortcut `
   -Path (Join-Path $StartMenu "Black Forest Shop Widget.lnk") `
-  -TargetPath $launchTarget `
+  -TargetPath $widgetTarget `
   -Arguments $widgetArgs `
   -WorkingDirectory $Root `
   -IconLocation $iconLocation `
@@ -131,7 +143,7 @@ New-Shortcut `
 
 New-Shortcut `
   -Path (Join-Path $Desktop "Black Forest Shop Widget.lnk") `
-  -TargetPath $launchTarget `
+  -TargetPath $widgetTarget `
   -Arguments $widgetArgs `
   -WorkingDirectory $Root `
   -IconLocation $iconLocation `
