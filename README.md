@@ -136,7 +136,7 @@ npm install
 Run `scripts\bootstrap-windows.ps1` (or the compiled `Black.Forest.Tools-Setup.exe`, built by `npm run setup-windows`). It needs Git and Node on PATH (it tries `winget` when they are missing), then:
 
 - clones / fast-forwards the checkout and runs `npm install` (this also installs the Labels print server dependencies);
-- creates Start Menu + Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**. They launch `electron.exe` directly (no npm window); `--widget` selects the widget process through `src/entry.js`;
+- creates Start Menu + Desktop shortcuts for **Black Forest Tools** and **Black Forest Shop Widget**. They run `scripts\launch-tools.vbs` / `launch-widget.vbs` (no npm window), which start `electron.exe .` so Windows never opens the bare Electron welcome page; `--widget` selects the widget process through `src/entry.js`;
 - registers the `BlackForestShopDesktopUpdate` scheduled task (every 30 minutes, hidden) that fast-forwards `main`, plus Shop → Check for desktop updates inside the app;
 - turns on **start at login** (Startup folder + `HKCU\...\Run`). Opt out with `install-windows.ps1 -NoAutostart` or `scripts\disable-tools-autostart.ps1`.
 
