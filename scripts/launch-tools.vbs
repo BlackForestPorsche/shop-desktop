@@ -8,8 +8,8 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 root = fso.GetAbsolutePathName(fso.GetParentFolderName(WScript.ScriptFullName) & "\..")
 electron = root & "\node_modules\electron\dist\electron.exe"
 If Not fso.FileExists(electron) Then
-  sh.Popup "Black Forest Tools is not ready yet." & vbCrLf & vbCrLf &
-    "From " & root & " run:" & vbCrLf & "  npm install" & vbCrLf &
+  sh.Popup "Black Forest Tools is not ready yet." & vbCrLf & vbCrLf & _
+    "From " & root & " run:" & vbCrLf & "  npm install" & vbCrLf & _
     "Or re-run Black.Forest.Tools-Setup.exe.", 0, "Black Forest Tools", 48
   WScript.Quit 1
 End If
@@ -19,7 +19,7 @@ If Not fso.FileExists(root & "\package.json") Then
 End If
 sh.CurrentDirectory = root
 ' "." makes Electron load this checkout (same as `npm start` / `electron .`).
-cmd = """"" & electron & """" ."
+cmd = """" & electron & """ ."
 For i = 0 To WScript.Arguments.Count - 1
   cmd = cmd & " " & QuoteArg(WScript.Arguments(i))
 Next
