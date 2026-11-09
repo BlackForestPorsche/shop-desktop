@@ -81,9 +81,13 @@ try {
   Write-Host "  Disable login start: scripts\disable-tools-autostart.ps1"
   Write-Host ""
   Write-Host "Launching Black Forest Tools..."
+  $launchTools = Join-Path $Target "scripts\launch-tools.vbs"
   $electronExe = Join-Path $Target "node_modules\electron\dist\electron.exe"
-  if (Test-Path $electronExe) {
-    Start-Process -FilePath $electronExe -ArgumentList "`"$Target`"" -WorkingDirectory $Target
+  if (Test-Path $launchTools) {
+    # Same path as Start Menu shortcuts: VBS runs electron with "." as the app.
+    Start-Process -FilePath "wscript.exe" -ArgumentList "//nologo `"$launchTools`"" -WorkingDirectory $Target
+  } elseif (Test-Path $electronExe) {
+    Start-Process -FilePath $electronExe -ArgumentList "." -WorkingDirectory $Target
   } else {
     $npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue)
     if (-not $npmCmd) { $npmCmd = Get-Command npm }

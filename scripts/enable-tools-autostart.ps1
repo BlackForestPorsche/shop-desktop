@@ -6,11 +6,12 @@
 # Opt out: scripts\disable-tools-autostart.ps1
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $StartupDir = [Environment]::GetFolderPath("Startup")
 $ShortcutPath = Join-Path $StartupDir "Black Forest Tools.lnk"
 $RunKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $RunValueName = "BlackForestTools"
+$LaunchTools = Join-Path $Root "scripts\launch-tools.vbs"
 
 function New-Shortcut {
   param(
@@ -36,9 +37,14 @@ $brandIcon = Join-Path $Root "assets\icon.ico"
 $npmCmdInfo = Get-Command npm.cmd -ErrorAction SilentlyContinue
 if (-not $npmCmdInfo) { $npmCmdInfo = Get-Command npm -ErrorAction SilentlyContinue }
 
-if (Test-Path $electronExe) {
+if ((Test-Path $LaunchTools) -and (Test-Path $electronExe)) {
+  # VBS launcher always runs `electron .` so login never opens the default Electron page.
+  $target = $LaunchTools
+  $arguments = ""
+  $iconLocation = if (Test-Path $brandIcon) { $brandIcon } else { "$electronExe,0" }
+} elseif (Test-Path $electronExe) {
   $target = $electronExe
-  $arguments = "`"$Root`""
+  $arguments = "."
   $iconLocation = if (Test-Path $brandIcon) { $brandIcon } else { "$electronExe,0" }
 } elseif ($npmCmdInfo) {
   $target = $npmCmdInfo.Source
@@ -58,7 +64,14 @@ New-Shortcut `
   -Description "Open Black Forest Tools at login"
 
 # Run key uses the same target so logon still works if Startup folder is cleaned.
-$runCommand = if ($arguments) { "`"$target`" $arguments" } else { "`"$target`"" }
+# .vbs needs wscript.exe explicitly — a bare .vbs path is unreliable in HKCU Run.
+$runCommand = if ($target.ToLowerInvariant().EndsWith(".vbs")) {
+  if ($arguments) { "wscript.exe //nologo `"$target`" $arguments" } else { "wscript.exe //nologo `"$target`"" }
+} elseif ($arguments) {
+  "`"$target`" $arguments"
+} else {
+  "`"$target`""
+}
 if (-not (Test-Path $RunKeyPath)) {
   New-Item -Path $RunKeyPath -Force | Out-Null
 }
