@@ -52,43 +52,51 @@ test("upgrades respect caps and never offer a capped refit", () => {
   assert.equal(c.applyUpgrade(c.createPlayerStats(), "twin").stats.shots, 2);
 });
 
-test("steerPlayer: A turns the nose left, D turns it right, W sails ahead", () => {
-  const bounds = { minX: 0, maxX: 4000, minY: 0, maxY: 4000 };
-  const stats = c.createPlayerStats();
-  const ship = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 0 };
-  for (let i = 0; i < 24; i++) c.steerPlayer(ship, { up: true }, 0.05, bounds, stats);
-  assert.ok(ship.vy < -20, "W moves along the nose, which starts facing up");
-  const yaw0 = ship.heading;
-  for (let i = 0; i < 12; i++) c.steerPlayer(ship, { up: true, left: true }, 0.05, bounds, stats);
-  const leftTurn = Math.atan2(Math.sin(ship.heading - yaw0), Math.cos(ship.heading - yaw0));
-  assert.ok(leftTurn > 0.05, `A turns left, got ${leftTurn}`);
-  assert.ok(c.headingForward(ship.heading).x < -0.05, "after A the nose points screen-left");
-
-  const other = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 0 };
-  for (let i = 0; i < 8; i++) c.steerPlayer(other, { up: true, right: true }, 0.05, bounds, stats);
-  const rightTurn = Math.atan2(Math.sin(other.heading), Math.cos(other.heading));
-  assert.ok(rightTurn < -0.05, `D turns right, got ${rightTurn}`);
-});
-
-test("helm gets way on quickly and the keel follows a left turn", () => {
+test("steerPlayer sails the screen: W up, S down, A left, D right, no yaw", () => {
   const bounds = { minX: 0, maxX: 8000, minY: 0, maxY: 8000 };
   const stats = c.createPlayerStats();
-  const ship = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 0 };
   const dt = 1 / 60;
-  for (let i = 0; i < 15; i++) c.steerPlayer(ship, { up: true }, dt, bounds, stats);
-  const early = Math.hypot(ship.vx, ship.vy);
-  assert.ok(early > stats.speed * 0.55, `W should already be making way, got ${early.toFixed(1)}`);
-  assert.ok(ship.vy < 0, "ahead is still screen-up");
-  for (let i = 0; i < 30; i++) c.steerPlayer(ship, { up: true }, dt, bounds, stats);
-  const yaw0 = ship.heading;
-  for (let i = 0; i < 18; i++) c.steerPlayer(ship, { up: true, left: true }, dt, bounds, stats);
-  const turned = Math.atan2(Math.sin(ship.heading - yaw0), Math.cos(ship.heading - yaw0));
-  assert.ok(turned > 0.4, `A while moving forward yaws left, got ${turned.toFixed(2)}`);
-  const nose = c.headingForward(ship.heading);
-  assert.ok(nose.x < -0.2, "nose is screen-left");
-  const speed = Math.hypot(ship.vx, ship.vy) || 1;
-  const align = (ship.vx * nose.x + ship.vy * nose.y) / speed;
-  assert.ok(align > 0.82, `keel follows the bow, align ${align.toFixed(2)}`);
+
+  function sail(input, frames) {
+    const ship = { x: 2000, y: 2000, vx: 0, vy: 0, facing: 1, heading: 1.2 };
+    for (let i = 0; i < frames; i++) c.steerPlayer(ship, input, dt, bounds, stats);
+    return ship;
+  }
+
+  const up = sail({ up: true }, 20);
+  assert.ok(up.vy < -stats.speed * 0.75, `W sails up, vy ${up.vy.toFixed(1)}`);
+  assert.ok(Math.abs(up.vx) < 8, `W stays on x, vx ${up.vx.toFixed(1)}`);
+  assert.ok(up.y < 2000 - 30, "W moves up the screen");
+  assert.ok(Math.abs(c.headingForward(up.heading).y + 1) < 0.05, "bow points up");
+  assert.ok(Math.abs(c.headingForward(up.heading).x) < 0.05, "W does not yaw the bow");
+
+  const down = sail({ down: true }, 20);
+  assert.ok(down.vy > stats.speed * 0.75, `S sails down, vy ${down.vy.toFixed(1)}`);
+  assert.ok(Math.abs(down.vx) < 8, "S stays on x");
+  assert.ok(down.y > 2000 + 30, "S moves down the screen");
+  assert.ok(c.headingForward(down.heading).y > 0.95, "bow points down");
+
+  const left = sail({ left: true }, 20);
+  assert.ok(left.vx < -stats.speed * 0.75, `A sails left, vx ${left.vx.toFixed(1)}`);
+  assert.ok(Math.abs(left.vy) < 8, `A stays on y, vy ${left.vy.toFixed(1)}`);
+  assert.ok(left.x < 2000 - 30, "A moves left on the screen");
+  assert.ok(c.headingForward(left.heading).x < -0.95, "bow points left on the first sail, not after a turn");
+
+  const right = sail({ right: true }, 20);
+  assert.ok(right.vx > stats.speed * 0.75, `D sails right, vx ${right.vx.toFixed(1)}`);
+  assert.ok(Math.abs(right.vy) < 8, "D stays on y");
+  assert.ok(right.x > 2000 + 30, "D moves right on the screen");
+  assert.ok(c.headingForward(right.heading).x > 0.95, "bow points right");
+
+  const snap = { x: 2000, y: 2000, vx: 0, vy: -100, facing: 1, heading: 0 };
+  c.steerPlayer(snap, { left: true }, dt, bounds, stats);
+  assert.ok(c.headingForward(snap.heading).x < -0.95, "A points the bow left on the first frame");
+  assert.ok(snap.vx < 0, "A starts moving left immediately");
+
+  const diagonal = sail({ up: true, right: true }, 20);
+  assert.ok(diagonal.vx > stats.speed * 0.4 && diagonal.vy < -stats.speed * 0.4, "W+D sails up-right");
+  const nose = c.headingForward(diagonal.heading);
+  assert.ok(nose.x > 0.5 && nose.y < -0.5, "bow follows the diagonal, not a yaw from up");
 });
 
 test("steerPlayer stays inside the water band", () => {

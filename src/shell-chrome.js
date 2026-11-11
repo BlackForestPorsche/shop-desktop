@@ -5,8 +5,8 @@
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
  * - Ships sail, fire, collide, and sink; sunk hulls respawn toward the idle target.
  *   Idle-only people get this forever: no prompts, no pressure to play.
- * - Pirate combat (opt-in): click a ship to take the helm. W sails ahead,
- *   A turns the nose left, D turns it right, click fires. Waves escalate,
+ * - Pirate combat (opt-in): click a ship to take the helm. W sails up,
+ *   S down, A left, D right. No yaw. Click fires. Waves escalate,
  *   bosses every 5th wave, hazards, and separate sea events (fog, squall,
  *   broadside, kraken, supply, boarding). Doubloons buy desk upgrades.
  *   Overlay dismisses on a click on empty water only (never hover, never keys).
@@ -48,9 +48,9 @@ const LAUNCH_FLEET = 3;
 const MAX_CANVAS_PIXELS = 8_500_000;
 
 const HINT_AMBIENT = "Click to return to the shop";
-const HINT_PLAY = "W sails ahead · A turns left · D turns right · Click to fire · Space nearest · Esc stands down";
+const HINT_PLAY = "W sails up · S down · A sails left · D right · Click to fire · Space nearest · Esc stands down";
 
-/** Ship helm. A turns the nose left. D turns it right. W ahead, S astern. */
+/** Screen sail. W sails up. S sails down. A sails left. D sails right. No yaw. */
 const KEY_MAP = Object.freeze({
   KeyA: "left",
   ArrowLeft: "left",

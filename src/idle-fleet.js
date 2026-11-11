@@ -92,13 +92,34 @@ function pickSailMotion(rng = Math.random) {
   };
 }
 
+/** Screen directions for idle hulls: right, left, up, down. No in-between yaw. */
+const SAIL_DIRS = Object.freeze([
+  { x: 1, y: 0 },
+  { x: -1, y: 0 },
+  { x: 0, y: -1 },
+  { x: 0, y: 1 },
+]);
+
+/**
+ * Bow for a cardinal aim. Heading 0 is screen-up. Uses +0 on an unused axis
+ * so a pure left/right sail does not wrap through π.
+ * @param {number} ax
+ * @param {number} ay
+ */
+function headingForAim(ax, ay) {
+  const sx = ax < 0 ? -1 : ax > 0 ? 1 : 0;
+  const sy = ay < 0 ? -1 : ay > 0 ? 1 : 0;
+  return Math.atan2(-sx, sy === 0 ? 0 : -sy);
+}
+
 /**
  * Sail a ship across the sea. Position only moves by integrating velocity.
- * Course changes ease toward a new aim; they never assign a new x/y.
+ * A new course is one screen direction (up, down, left, or right), taken
+ * at once. The hull never yaws through the angles in between.
  * @param {{
  *   x: number, y: number, vx: number, vy?: number, facing: number,
  *   speed: number, turnTimer: number, sinking?: number,
- *   aimVx?: number, aimVy?: number,
+ *   aimVx?: number, aimVy?: number, heading?: number,
  * }} ship
  * @param {number} dt seconds
  * @param {{ minX: number, maxX: number, minY: number, maxY: number }} bounds
@@ -122,10 +143,12 @@ function stepShipSail(ship, dt, bounds, rng = Math.random) {
   ship.turnTimer -= step;
   if (ship.turnTimer <= 0) {
     ship.turnTimer = 2.8 + rng() * 6;
-    if (rng() < 0.45) ship.facing *= -1;
-    const climb = (rng() - 0.5) * 2;
-    ship.aimVx = ship.facing * speed;
-    ship.aimVy = climb * speed * 0.42;
+    const dir = SAIL_DIRS[Math.min(SAIL_DIRS.length - 1, Math.floor(rng() * SAIL_DIRS.length))];
+    ship.aimVx = dir.x * speed;
+    ship.aimVy = dir.y * speed;
+    ship.vx = ship.aimVx;
+    ship.vy = ship.aimVy;
+    if (dir.x !== 0) ship.facing = dir.x;
   }
 
   // Ease velocity toward the aim. One frame cannot cross the sea.
@@ -139,25 +162,31 @@ function stepShipSail(ship, dt, bounds, rng = Math.random) {
     ship.x = bounds.minX;
     ship.facing = 1;
     ship.aimVx = speed;
+    ship.aimVy = 0;
     if (ship.vx < 0) ship.vx = 0;
     ship.turnTimer = Math.max(ship.turnTimer, 1.6);
   } else if (ship.x > bounds.maxX) {
     ship.x = bounds.maxX;
     ship.facing = -1;
     ship.aimVx = -speed;
+    ship.aimVy = 0;
     if (ship.vx > 0) ship.vx = 0;
     ship.turnTimer = Math.max(ship.turnTimer, 1.6);
   }
 
   if (ship.y < bounds.minY) {
     ship.y = bounds.minY;
-    ship.aimVy = Math.abs(ship.aimVy) || speed * 0.2;
+    ship.aimVx = 0;
+    ship.aimVy = speed;
     if (ship.vy < 0) ship.vy = 0;
   } else if (ship.y > bounds.maxY) {
     ship.y = bounds.maxY;
-    ship.aimVy = -Math.abs(ship.aimVy) || -speed * 0.2;
+    ship.aimVx = 0;
+    ship.aimVy = -speed;
     if (ship.vy > 0) ship.vy = 0;
   }
+  ship.heading = headingForAim(ship.aimVx, ship.aimVy);
+  if (ship.aimVx !== 0) ship.facing = ship.aimVx > 0 ? 1 : -1;
   return ship;
 }
 
@@ -216,6 +245,8 @@ module.exports = {
   growFleet,
   pickSailMotion,
   stepShipSail,
+  headingForAim,
+  SAIL_DIRS,
   applyCannonHit,
   stepShipSink,
   shipsCollide,

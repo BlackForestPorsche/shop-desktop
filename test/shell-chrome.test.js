@@ -200,7 +200,8 @@ test("combat sails the whole overlay, not a lower water band", () => {
   assert.equal(/h \* 0\.42/.test(source), false);
   assert.match(source, /Whole overlay is the sea/);
   assert.match(source, /combat\.seaBounds\(window\.innerWidth, window\.innerHeight\)/);
-  assert.match(source, /A turns the nose left/);
+  assert.match(source, /A sails left/);
+  assert.equal(/turns the nose/.test(source), false);
 });
 
 test("combat has sound and the screensaver stays quiet", () => {
