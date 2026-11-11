@@ -21,6 +21,7 @@ const { fetchShopStamp, stampFromHtml } = require("./updates");
 const {
   appRootFromMain,
   applyGitUpdate,
+  captureLaunchSha,
   checkShellUpdate,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
@@ -96,6 +97,9 @@ const BOOT_SYNC_TIMEOUT_MS = 8_000;
 const FETCH_TIMEOUT_MS = 20_000;
 const FOCUS_CHECK_GAP_MS = 60 * 1000;
 const APP_ROOT = appRootFromMain(__dirname);
+// SHA this process started on. A later git pull (scheduled task) moves HEAD
+// without reloading this window; Check for updates compares against this.
+const LAUNCH_SHA = captureLaunchSha(APP_ROOT);
 const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
 const GATE_COOKIE = "bf_shop_gate";
 
@@ -429,6 +433,7 @@ async function checkForShellUpdate({ interactive }) {
       root: APP_ROOT,
       currentVersion: app.getVersion(),
       packaged: app.isPackaged,
+      launchedSha: LAUNCH_SHA,
     });
 
     if (!info.available) {
@@ -453,22 +458,27 @@ async function checkForShellUpdate({ interactive }) {
 
     if (info.mode === "git") {
       const gitRoot = info.root || APP_ROOT;
+      const restartOnly = info.restartOnly === true;
       const choice = await dialog.showMessageBox(mainWindow, {
         type: "info",
-        buttons: ["Update and restart", "Later"],
+        buttons: [restartOnly ? "Restart" : "Update and restart", "Later"],
         defaultId: 0,
         cancelId: 1,
         title: "Desktop app update",
-        message: "A newer desktop app is available.",
-        detail: [
-          "This updates the window in place (git pull) — not a Portable download.",
-          info.shortCurrent && info.shortUpstream
-            ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
-            : "",
-          info.summary ? `\n${info.summary.split("\n").slice(0, 8).join("\n")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        message: restartOnly
+          ? "Restart to finish the desktop update."
+          : "A newer desktop app is available.",
+        detail: restartOnly
+          ? "The Tools folder already matches GitHub. This window is still the previous copy."
+          : [
+              "This updates the window in place (git pull) — not a Portable download.",
+              info.shortCurrent && info.shortUpstream
+                ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
+                : "",
+              info.summary ? `\n${info.summary.split("\n").slice(0, 8).join("\n")}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
       });
       shellPromptOpen = false;
       if (choice.response !== 0) {
@@ -478,7 +488,7 @@ async function checkForShellUpdate({ interactive }) {
       }
 
       try {
-        applyGitUpdate(gitRoot);
+        if (!restartOnly) applyGitUpdate(gitRoot);
       } catch (error) {
         await dialog.showMessageBox(mainWindow, {
           type: "warning",
@@ -522,7 +532,9 @@ async function checkForShellUpdate({ interactive }) {
       message: `Version ${info.remoteVersion} is available.`,
       detail: [
         `You are on ${info.currentVersion}.`,
-        "This install has no shop-desktop git checkout, so the update is a Portable download (bootstrap only).",
+        info.gitError
+          ? "Git on this PC could not reach GitHub, so this is the published Windows release."
+          : "This install has no shop-desktop git checkout, so the update is a Portable download (bootstrap only).",
         "Prefer Windows Setup / a git clone for in-place updates.",
         info.assetName ? `File: ${info.assetName}` : "",
       ]

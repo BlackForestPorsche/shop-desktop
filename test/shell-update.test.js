@@ -23,6 +23,9 @@ const {
   relaunchAfterGitUpdate,
   checkoutElectronPath,
   checkShellUpdate,
+  pickInstallerAsset,
+  gitConfigArgs,
+  resolveGitBin,
   PENDING_NPM_FLAG,
 } = require("../src/shell-update");
 
@@ -194,7 +197,9 @@ test("checkShellUpdate prefers git in place even when packaged=true", async () =
   const root = path.join(__dirname, "..");
   const info = await checkShellUpdate({
     root,
-    currentVersion: "0.0.1",
+    // Newer than any published release, so a current checkout stays on git
+    // instead of being replaced by the Windows installer download.
+    currentVersion: "99.0.0",
     packaged: true,
     deskRoots: [],
   });
@@ -213,6 +218,151 @@ test("checkShellUpdate offers Portable release only without a git remote", async
       deskRoots: [],
     });
     assert.equal(info.mode, "release");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("gitConfigArgs clears a stale GitHub token and trusts the checkout", () => {
+  const args = gitConfigArgs("/tmp/shop desktop");
+  assert.ok(args.includes("safe.directory=*"));
+  assert.ok(args.includes("credential.helper="));
+  assert.ok(args.includes("http.https://github.com/.extraheader="));
+  assert.ok(args.some((arg) => arg.startsWith("safe.directory=/tmp/shop desktop")));
+});
+
+test("resolveGitBin finds Git for Windows when PATH is stale", () => {
+  const exe = "C:\\Program Files\\Git\\cmd\\git.exe";
+  assert.equal(
+    resolveGitBin({
+      platform: "win32",
+      env: { ProgramFiles: "C:\\Program Files", Path: "" },
+      exists: (candidate) => candidate === exe,
+    }),
+    exe,
+  );
+  assert.equal(resolveGitBin({ platform: "linux" }), "git");
+});
+
+test("pickInstallerAsset prefers the packaged installer exe", () => {
+  const asset = pickInstallerAsset([
+    { name: "Black.Forest.Tools-Portable-1.5.32.exe" },
+    { name: "Black.Forest.Tools-Setup.exe" },
+    { name: "Black.Forest.Tools-Packaged-Installer-1.5.32.exe" },
+  ]);
+  assert.equal(asset.name, "Black.Forest.Tools-Packaged-Installer-1.5.32.exe");
+});
+
+test("checkShellUpdate asks for a restart when the folder moved after launch", async () => {
+  const launched = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const next = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const info = await checkShellUpdate({
+    root: "/tmp/desk-tools",
+    currentVersion: "1.5.31",
+    deskRoots: [],
+    launchedSha: launched,
+    hasRemote: () => true,
+    checkGit: async () => ({
+      mode: "git",
+      available: false,
+      current: next,
+      upstream: next,
+    }),
+  });
+  assert.equal(info.mode, "git");
+  assert.equal(info.available, true);
+  assert.equal(info.restartOnly, true);
+});
+
+test("checkShellUpdate reports the published release when git fetch throws", async () => {
+  const info = await checkShellUpdate({
+    root: "/tmp/desk-tools",
+    currentVersion: "1.5.31",
+    packaged: true,
+    deskRoots: [],
+    hasRemote: () => true,
+    checkGit: async () => {
+      throw new Error("Authentication failed for https://github.com/BlackForestPorsche/shop-desktop.git");
+    },
+    checkRelease: async (version, opts) => {
+      assert.equal(version, "1.5.31");
+      assert.equal(opts.preferInstaller, true);
+      return {
+        mode: "release",
+        available: true,
+        currentVersion: version,
+        remoteVersion: "1.5.33",
+        assetName: "Black.Forest.Tools-Packaged-Installer-1.5.33.exe",
+      };
+    },
+  });
+  assert.equal(info.mode, "release");
+  assert.equal(info.available, true);
+  assert.equal(info.remoteVersion, "1.5.33");
+  assert.match(info.gitError, /Authentication failed/);
+});
+
+test("packaged Windows install sees a newer release when the git folder is already current", async () => {
+  const info = await checkShellUpdate({
+    root: "/tmp/desk-tools",
+    currentVersion: "1.5.31",
+    packaged: true,
+    deskRoots: [],
+    hasRemote: () => true,
+    checkGit: async () => ({
+      mode: "git",
+      available: false,
+      current: "cccccccccccccccccccccccccccccccccccccccc",
+      upstream: "cccccccccccccccccccccccccccccccccccccccc",
+    }),
+    checkRelease: async (_version, opts) => {
+      assert.equal(opts.preferInstaller, true);
+      return {
+        mode: "release",
+        available: true,
+        remoteVersion: "1.5.33",
+        assetName: "Black.Forest.Tools-Packaged-Installer-1.5.33.exe",
+      };
+    },
+  });
+  assert.equal(info.mode, "release");
+  assert.equal(info.available, true);
+  assert.equal(info.remoteVersion, "1.5.33");
+});
+
+test("a stale GitHub extraheader no longer hides the published release", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bf-stale-token-"));
+  try {
+    const git = (args) => {
+      const result = spawnSync("git", ["-C", tmp, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+    };
+    git(["init"]);
+    git(["config", "user.email", "desk@example.com"]);
+    git(["config", "user.name", "Desk"]);
+    fs.writeFileSync(path.join(tmp, "README"), "x\n");
+    git(["add", "README"]);
+    git(["commit", "-m", "init"]);
+    git(["remote", "add", "origin", "https://github.com/BlackForestPorsche/shop-desktop.git"]);
+    const token = Buffer.from("x:badtoken").toString("base64");
+    git(["config", "--local", "http.https://github.com/.extraheader", `AUTHORIZATION: basic ${token}`]);
+    const info = await checkShellUpdate({
+      root: tmp,
+      currentVersion: "1.5.31",
+      packaged: false,
+      deskRoots: [],
+    });
+    // Without the header clear, fetch throws and the check never sees main.
+    assert.equal(info.available, true);
+    if (info.mode === "git") {
+      assert.notEqual(info.current, info.upstream);
+    } else {
+      assert.equal(info.mode, "release");
+      assert.equal(compareSemver(info.remoteVersion, "1.5.31") > 0, true);
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

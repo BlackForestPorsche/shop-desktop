@@ -39,6 +39,7 @@ const { electronLaunchSpec } = require("./widget-launch");
 const {
   appRootFromMain,
   applyGitUpdate,
+  captureLaunchSha,
   checkShellUpdate,
   isGitInstall,
   resolveGitUpdateRoot,
@@ -50,6 +51,7 @@ const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
 const WIDGET_HTML = path.join(__dirname, "..", "assets", "widget.html");
 const STATE_NAME = "widget-window-state.json";
 const APP_ROOT = appRootFromMain(__dirname);
+const LAUNCH_SHA = captureLaunchSha(APP_ROOT);
 const DEFAULT_POLL_MS = 60_000;
 const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 const VIEW_IDS = new Set(Api.WIDGET_VIEWS.map((v) => v.id));
@@ -442,6 +444,7 @@ async function checkForShellUpdate({ interactive }) {
       root: APP_ROOT,
       currentVersion: app.getVersion(),
       packaged: app.isPackaged,
+      launchedSha: LAUNCH_SHA,
     });
 
     if (!info.available) {
@@ -468,8 +471,9 @@ async function checkForShellUpdate({ interactive }) {
           cancelId: 1,
           title: "Desktop update",
           message: `Version ${info.remoteVersion} is available.`,
-          detail:
-            "No shop-desktop git checkout found. Portable download is bootstrap only — prefer Windows Setup / a git clone for in-place updates.",
+          detail: info.gitError
+          ? "Git on this PC could not reach GitHub, so this is the published Windows release."
+          : "No shop-desktop git checkout found. Portable download is bootstrap only — prefer Windows Setup / a git clone for in-place updates.",
         });
         if (choice.response === 0 && info.downloadUrl) {
           shell.openExternal(info.downloadUrl).catch(() => {});
@@ -480,26 +484,31 @@ async function checkForShellUpdate({ interactive }) {
 
     if (!win || win.isDestroyed()) return;
     const gitRoot = info.root || APP_ROOT;
+    const restartOnly = info.restartOnly === true;
     const choice = await dialog.showMessageBox(win, {
       type: "info",
-      buttons: ["Update and restart", "Later"],
+      buttons: [restartOnly ? "Restart" : "Update and restart", "Later"],
       defaultId: 0,
       cancelId: 1,
       title: "Desktop update",
-      message: "A newer desktop app is available.",
-      detail: [
-        "Pulls shop-desktop in place (git pull), then restarts this widget — not a Portable download.",
-        info.shortCurrent && info.shortUpstream
-          ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      message: restartOnly
+        ? "Restart to finish the desktop update."
+        : "A newer desktop app is available.",
+      detail: restartOnly
+        ? "The Tools folder already matches GitHub. This window is still the previous copy."
+        : [
+            "Pulls shop-desktop in place (git pull), then restarts this widget — not a Portable download.",
+            info.shortCurrent && info.shortUpstream
+              ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
     });
     if (choice.response !== 0) return;
 
     try {
-      applyGitUpdate(gitRoot);
+      if (!restartOnly) applyGitUpdate(gitRoot);
     } catch (error) {
       await dialog.showMessageBox(win, {
         type: "warning",
