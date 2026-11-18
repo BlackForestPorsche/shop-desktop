@@ -70,6 +70,7 @@ test("followDecision respects toggle, events, and debounce", () => {
       enabled: true,
       payload: { ro: "1", event: "open" },
       lastRo: "1",
+      lastTab: "",
       lastAtMs: 1000,
       nowMs: 1500,
     }).reason,
@@ -78,13 +79,73 @@ test("followDecision respects toggle, events, and debounce", () => {
   assert.equal(
     followDecision({
       enabled: true,
-      payload: { ro: "1", event: "create" },
+      payload: { ro: "1", event: "open" },
       lastRo: "1",
+      lastTab: "",
       lastAtMs: 1000,
       nowMs: 4000,
     }).navigate,
+    false,
+  );
+  assert.equal(
+    followDecision({
+      enabled: true,
+      payload: { ro: "1", event: "open" },
+      lastRo: "1",
+      lastTab: "",
+      lastAtMs: 1000,
+      nowMs: 4000,
+    }).reason,
+    "unchanged",
+  );
+  assert.equal(
+    followDecision({
+      enabled: true,
+      payload: { ro: "2", event: "open" },
+      lastRo: "1",
+      lastTab: "",
+      lastAtMs: 1000,
+      nowMs: 1100,
+    }).navigate,
     true,
   );
+  assert.equal(
+    followDecision({
+      enabled: true,
+      payload: { ro: "1", event: "open", tab: "kits" },
+      lastRo: "1",
+      lastTab: "notes",
+      lastAtMs: 1000,
+      nowMs: 1100,
+    }).navigate,
+    true,
+  );
+});
+
+test("createFollowState skips reload for duplicate RO and tab", () => {
+  const state = createFollowState({ readEnabled: () => true, writeEnabled: () => {} });
+  const payload = {
+    ok: true,
+    ro: "1042",
+    event: "open",
+    owner: "",
+    year: "",
+    model: "",
+    job: "",
+    plate: "",
+    tab: "notes",
+    source: "alldata",
+    at: "",
+  };
+  assert.equal(state.decide(payload, { nowMs: 1000 }).navigate, true);
+  const dup = state.decide(payload, { nowMs: 1500 });
+  assert.equal(dup.navigate, false);
+  assert.equal(dup.reason, "debounced");
+  const stale = state.decide(payload, { nowMs: 9000 });
+  assert.equal(stale.navigate, false);
+  assert.equal(stale.reason, "unchanged");
+  const otherRo = { ...payload, ro: "1043" };
+  assert.equal(state.decide(otherRo, { nowMs: 9050 }).navigate, true);
 });
 
 test("createFollowState persists enabled flag", () => {

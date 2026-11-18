@@ -127,12 +127,13 @@ function parseFollowBody(text) {
 
 /**
  * Decide whether Tools should navigate for this Follow ping.
- * @param {{ enabled: boolean, payload: { ro: string, event: string }, lastRo?: string, lastAtMs?: number, nowMs?: number, debounceMs?: number }} args
+ * @param {{ enabled: boolean, payload: { ro: string, event: string, tab?: string }, lastRo?: string, lastTab?: string, lastAtMs?: number, nowMs?: number, debounceMs?: number }} args
  */
 function followDecision({
   enabled,
   payload,
   lastRo = "",
+  lastTab = "",
   lastAtMs = 0,
   nowMs = Date.now(),
   debounceMs = DEBOUNCE_MS,
@@ -146,10 +147,17 @@ function followDecision({
   if (!NAV_EVENTS.has(payload.event)) {
     return { navigate: false, reason: "event_ignored" };
   }
-  if (payload.ro === lastRo && nowMs - lastAtMs < debounceMs) {
+  const tab = normalizeTab(payload.tab) || "";
+  if (payload.ro !== lastRo) {
+    return { navigate: true, reason: "open_job" };
+  }
+  if (tab !== lastTab) {
+    return { navigate: true, reason: "open_job" };
+  }
+  if (nowMs - lastAtMs < debounceMs) {
     return { navigate: false, reason: "debounced" };
   }
-  return { navigate: true, reason: "open_job" };
+  return { navigate: false, reason: "unchanged" };
 }
 
 function createFollowState({ userDataDir, readEnabled, writeEnabled } = {}) {
@@ -158,6 +166,7 @@ function createFollowState({ userDataDir, readEnabled, writeEnabled } = {}) {
       ? Boolean(readEnabled())
       : readFollowEnabled(userDataDir);
   let lastRo = "";
+  let lastTab = "";
   let lastAtMs = 0;
 
   return {
@@ -185,11 +194,20 @@ function createFollowState({ userDataDir, readEnabled, writeEnabled } = {}) {
         enabled,
         payload,
         lastRo,
+        lastTab,
         lastAtMs,
         nowMs: opts.nowMs,
       });
+      const tab = payload.tab || "";
       if (decision.navigate) {
         lastRo = payload.ro;
+        lastTab = tab;
+        lastAtMs = opts.nowMs != null ? opts.nowMs : Date.now();
+      } else if (
+        payload.ro === lastRo &&
+        tab === lastTab &&
+        (decision.reason === "debounced" || decision.reason === "unchanged")
+      ) {
         lastAtMs = opts.nowMs != null ? opts.nowMs : Date.now();
       }
       return decision;
