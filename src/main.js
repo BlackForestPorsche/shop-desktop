@@ -25,9 +25,22 @@ const {
   checkShellUpdate,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
-const { openUpdateProgress } = require("./update-progress");
+const { openUpdateProgress, openStartingNotice } = require("./update-progress");
+const {
+  upToDateDetail,
+  gitUpdateDetail,
+  updateFailedDetail,
+  releaseUpdateDetail,
+  aboutDetail,
+} = require("./dialog-copy");
+const { getRevision } = require("./revision");
 const { buildAppMenuTemplate } = require("./app-menu");
-const { formatLeaderboardDetail } = require("./pirate-board");
+const {
+  formatLeaderboardDetail,
+  formatDeskBoardDetail,
+  boardNotPublished,
+} = require("./pirate-board");
+const { deskBoards, SAVE_KEY: PIRATE_SAVE_KEY } = require("./idle-combat");
 const { pirateBoardFromDesk } = require("./pirate-board-sync");
 const {
   attachPirateShellOverlay,
@@ -442,12 +455,9 @@ async function checkForShellUpdate({ interactive }) {
       if (interactive) {
         await dialog.showMessageBox(mainWindow, {
           type: "info",
-          title: "Desktop app",
-          message: "This desktop app is up to date.",
-          detail:
-            info.mode === "git"
-              ? `Your ${process.platform === "win32" ? "Windows Setup" : "Manjaro"} install already matches the latest shop-desktop on GitHub.`
-              : `You are on version ${app.getVersion()}. Portable builds only download a new .exe when there is no shop-desktop git checkout.`,
+          title: "Black Forest Tools",
+          message: "Black Forest Tools is up to date",
+          detail: upToDateDetail(info.mode, app.getVersion(), process.platform),
         });
       }
       return;
@@ -466,21 +476,11 @@ async function checkForShellUpdate({ interactive }) {
         buttons: [restartOnly ? "Restart" : "Update and restart", "Later"],
         defaultId: 0,
         cancelId: 1,
-        title: "Desktop app update",
+        title: "Black Forest Tools",
         message: restartOnly
-          ? "Restart to finish the desktop update."
-          : "A newer desktop app is available.",
-        detail: restartOnly
-          ? "The Tools folder already matches GitHub. This window is still the previous copy."
-          : [
-              "This updates the window in place (git pull) — not a Portable download.",
-              info.shortCurrent && info.shortUpstream
-                ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
-                : "",
-              info.summary ? `\n${info.summary.split("\n").slice(0, 8).join("\n")}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n"),
+          ? "Restart Black Forest Tools to finish updating"
+          : "An update for Black Forest Tools is ready",
+        detail: gitUpdateDetail(info, { restartOnly }),
       });
       shellPromptOpen = false;
       if (choice.response !== 0) {
@@ -501,19 +501,9 @@ async function checkForShellUpdate({ interactive }) {
       } catch (error) {
         await dialog.showMessageBox(mainWindow, {
           type: "warning",
-          title: "Desktop app update",
-          message: "Couldn't apply the desktop app update.",
-          detail: [
-            error instanceof Error ? error.message : "The update failed.",
-            "",
-            "You can update by hand:",
-            process.platform === "win32" ? "cd %USERPROFILE%\\shop-desktop" : "cd ~/shop-desktop",
-            "git pull",
-            "npm install",
-            process.platform === "linux" ? "bash scripts/ensure-electron.sh" : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          title: "Black Forest Tools",
+          message: "The update did not finish",
+          detail: updateFailedDetail(error, process.platform),
         });
         return;
       }
@@ -537,18 +527,9 @@ async function checkForShellUpdate({ interactive }) {
       buttons: ["Download update", "Later"],
       defaultId: 0,
       cancelId: 1,
-      title: "Desktop app update",
-      message: `Version ${info.remoteVersion} is available.`,
-      detail: [
-        `You are on ${info.currentVersion}.`,
-        info.gitError
-          ? "Git on this PC could not reach GitHub, so this is the published Windows release."
-          : "This install has no shop-desktop git checkout, so the update is a Portable download (bootstrap only).",
-        "Prefer Windows Setup / a git clone for in-place updates.",
-        info.assetName ? `File: ${info.assetName}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      title: "Black Forest Tools",
+      message: `Black Forest Tools ${info.remoteVersion} is available`,
+      detail: releaseUpdateDetail(info),
     });
     shellPromptOpen = false;
     if (choice.response === 0 && info.downloadUrl) {
@@ -562,9 +543,13 @@ async function checkForShellUpdate({ interactive }) {
     if (interactive) {
       await dialog.showMessageBox(mainWindow, {
         type: "warning",
-        title: "Desktop app",
-        message: "Couldn't check for desktop app updates.",
-        detail: error instanceof Error ? error.message : "The check failed.",
+        title: "Black Forest Tools",
+        message: "Could not check for updates",
+        detail: [
+          "Check that this computer is online, then choose Settings → Check for updates again.",
+          "",
+          error instanceof Error ? error.message : "The check failed.",
+        ].join("\n"),
       });
     }
   } finally {
@@ -583,9 +568,9 @@ async function checkForSiteUpdate({ interactive }) {
           type: "info",
           title: "Shop site",
           message: runningStamp
-            ? "The shop site didn't say which version it is."
-            : "The window is still opening the shop site.",
-          detail: "Reload in a moment. If the unlock screen is up, you are on the site.",
+            ? "The shop site did not say which version it is"
+            : "The shop site is still opening",
+          detail: "Try again in a moment. If you can see the unlock screen, this window is on the shop site.",
         });
       }
       return;
@@ -596,8 +581,8 @@ async function checkForSiteUpdate({ interactive }) {
         await dialog.showMessageBox(mainWindow, {
           type: "info",
           title: "Shop site",
-          message: "This window is on the current shop site.",
-          detail: "Publishing the site is what updates this app. There is no separate copy to install.",
+          message: "This window shows the newest shop site",
+          detail: "The book, the lot, and the rest of the shop always come straight from the site. There is nothing to install.",
         });
       }
       return;
@@ -612,8 +597,8 @@ async function checkForSiteUpdate({ interactive }) {
       defaultId: 0,
       cancelId: 1,
       title: "Shop site updated",
-      message: "The shop site has a new version.",
-      detail: "Reload this window to pick it up. The book, the lot, and the rest of the shop stay on the site.",
+      message: "The shop site has a new version",
+      detail: "Reload this window to use it. Nothing is lost: the book, the lot, and the rest of the shop are kept on the site.",
     });
     promptOpen = false;
     if (choice.response === 0) {
@@ -629,8 +614,12 @@ async function checkForSiteUpdate({ interactive }) {
       await dialog.showMessageBox(mainWindow, {
         type: "warning",
         title: "Shop site",
-        message: "Couldn't check the shop site.",
-        detail: error instanceof Error ? error.message : "The check failed.",
+        message: "Could not reach the shop site",
+        detail: [
+          "Check that this computer is online, then try again.",
+          "",
+          error instanceof Error ? error.message : "The check failed.",
+        ].join("\n"),
       });
     }
   } finally {
@@ -781,13 +770,14 @@ const PIRATE_LAUNCH_ABORT_REASONS = new Set([
 
 function pirateAbortDetail(reason) {
   const r = String(reason || "unknown");
+  const logs = "Help → Open logs folder has the details (tools.log).";
   if (r === "canvas-2d-unavailable" || r.startsWith("draw-failed")) {
     return [
-      `Reason: ${r}`,
+      "This computer's graphics could not draw the game.",
+      "Restart Black Forest Tools and try again. The shop itself is not affected.",
       "",
-      "Canvas 2D is unavailable on this PC (GPU / driver / hardware acceleration).",
-      "Check %LOCALAPPDATA%\\blackforest-tools\\tools.log for pirate: lines.",
-      "If gpu-fallback.json exists, try deleting it or set BF_TOOLS_ENABLE_GPU=1 and restart.",
+      logs,
+      `Reason: ${r}`,
     ].join("\n");
   }
   if (
@@ -799,17 +789,18 @@ function pirateAbortDetail(reason) {
     r === "shell-overlay-failed"
   ) {
     return [
-      `Reason: ${r}`,
+      "The game could not show over the shop window. The page may still be loading.",
+      "Wait a moment, then choose Settings → Launch pirate game again.",
       "",
-      "The pirate overlay could not show on the shop window (page still loading, clipped, or shell view failed).",
-      "Tools tries in-page overlay, then a same-window shell overlay, then a separate window only as last resort.",
-      "Check tools.log for pirate: lines (Help → Open logs folder).",
+      logs,
+      `Reason: ${r}`,
     ].join("\n");
   }
   return [
-    `Reason: ${r}`,
+    "Choose Settings → Launch pirate game again. If it keeps failing, restart Black Forest Tools.",
     "",
-    "Check %LOCALAPPDATA%\\blackforest-tools\\tools.log (Help → Open logs folder).",
+    logs,
+    `Reason: ${r}`,
   ].join("\n");
 }
 
@@ -1068,17 +1059,42 @@ async function launchPirateFromSettings() {
   await showPirateAbortDialog(why);
 }
 
+/** This computer's pirate save, kept by the shop page. Null when it cannot be read. */
+async function readDeskPirateSave() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return null;
+  if (classifyUrl(win.webContents.getURL()).kind !== "shop") return null;
+  try {
+    const raw = await win.webContents.executeJavaScript(
+      `(() => { try { return localStorage.getItem(${JSON.stringify(PIRATE_SAVE_KEY)}); } catch { return null; } })()`,
+    );
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function showPirateLeaderboard() {
   const board = await pirateBoardFromDesk(null, { version: app.getVersion() });
   if (!board.ok) console.warn(`pirate: board ${board.error || "unavailable"}`);
+  let detail = formatLeaderboardDetail(board);
+  // Signed out, or a board the shop has not published, is not a fault.
+  let calm = board.ok || board.error === "locked";
+  if (boardNotPublished(board)) {
+    const columns = deskBoards(await readDeskPirateSave(), {
+      revision: app.getVersion(),
+    });
+    detail = formatDeskBoardDetail(board, columns);
+    calm = true;
+  }
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   await dialog.showMessageBox(win, {
-    type: board.ok ? "info" : "warning",
+    type: calm ? "info" : "warning",
     buttons: ["OK"],
     defaultId: 0,
     title: "Pirate leaderboard",
     message: `Pirate leaderboard · Tools ${app.getVersion()}`,
-    detail: formatLeaderboardDetail(board),
+    detail,
   });
 }
 
@@ -1149,28 +1165,11 @@ function shopMenu() {
           cancelId: 0,
           title: "About Black Forest Tools",
           message: "Black Forest Tools",
-          detail: [
-            `Version ${app.getVersion()}`,
-            "",
-            "This is a window onto shop.blackforestautomotive.com.",
-            "The book, the lot, notes, parts, crew, and Google calendar are the live shop site.",
-            "Publishing the site updates this window. Shop data is not a separate copy.",
-            "",
-            "Desktop-app changes (menus, shortcuts, this updater) come from the shop-desktop project.",
-            "A git install (Manjaro, or Windows Setup) pulls those in place and restarts. Portable download is only when there is no shop-desktop git checkout (bootstrap).",
-            "",
-            "Check for desktop updates from Settings → Check for updates.",
-            "",
-            (labelsServerHandle && labelsServerHandle.ok
-              ? `Labels service: ${labelsServerHandle.url} (${labelsServerHandle.owned ? "owned by Tools" : "adopted existing"})`
-              : "Labels service: starts with Tools (Labels → status / restart)"),
-            "LabelWriter print UX belongs on the shop site; Tools owns localhost :8080.",
-            "",
-            `Unlock is shared with the shop widgets and Black Forest Desk via ${path.dirname(sessionFilePath())}.`,
-            "Shop → Open in Firefox signed in mints a one-time shop handoff URL (keeps your default Firefox profile).",
-            "While Tools is open, Desk can import the same session from http://127.0.0.1:8788 without re-typing the PIN.",
-            "Lock shop (menu or SPA Lock) clears the shared file, revokes the widget Bearer, and this window — Desk Sync Tools then has nothing to import. Firefox’s own shop cookie may still need Lock or expiry.",
-          ].join("\n"),
+          detail: aboutDetail({
+            version: app.getVersion(),
+            revision: getRevision({ root: APP_ROOT, version: app.getVersion() }).label,
+            labelsRunning: Boolean(labelsServerHandle && labelsServerHandle.ok),
+          }),
         });
         if (choice.response === 1) {
           checkForShellUpdate({ interactive: true });
@@ -1740,9 +1739,8 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
       await dialog.showMessageBox(mainWindow, {
         type: "info",
         title: "Open in Firefox",
-        message: "Unlock the shop first.",
-        detail:
-          `Sign in with a shop widget or this window so ${sessionFilePath()} exists, then try again.`,
+        message: "Unlock the shop first",
+        detail: "Sign in on the unlock screen in this window, then choose Open in Firefox signed in again.",
       });
     }
     return { ok: false, reason: "no_session" };
@@ -1758,14 +1756,16 @@ async function openFirefoxSignedIn({ interactive = true } = {}) {
     if (interactive && mainWindow && !mainWindow.isDestroyed()) {
       const detail =
         error && error.code === "rate_limited"
-          ? "Handoff is rate-limited (10/min). Wait a minute and try again."
-          : error instanceof Error
-            ? error.message
-            : "Handoff failed.";
+          ? "Firefox was opened signed in several times in the last minute. Wait a minute and try again."
+          : [
+              "Check that Firefox is installed and this computer is online, then try again.",
+              "",
+              error instanceof Error ? error.message : "The sign-in link could not be made.",
+            ].join("\n");
       await dialog.showMessageBox(mainWindow, {
         type: "warning",
         title: "Open in Firefox",
-        message: "Could not open Firefox signed in.",
+        message: "Could not open Firefox signed in",
         detail,
       });
     }
@@ -2276,10 +2276,16 @@ if (gotLock) {
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
     // Also: shared Bearer can exist while SPA jar is empty — force exchange on boot.
     // Bounded: no network at logon (autostart) must not leave the app without a window.
+    // With no network at login the two steps below wait out their timeouts.
+    // Say so instead of showing nothing; a normal start never sees the notice.
+    const startingNotice = openStartingNotice({ BrowserWindow });
     await startupStep("gate-session", () => ensureSharedSessionFromGate(), BOOT_SYNC_TIMEOUT_MS);
     await startupStep("gate-exchange", () => exchangeSharedSessionToGate({ force: true, reload: false }), BOOT_SYNC_TIMEOUT_MS);
     try {
-      createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
+      const shopWindow = createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
+      // Closed only once the shop window is up, so the app never has zero windows.
+      shopWindow.once("show", () => startingNotice.close());
+      shopWindow.once("closed", () => startingNotice.close());
     } catch (error) {
       console.error("Could not create the main window:", error);
       await dialog
@@ -2290,6 +2296,7 @@ if (gotLock) {
           detail: `${error && error.message ? error.message : error}\n\nDetails are in ${path.join(require("./crash-log").logDir(), "tools.log")}`,
         })
         .catch(() => {});
+      startingNotice.close();
       app.quit();
       return;
     }

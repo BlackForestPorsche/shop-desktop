@@ -79,6 +79,10 @@
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
+      .status {
+        min-height: 1.5em;
+        font-size: 13px;
+      }
       a:focus-visible {
         outline: 2px solid var(--fg);
         outline-offset: 3px;
@@ -91,10 +95,74 @@
       <p class="eyebrow">Black Forest Tools</p>
       <h1>The shop site didn't answer</h1>
       <p>
-        This window is shop.blackforestautomotive.com. The book and the rest of
-        the shop are still on the site. This computer just can't reach it right now.
+        The book and the rest of the shop are safe on the site. This computer
+        just can't reach it right now. Check the network cable or Wi-Fi.
       </p>
-      <a href="https://shop.blackforestautomotive.com/">Try again</a>
+      <a id="retry" href="https://shop.blackforestautomotive.com/">Try again</a>
+      <p class="status" id="status" role="status"></p>
     </main>
+    <script>
+      // Keep trying by itself: a desk that started before the network was up
+      // should land on the shop without anyone clicking. The site is checked
+      // quietly first and the window only goes there once it answers.
+      (function () {
+        var SHOP = "https://shop.blackforestautomotive.com/";
+        var WAIT_S = 20;
+        var left = WAIT_S;
+        var status = document.getElementById("status");
+        var retry = document.getElementById("retry");
+        var checking = false;
+        var timer = 0;
+
+        function countdown() {
+          clearTimeout(timer);
+          if (checking) return;
+          if (left <= 0) {
+            check(false);
+            return;
+          }
+          status.textContent = "Trying again by itself in " + left + (left === 1 ? " second." : " seconds.");
+          left -= 1;
+          timer = setTimeout(countdown, 1000);
+        }
+
+        function check(byHand) {
+          if (checking) return;
+          checking = true;
+          clearTimeout(timer);
+          status.textContent = "Trying the shop site…";
+          var done = false;
+          function finish(reachable) {
+            if (done) return;
+            done = true;
+            if (reachable) {
+              window.location.href = SHOP;
+              return;
+            }
+            checking = false;
+            left = WAIT_S;
+            if (byHand) {
+              status.textContent = "Still no answer. Trying again by itself in " + left + " seconds.";
+              left -= 1;
+              timer = setTimeout(countdown, 1000);
+            } else {
+              countdown();
+            }
+          }
+          var giveUp = setTimeout(function () { finish(false); }, 10000);
+          fetch(SHOP, { mode: "no-cors", cache: "no-store" }).then(
+            function () { clearTimeout(giveUp); finish(true); },
+            function () { clearTimeout(giveUp); finish(false); }
+          );
+        }
+
+        retry.addEventListener("click", function (event) {
+          event.preventDefault();
+          check(true);
+        });
+        window.addEventListener("online", function () { check(false); });
+        countdown();
+      })();
+    </script>
   </body>
 </html>

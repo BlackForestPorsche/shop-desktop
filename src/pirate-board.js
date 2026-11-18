@@ -152,7 +152,41 @@ function formatLeaderboardDetail(board) {
   return lines.join("\n").trim();
 }
 
+/**
+ * Settings dialog text when the shop has no shared board yet: the scores kept
+ * on this computer, in the same four columns.
+ * @param {ReturnType<typeof boardFailure>} board
+ * @param {Record<string, { label: string, rows: Array<{ person: string, name: string, score: number }> }>} deskColumns
+ */
+function formatDeskBoardDetail(board, deskColumns) {
+  const boards = {};
+  let any = false;
+  for (const id of BOARD_IDS) {
+    const column = (deskColumns && deskColumns[id]) || { label: DEFAULT_LABELS[id] || id, rows: [] };
+    boards[id] = { label: column.label, rows: Array.isArray(column.rows) ? column.rows : [] };
+    if (boards[id].rows.length) any = true;
+  }
+  const intro = "The shop site does not have a shared pirate board yet. These are the scores on this computer.";
+  if (!any) {
+    return [intro, "", "No scores yet. Settings → Launch pirate game starts one."].join("\n");
+  }
+  return formatLeaderboardDetail({
+    ok: true,
+    you: (board && board.you) || "",
+    name: (board && board.name) || "",
+    message: intro,
+    boards,
+  });
+}
+
+/** True when the shop answered that it has no pirate board route. */
+function boardNotPublished(board) {
+  return Boolean(board && !board.ok && /not published/i.test(board.message || ""));
+}
+
 module.exports = {
+  formatDeskBoardDetail,
+  boardNotPublished,
   BOARD_IDS,
   DEFAULT_LABELS,
   MAX_SCORE,

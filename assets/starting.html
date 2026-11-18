@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"
+    />
+    <title>Black Forest Tools</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #efe9dc;
+        --fg: #1c1915;
+        --muted: #5c564c;
+        --brand: #0058b8;
+        --line: rgba(28, 25, 21, 0.14);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #161410;
+          --fg: #f4efe4;
+          --muted: #c4bbaa;
+          --brand: #2b7de0;
+          --line: rgba(244, 239, 228, 0.16);
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        border: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 22px;
+        user-select: none;
+        cursor: default;
+      }
+      img { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; }
+      .text { flex: 1; min-width: 0; }
+      h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.02em; }
+      p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+      .bar {
+        margin-top: 12px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--line);
+        overflow: hidden;
+      }
+      .bar::before {
+        content: "";
+        display: block;
+        width: 38%;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--brand);
+        animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(265%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bar::before { animation: none; width: 100%; opacity: 0.6; }
+      }
+    </style>
+  </head>
+  <body>
+    <img src="icon.png" alt="" />
+    <div class="text">
+      <h1>Opening Black Forest Tools</h1>
+      <p>Connecting to the shop site. If this computer is offline, the window opens in a few seconds anyway.</p>
+      <div class="bar" role="progressbar" aria-label="Opening"></div>
+    </div>
+  </body>
+</html>
