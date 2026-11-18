@@ -139,6 +139,210 @@ function probeLabels(url, timeoutMs = PROBE_TIMEOUT_MS) {
   });
 }
 
+const OWNER_FILE = "labels-server.json";
+
+/** Folder for labels-server.log and the owner record. Same folder as tools.log. */
+function labelsStateDir(env = process.env, platform = process.platform, fallback = "") {
+  if (platform === "win32") {
+    return path.win32.join(env.LOCALAPPDATA || env.TEMP || fallback, "blackforest-tools");
+  }
+  return path.join(env.XDG_STATE_HOME || path.join(env.HOME || fallback, ".local", "state"), "blackforest-tools");
+}
+
+function ownerFilePath(env = process.env, platform = process.platform) {
+  const join = platform === "win32" ? path.win32.join : path.join;
+  return join(labelsStateDir(env, platform, require("node:os").tmpdir()), OWNER_FILE);
+}
+
+/**
+ * Tools leaves the Labels server running when it quits so Desk can still print.
+ * The owner record is how the next Tools knows that server is its own and may
+ * be restarted, instead of treating it as a stranger on the port.
+ */
+function readOwnerRecord(file = ownerFilePath()) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    const pid = Number(data && data.pid);
+    if (!Number.isInteger(pid) || pid <= 1) return null;
+    return {
+      pid,
+      port: Number(data.port) || 0,
+      entry: typeof data.entry === "string" ? data.entry : "",
+      version: typeof data.version === "string" ? data.version : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeOwnerRecord(record, file = ownerFilePath()) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        pid: record.pid,
+        port: record.port,
+        entry: record.entry,
+        version: record.version || "",
+        startedAt: new Date().toISOString(),
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearOwnerRecord(file = ownerFilePath()) {
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    // Already gone, or the folder is read-only. The next start rewrites it.
+  }
+}
+
+/** Command line of a running process, or "" when it is gone or cannot be read. */
+function processCommandLine(pid, { platform = process.platform, execFileFn, readFileFn = fs.readFileSync } = {}) {
+  if (platform === "linux") {
+    try {
+      return Promise.resolve(String(readFileFn(`/proc/${pid}/cmdline`, "utf8")).replace(/\0/g, " ").trim());
+    } catch {
+      return Promise.resolve("");
+    }
+  }
+  const execFile = execFileFn || require("node:child_process").execFile;
+  const [bin, args] =
+    platform === "win32"
+      ? [
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+          ],
+        ]
+      : ["ps", ["-p", String(pid), "-o", "command="]];
+  return new Promise((resolve) => {
+    try {
+      execFile(bin, args, { encoding: "utf8", timeout: 8000, windowsHide: true }, (error, stdout) => {
+        resolve(error ? "" : String(stdout || "").trim());
+      });
+    } catch {
+      resolve("");
+    }
+  });
+}
+
+function comparablePath(text) {
+  return String(text || "").replace(/\\/g, "/").toLowerCase();
+}
+
+/** Every running process as { pid, commandLine }. Empty when the list cannot be read. */
+function listProcesses({ platform = process.platform, execFileFn } = {}) {
+  if (platform === "linux") {
+    const rows = [];
+    let names = [];
+    try {
+      names = fs.readdirSync("/proc");
+    } catch {
+      return Promise.resolve(rows);
+    }
+    for (const name of names) {
+      if (!/^\d+$/.test(name)) continue;
+      try {
+        const commandLine = fs.readFileSync(`/proc/${name}/cmdline`, "utf8").replace(/\0/g, " ").trim();
+        if (commandLine) rows.push({ pid: Number(name), commandLine });
+      } catch {
+        // The process ended, or belongs to another user.
+      }
+    }
+    return Promise.resolve(rows);
+  }
+  const execFile = execFileFn || require("node:child_process").execFile;
+  const [bin, args] =
+    platform === "win32"
+      ? [
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }",
+          ],
+        ]
+      : ["ps", ["-axo", "pid=,command="]];
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        bin,
+        args,
+        { encoding: "utf8", timeout: 8000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+        (error, stdout) => {
+          if (error) {
+            resolve([]);
+            return;
+          }
+          const rows = [];
+          for (const line of String(stdout || "").split(/\r?\n/)) {
+            const match = /^\s*(\d+)\s+(.+)$/.exec(line);
+            if (match) rows.push({ pid: Number(match[1]), commandLine: match[2].trim() });
+          }
+          resolve(rows);
+        },
+      );
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+/**
+ * The Labels server Tools started, when it is still running:
+ * - the owner record, only while that process is still alive and still runs
+ *   the recorded entry (a reused process id never matches);
+ * - otherwise a process running this install's own Labels entry. That covers
+ *   a server left by a Tools from before the record existed.
+ */
+async function findOwnedLabels({
+  port,
+  file = ownerFilePath(),
+  entry = "",
+  commandLineFn = processCommandLine,
+  listProcessesFn = listProcesses,
+} = {}) {
+  const record = file ? readOwnerRecord(file) : null;
+  if (record && record.entry && !(port && record.port && record.port !== port)) {
+    const commandLine = comparablePath(await commandLineFn(record.pid));
+    if (commandLine && commandLine.includes(comparablePath(record.entry))) return record;
+  }
+  if (!entry) return null;
+  const wanted = comparablePath(entry);
+  const rows = await listProcessesFn();
+  for (const row of rows || []) {
+    if (!row || row.pid === process.pid) continue;
+    if (comparablePath(row.commandLine).includes(wanted)) {
+      return { pid: row.pid, port: port || 0, entry, version: "" };
+    }
+  }
+  return null;
+}
+
+function waitUntilDown(url, { timeoutMs = 6000, pollMs = READY_POLL_MS, probeFn = probeLabels } = {}) {
+  const started = Date.now();
+  return new Promise(async (resolve) => {
+    while (Date.now() - started < timeoutMs) {
+      if (!(await probeFn(url))) {
+        resolve(true);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    resolve(false);
+  });
+}
+
 function waitUntilReady(url, { timeoutMs = READY_WAIT_MS, pollMs = READY_POLL_MS } = {}) {
   const started = Date.now();
   return new Promise(async (resolve) => {
@@ -262,15 +466,29 @@ async function startLabelsServer(options) {
   const ensureDeps = options.ensureDepsFn || ensureLabelsDepsAsync;
   const spawnFn = options.spawnFn || spawn;
 
+  const ownerFile = options.ownerFile === undefined ? ownerFilePath(env) : options.ownerFile;
+
   if (await probe(url)) {
+    const findOwned = options.findOwnedFn || findOwnedLabels;
+    const ours = ownerFile
+      ? await findOwned({
+          port,
+          file: ownerFile,
+          entry: labelsServerEntry(labelsRootFromAppRoot(options.appRoot, options.resourcesPath)),
+        })
+      : null;
     return {
       ok: true,
       owned: false,
       adopted: true,
+      ours,
+      ownerFile,
       port,
       url,
       child: null,
-      reason: "Labels already answering on port — adopted existing server.",
+      reason: ours
+        ? "Labels already answering on port — adopted the server Tools started earlier."
+        : "Labels already answering on port — adopted existing server.",
     };
   }
 
@@ -324,10 +542,7 @@ async function startLabelsServer(options) {
     }
   }
 
-  const logDir =
-    process.platform === "win32"
-      ? path.join(env.LOCALAPPDATA || env.TEMP || labelsRoot, "blackforest-tools")
-      : path.join(env.XDG_STATE_HOME || path.join(env.HOME || labelsRoot, ".local", "state"), "blackforest-tools");
+  const logDir = labelsStateDir(env, process.platform, labelsRoot);
   try {
     fs.mkdirSync(logDir, { recursive: true });
   } catch {
@@ -404,10 +619,14 @@ async function startLabelsServer(options) {
   }
 
   log(`Labels server owned by Tools at ${url}`);
+  if (ownerFile && child.pid) {
+    writeOwnerRecord({ pid: child.pid, port, entry, version: options.version || "" }, ownerFile);
+  }
   return {
     ok: true,
     owned: true,
     adopted: false,
+    ownerFile,
     port,
     url,
     child,
@@ -416,27 +635,39 @@ async function startLabelsServer(options) {
   };
 }
 
+function killLabelsProcess(pid, child) {
+  if (process.platform === "win32") {
+    if (child) child.kill();
+    else process.kill(pid);
+    return;
+  }
+  try {
+    // Detached: the server leads its own process group.
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    if (child) child.kill("SIGTERM");
+    else process.kill(pid, "SIGTERM");
+  }
+}
+
 /**
- * Soft stop only when Tools started the child. Detached children may outlive
- * Tools so Desk can still print after quit; pass { force: true } to kill.
+ * Soft stop only when Tools started the server: this run's child, or the one an
+ * earlier Tools left running (`handle.ours`). A server someone else runs
+ * (labels.service) is never touched. Detached children may outlive Tools so
+ * Desk can still print after quit; pass { force: true } to kill.
  */
 function stopLabelsServer(handle, { force = false } = {}) {
-  if (!handle || !handle.owned || !handle.child) {
+  const child = handle && handle.owned ? handle.child : null;
+  const pid = child ? child.pid : handle && handle.ours ? handle.ours.pid : 0;
+  if (!child && !pid) {
     return { stopped: false };
   }
   if (!force) {
     return { stopped: false, reason: "left running for Desk print" };
   }
   try {
-    if (process.platform === "win32") {
-      handle.child.kill();
-    } else {
-      try {
-        process.kill(-handle.child.pid, "SIGTERM");
-      } catch {
-        handle.child.kill("SIGTERM");
-      }
-    }
+    killLabelsProcess(pid, child);
+    if (handle.ownerFile) clearOwnerRecord(handle.ownerFile);
     return { stopped: true };
   } catch (error) {
     return { stopped: false, reason: String(error && error.message ? error.message : error) };
@@ -457,6 +688,15 @@ module.exports = {
   findOnPath,
   probeLabels,
   waitUntilReady,
+  waitUntilDown,
+  labelsStateDir,
+  ownerFilePath,
+  readOwnerRecord,
+  writeOwnerRecord,
+  clearOwnerRecord,
+  processCommandLine,
+  findOwnedLabels,
+  listProcesses,
   ensureLabelsDeps,
   ensureLabelsDepsAsync,
   startLabelsServer,

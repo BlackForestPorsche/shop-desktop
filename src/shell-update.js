@@ -276,12 +276,12 @@ function normalizeSha(value) {
  * main thread freezes the whole window (Windows "Not responding") for as long as the
  * network or a credential prompt takes.
  */
-function runGitAsync(root, args) {
+function runGitAsync(root, args, { timeoutMs = 60_000 } = {}) {
   return new Promise((resolve, reject) => {
     execFile(
       resolveGitBin(),
       ["-C", root, ...gitConfigArgs(root), ...args],
-      { encoding: "utf8", timeout: 60_000, windowsHide: true, env: gitEnv() },
+      { encoding: "utf8", timeout: timeoutMs, windowsHide: true, env: gitEnv() },
       (error, stdout, stderr) => {
         if (error) {
           const detail = String(stderr || stdout || "").trim();
@@ -516,25 +516,108 @@ async function checkShellUpdate({
  * live Electron binary is not deleted mid-download (that produced "Could not download
  * the window runtime" on relaunch). Windows still installs before relaunch.
  */
-function applyGitUpdate(root, { remote = "origin", branch = DEFAULT_BRANCH } = {}) {
-  runGit(root, ["pull", "--ff-only", remote, branch]);
+/**
+ * Files that decide what npm installs. When an update touches none of them the
+ * installed packages are already right and `npm install` is skipped, the same
+ * rule the Windows background updater (scripts/update-git-checkout.ps1) uses.
+ */
+function changesNeedNpmInstall(files) {
+  return (files || []).some((raw) => {
+    const file = String(raw || "").trim().replace(/\\/g, "/");
+    return (
+      file === "package.json" ||
+      file === "package-lock.json" ||
+      /^labels\/package[^/]*\.json$/.test(file) ||
+      file.startsWith("scripts/postinstall-")
+    );
+  });
+}
+
+function runNpmInstallAsync(root, { env = cleanUpdateEnv() } = {}) {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  return new Promise((resolve, reject) => {
+    execFile(
+      npm,
+      ["install"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 600_000,
+        maxBuffer: 32 * 1024 * 1024,
+        env,
+        // Node refuses to spawn .cmd files directly on Windows (EINVAL since 20.12).
+        shell: process.platform === "win32",
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || stdout || "").trim();
+          reject(new Error(detail || "npm install failed after pulling the update"));
+          return;
+        }
+        try {
+          assertRuntimeReady(root);
+          resolve({ ok: true });
+        } catch (failure) {
+          reject(failure);
+        }
+      },
+    );
+  });
+}
+
+/**
+ * Pull the update and install packages when it changed them. Async on purpose:
+ * a pull plus `npm install` can take minutes, and doing it synchronously on
+ * Electron's main thread freezes the window (Windows "Not responding").
+ */
+async function applyGitUpdate(
+  root,
+  {
+    remote = "origin",
+    branch = DEFAULT_BRANCH,
+    platform = process.platform,
+    runGitFn = (args) => runGitAsync(root, args, { timeoutMs: 120_000 }),
+    runNpmFn = () => runNpmInstallAsync(root),
+    packagesReadyFn = () => fs.existsSync(path.join(root, "node_modules", "electron")),
+    onStep = () => {},
+  } = {},
+) {
+  onStep("download");
+  let before = "";
+  try {
+    before = normalizeSha(await runGitFn(["rev-parse", "HEAD"]));
+  } catch {
+    before = "";
+  }
+  await runGitFn(["pull", "--ff-only", remote, branch]);
   ensureLauncherScriptsExecutable(root);
 
-  if (process.platform === "linux") {
-    markPendingNpmInstall(root);
-    return {
-      mode: "git",
-      applied: true,
-      deferredNpm: true,
-    };
+  let needsNpm = true;
+  if (before) {
+    try {
+      const changed = await runGitFn(["diff", "--name-only", before, "HEAD"]);
+      needsNpm = changesNeedNpmInstall(String(changed || "").split("\n"));
+    } catch {
+      needsNpm = true;
+    }
+  }
+  if (!needsNpm && !packagesReadyFn()) needsNpm = true;
+
+  if (!needsNpm) {
+    return { mode: "git", applied: true, deferredNpm: false, npmInstalled: false };
   }
 
-  runNpmInstall(root);
-  return {
-    mode: "git",
-    applied: true,
-    deferredNpm: false,
-  };
+  if (platform === "linux") {
+    // The launcher installs after Electron has quit, so the running binary is
+    // never overwritten mid-flight.
+    markPendingNpmInstall(root);
+    return { mode: "git", applied: true, deferredNpm: true, npmInstalled: false };
+  }
+
+  onStep("install");
+  await runNpmFn();
+  return { mode: "git", applied: true, deferredNpm: false, npmInstalled: true };
 }
 
 /** Linux: relaunch argv so ensure-electron / pending npm run before Electron starts. */
@@ -633,6 +716,7 @@ module.exports = {
   checkReleaseUpdate,
   checkShellUpdate,
   applyGitUpdate,
+  changesNeedNpmInstall,
   linuxRelaunchSpec,
   checkoutElectronPath,
   relaunchAfterGitUpdate,

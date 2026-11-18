@@ -125,6 +125,20 @@ test("no signed-in session does not call the shop", async () => {
   assert.equal(board.error, "locked");
 });
 
+test("a redirect to the shop unlock page means the board route is not published", async () => {
+  clearPirateBoardCache();
+  const board = await fetchPirateBoard({
+    revision: "1.5.34",
+    request: async () => ({ status: 307, body: null }),
+    readSession: () => ({ token: "t", person: "carla" }),
+    cache: false,
+  });
+  assert.equal(board.ok, false);
+  assert.match(board.message, /not published/);
+  assert.equal(board.you, "carla");
+  assert.equal(board.name, "Carla");
+});
+
 test("a zero score only reads the boards", async () => {
   clearPirateBoardCache();
   let method = "";

@@ -232,6 +232,10 @@
           <label for="person">Person</label>
           <select id="person"></select>
         </div>
+        <div class="row hidden" id="person-other-row">
+          <label for="person-other">Name</label>
+          <input id="person-other" type="text" autocomplete="off" spellcheck="false" maxlength="40" />
+        </div>
         <div class="row">
           <label for="pin">PIN</label>
           <input id="pin" type="password" inputmode="numeric" autocomplete="off" />
@@ -274,6 +278,13 @@
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;");
+      }
+
+      const OTHER_PERSON = "__other__";
+
+      function displayName(id) {
+        const text = String(id ?? "").trim();
+        return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
       }
 
       function render(next) {
@@ -322,11 +333,13 @@
         const person = $("person");
         const people = next.unlockPeople || [];
         if (person.dataset.ids !== people.join("|")) {
-          person.innerHTML = people
-            .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
-            .join("");
+          person.innerHTML =
+            people
+              .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(displayName(p))}</option>`)
+              .join("") + `<option value="${OTHER_PERSON}">Someone else…</option>`;
           person.dataset.ids = people.join("|");
         }
+        $("person-other-row").classList.toggle("hidden", person.value !== OTHER_PERSON);
 
         const summary = $("summary");
         if (signedIn && payload && payload.summary) {
@@ -415,10 +428,29 @@
         $("btn-lock").addEventListener("click", () => window.shopWidget.logout());
         $("btn-update").addEventListener("click", () => window.shopWidget.checkUpdate());
         $("btn-unlock").addEventListener("click", async () => {
-          const person = $("person").value;
+          const picked = $("person").value;
+          const person =
+            picked === OTHER_PERSON ? $("person-other").value.trim().toLowerCase() : picked;
+          if (!person) {
+            $("person-other").focus();
+            return;
+          }
           const pin = $("pin").value;
+          if (!pin) {
+            $("pin").focus();
+            return;
+          }
           $("pin").value = "";
           await window.shopWidget.login(person, pin);
+        });
+        $("person").addEventListener("change", () => {
+          const other = $("person").value === OTHER_PERSON;
+          $("person-other-row").classList.toggle("hidden", !other);
+          if (other) $("person-other").focus();
+          else $("pin").focus();
+        });
+        $("person-other").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("pin").focus();
         });
         $("pin").addEventListener("keydown", (e) => {
           if (e.key === "Enter") $("btn-unlock").click();

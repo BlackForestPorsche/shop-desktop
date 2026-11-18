@@ -64,7 +64,9 @@ function fromResponse(res, revision, readSession) {
   if (status === 403) {
     return lockedBoard("The shop board is for a desk sign-in.");
   }
-  if (status === 404) {
+  // The shop answers a widget route it does not have with a redirect to its
+  // unlock page, the same as any unknown path. A route it has answers 401.
+  if (status === 404 || (status >= 300 && status < 400)) {
     const board = unavailableBoard("The shop has not published the pirate board yet.");
     const who = sessionIdentity(readSession);
     if (who) {

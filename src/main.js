@@ -25,6 +25,7 @@ const {
   checkShellUpdate,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
+const { openUpdateProgress } = require("./update-progress");
 const { buildAppMenuTemplate } = require("./app-menu");
 const { formatLeaderboardDetail } = require("./pirate-board");
 const { pirateBoardFromDesk } = require("./pirate-board-sync");
@@ -68,6 +69,7 @@ const {
   probeLabels,
   startLabelsServer,
   stopLabelsServer,
+  waitUntilDown,
 } = require("./labels-server");
 const {
   shouldHandleGateCookieSet,
@@ -488,7 +490,14 @@ async function checkForShellUpdate({ interactive }) {
       }
 
       try {
-        if (!restartOnly) applyGitUpdate(gitRoot);
+        if (!restartOnly) {
+          const progress = openUpdateProgress(mainWindow, { BrowserWindow });
+          try {
+            await applyGitUpdate(gitRoot);
+          } finally {
+            progress.close();
+          }
+        }
       } catch (error) {
         await dialog.showMessageBox(mainWindow, {
           type: "warning",
@@ -636,7 +645,7 @@ async function ensureLabelsRunning({ interactive = false } = {}) {
     return labelsServerHandle;
   }
   try {
-    labelsServerHandle = await startLabelsServer({ appRoot: APP_ROOT });
+    labelsServerHandle = await startLabelsServer({ appRoot: APP_ROOT, version: app.getVersion() });
   } catch (error) {
     labelsServerHandle = {
       ok: false,
@@ -652,14 +661,15 @@ async function ensureLabelsRunning({ interactive = false } = {}) {
         buttons: ["OK"],
         defaultId: 0,
         title: "Labels service",
-        message: "Labels service could not start",
+        message: "The Labels service could not start",
         detail: [
+          "Repair order labels will not print until it is running.",
+          "",
           labelsServerHandle.reason || "Unknown error",
           "",
-          "Desk Create RO still needs http://127.0.0.1:8080.",
           process.platform === "win32"
-            ? "On Windows, confirm Node.js is installed and re-run Setup (it installs the Labels dependencies), then use Labels → restart."
-            : "On Manjaro, confirm Node is installed and Labels deps are present (bash scripts/ensure-labels.sh).",
+            ? "Check that Node.js is installed, run Black Forest Tools Setup again, then choose Labels → Restart Labels service."
+            : "Check that Node.js is installed, run bash scripts/ensure-labels.sh in the shop-desktop folder, then choose Labels → Restart Labels service.",
         ].join("\n"),
       });
     }
@@ -669,55 +679,86 @@ async function ensureLabelsRunning({ interactive = false } = {}) {
   return labelsServerHandle;
 }
 
+/** Stop the Labels server only when Tools started it (this run or an earlier one). */
+async function stopOwnLabelsServer() {
+  const handle = labelsServerHandle;
+  if (!handle || !(handle.owned || handle.ours)) return false;
+  const result = stopLabelsServer(handle, { force: true });
+  if (!result.stopped) {
+    if (result.reason) console.error("Could not stop the Labels server:", result.reason);
+    return false;
+  }
+  await waitUntilDown(handle.url || labelsUrl(8080));
+  return true;
+}
+
+/**
+ * Tools leaves Labels running when it quits so Desk can still print. After an
+ * update that server is still the old code: restart it once so the update applies.
+ */
+async function refreshLabelsAfterUpdate() {
+  const handle = labelsServerHandle;
+  if (!handle || !handle.ok || !handle.ours) return;
+  if (handle.ours.version === app.getVersion()) return;
+  console.log(
+    `Labels server was started by Tools ${handle.ours.version || "(unknown)"}; restarting it for ${app.getVersion()}.`,
+  );
+  if (!(await stopOwnLabelsServer())) return;
+  labelsServerHandle = null;
+  await ensureLabelsRunning({ interactive: false });
+}
+
 async function showLabelsStatus() {
   await ensureLabelsRunning({ interactive: false });
   const url = (labelsServerHandle && labelsServerHandle.url) || labelsUrl(8080);
   const up = await probeLabels(url);
-  const owned = Boolean(labelsServerHandle && labelsServerHandle.owned);
-  const adopted = Boolean(labelsServerHandle && labelsServerHandle.adopted);
-  const lines = [
-    up ? `Listening at ${url}` : `Not reachable at ${url}`,
-    owned ? "Owned by Black Forest Tools (vendored server)." : adopted
-      ? "Adopted an existing process (legacy labels.service or start-labels)."
-      : labelsServerHandle && labelsServerHandle.reason
-        ? labelsServerHandle.reason
-        : "Not started.",
-    "",
-    "Print controls and Labels settings belong on the shop site.",
-    "Desk Create RO keeps POSTing to this localhost API.",
-    "This menu only shows status / restart — not a second Labels app.",
-  ];
+  const ours = Boolean(labelsServerHandle && (labelsServerHandle.owned || labelsServerHandle.ours));
+  const lines = up
+    ? [
+        "Repair order labels from the shop site print through this service.",
+        "",
+        `Address on this computer: ${url}`,
+        ours
+          ? "Started by Black Forest Tools."
+          : "Started by another program on this computer. Tools is using it as it is.",
+      ]
+    : [
+        "Repair order labels will not print until it is running.",
+        "",
+        (labelsServerHandle && labelsServerHandle.reason) || `Nothing answered at ${url}.`,
+        "",
+        "Choose Labels → Restart Labels service to try again.",
+      ];
   if (!mainWindow || mainWindow.isDestroyed()) return;
   await dialog.showMessageBox(mainWindow, {
     type: up ? "info" : "warning",
     buttons: ["OK"],
     defaultId: 0,
     title: "Labels service",
-    message: up ? "Labels service is up" : "Labels service is down",
+    message: up ? "The Labels service is running" : "The Labels service is not running",
     detail: lines.join("\n"),
   });
 }
 
 async function restartLabelsService() {
-  if (labelsServerHandle && labelsServerHandle.owned) {
-    stopLabelsServer(labelsServerHandle, { force: true });
-  }
+  const stopped = await stopOwnLabelsServer();
   labelsServerHandle = null;
   const handle = await ensureLabelsRunning({ interactive: true });
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (handle && handle.ok) {
+    const restarted = stopped || handle.owned;
     await dialog.showMessageBox(mainWindow, {
       type: "info",
       buttons: ["OK"],
       defaultId: 0,
       title: "Labels service",
-      message: "Labels service ready",
-      detail: [
-        handle.url,
-        handle.owned ? "Restarted the Tools-owned server." : "Re-adopted the process already on :8080.",
-        "",
-        "Desk Create RO can print again when the LabelWriter is online.",
-      ].join("\n"),
+      message: restarted ? "The Labels service restarted" : "The Labels service is running",
+      detail: restarted
+        ? "Repair order labels can print again when the LabelWriter is on and connected."
+        : [
+            "Another program on this computer runs the Labels service, so Tools left it as it is.",
+            "If labels still do not print, restart this computer.",
+          ].join("\n"),
     });
   }
 }
@@ -2229,6 +2270,8 @@ if (gotLock) {
     // Fire and forget: a Labels failure must never hold up or take down the window.
     ensureLabelsRunning({ interactive: false }).catch((error) => {
       console.error("Labels startup failed:", error);
+    }).then(() => refreshLabelsAfterUpdate()).catch((error) => {
+      console.error("Labels restart after update failed:", error);
     });
     // Gate cookie can persist in Electron while widget-session.json is gone/expired.
     // Also: shared Bearer can exist while SPA jar is empty — force exchange on boot.

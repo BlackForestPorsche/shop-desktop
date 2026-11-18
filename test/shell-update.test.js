@@ -386,3 +386,95 @@ test("hasShopDesktopRemote accepts a real origin remote", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("an update installs packages only when it changed what npm installs", () => {
+  const { changesNeedNpmInstall } = require("../src/shell-update");
+  assert.equal(changesNeedNpmInstall(["src/main.js", "assets/widget.html", "README.md"]), false);
+  assert.equal(changesNeedNpmInstall([]), false);
+  assert.equal(changesNeedNpmInstall(["package.json"]), true);
+  assert.equal(changesNeedNpmInstall(["src/main.js", "package-lock.json"]), true);
+  assert.equal(changesNeedNpmInstall(["labels/package.json"]), true);
+  assert.equal(changesNeedNpmInstall(["labels/package-lock.json"]), true);
+  assert.equal(changesNeedNpmInstall(["scripts/postinstall-electron.js"]), true);
+  assert.equal(changesNeedNpmInstall(["labels/server.mjs"]), false);
+});
+
+function fakeUpdateRun({ changed, platform, packagesReady = true }) {
+  const { applyGitUpdate } = require("../src/shell-update");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bft-apply-"));
+  const calls = [];
+  let npmRuns = 0;
+  const steps = [];
+  const sha = (ch) => ch.repeat(40);
+  const result = applyGitUpdate(root, {
+    platform,
+    runGitFn: async (args) => {
+      calls.push(args.join(" "));
+      if (args[0] === "rev-parse") return sha("a");
+      if (args[0] === "diff") return changed.join("\n");
+      return "";
+    },
+    runNpmFn: async () => {
+      npmRuns += 1;
+    },
+    packagesReadyFn: () => packagesReady,
+    onStep: (step) => steps.push(step),
+  });
+  return result.then((value) => ({ value, calls, npmRuns: () => npmRuns, steps, root }));
+}
+
+test("applying an update never blocks: it awaits git and skips npm for code-only changes", async () => {
+  const run = await fakeUpdateRun({ changed: ["src/main.js"], platform: "win32" });
+  assert.deepEqual(run.calls, [
+    "rev-parse HEAD",
+    "pull --ff-only origin main",
+    `diff --name-only ${"a".repeat(40)} HEAD`,
+  ]);
+  assert.equal(run.npmRuns(), 0);
+  assert.equal(run.value.applied, true);
+  assert.equal(run.value.npmInstalled, false);
+  assert.deepEqual(run.steps, ["download"]);
+});
+
+test("applying an update on Windows installs packages when the manifests changed", async () => {
+  const run = await fakeUpdateRun({ changed: ["package-lock.json"], platform: "win32" });
+  assert.equal(run.npmRuns(), 1);
+  assert.equal(run.value.npmInstalled, true);
+  assert.deepEqual(run.steps, ["download", "install"]);
+});
+
+test("applying an update on Linux leaves the package install to the launcher", async () => {
+  const run = await fakeUpdateRun({ changed: ["package.json"], platform: "linux" });
+  assert.equal(run.npmRuns(), 0);
+  assert.equal(run.value.deferredNpm, true);
+  assert.equal(hasPendingNpmInstall(run.root), true);
+
+  const codeOnly = await fakeUpdateRun({ changed: ["src/main.js"], platform: "linux" });
+  assert.equal(codeOnly.value.deferredNpm, false);
+  assert.equal(hasPendingNpmInstall(codeOnly.root), false);
+});
+
+test("applying an update installs packages when they are missing, whatever changed", async () => {
+  const run = await fakeUpdateRun({ changed: ["src/main.js"], platform: "win32", packagesReady: false });
+  assert.equal(run.npmRuns(), 1);
+});
+
+test("a failed pull stops the update before anything is installed", async () => {
+  const { applyGitUpdate } = require("../src/shell-update");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bft-apply-"));
+  let npmRuns = 0;
+  await assert.rejects(
+    applyGitUpdate(root, {
+      platform: "win32",
+      runGitFn: async (args) => {
+        if (args[0] === "pull") throw new Error("Not possible to fast-forward");
+        return "a".repeat(40);
+      },
+      runNpmFn: async () => {
+        npmRuns += 1;
+      },
+    }),
+    /fast-forward/,
+  );
+  assert.equal(npmRuns, 0);
+});
