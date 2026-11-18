@@ -138,6 +138,24 @@ test("Settings menu defaults to this install's package.json version", () => {
   assert.equal(settings.submenu[0].enabled, false);
 });
 
+test("Settings menu exposes Follow AllData R/O checkbox when wired", () => {
+  let checked = null;
+  const h = handlers();
+  h.followModeEnabled = true;
+  h.onToggleFollowMode = (menuItem) => {
+    checked = Boolean(menuItem && menuItem.checked);
+  };
+  const settings = buildAppMenuTemplate(h).find((item) => item.label === "Settings");
+  const item = settings.submenu.find((entry) => entry.label === "Follow AllData R/O");
+  assert.ok(item);
+  assert.equal(item.type, "checkbox");
+  assert.equal(item.checked, true);
+  item.click({ checked: false });
+  assert.equal(checked, false);
+  const bare = buildAppMenuTemplate(handlers()).find((item) => item.label === "Settings");
+  assert.ok(!bare.submenu.some((entry) => entry.label === "Follow AllData R/O"));
+});
+
 test("Settings menu exposes Launch pirate game, and only there", () => {
   let called = 0;
   const h = handlers();
