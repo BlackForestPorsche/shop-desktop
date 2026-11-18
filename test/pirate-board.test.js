@@ -172,3 +172,26 @@ test("a missing shop route is not filled in with a local ranking", async () => {
   assert.equal(board.boards.day.rows.length, 0);
   assert.equal(board.boards.revision.rows.length, 0);
 });
+
+test("Settings shows this computer's scores while the shop has no shared board", () => {
+  const { formatDeskBoardDetail, boardNotPublished, unavailableBoard, lockedBoard } = require("../src/pirate-board");
+  const { deskBoards, recordDeskScore } = require("../src/idle-combat");
+  const missing = { ...unavailableBoard("The shop has not published the pirate board yet."), you: "carla", name: "Carla" };
+  assert.equal(boardNotPublished(missing), true);
+  assert.equal(boardNotPublished(lockedBoard()), false);
+  assert.equal(boardNotPublished(unavailableBoard("Could not reach the shop board.")), false);
+
+  const empty = formatDeskBoardDetail(missing, deskBoards(null, { revision: "1.5.35" }));
+  assert.match(empty, /scores on this computer/);
+  assert.match(empty, /No scores yet/);
+
+  const at = new Date();
+  let save = recordDeskScore(null, { person: "carla", name: "Carla", score: 4200, wave: 6, sunk: 31, revision: "1.5.35" }, at);
+  save = recordDeskScore(save, { person: "steve", name: "Steve", score: 900, wave: 2, sunk: 7, revision: "1.5.35" }, at);
+  const text = formatDeskBoardDetail(missing, deskBoards(save, { now: at, revision: "1.5.35" }));
+  assert.match(text, /scores on this computer/);
+  assert.match(text, /Signed in as Carla\./);
+  assert.match(text, /1\. Carla \(you\) — 4,200/);
+  assert.match(text, /2\. Steve — 900/);
+  assert.match(text, /This revision \(1\.5\.35\)/);
+});

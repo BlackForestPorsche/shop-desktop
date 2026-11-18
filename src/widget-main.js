@@ -47,6 +47,12 @@ const {
   relaunchAfterGitUpdate,
 } = require("./shell-update");
 const { openUpdateProgress } = require("./update-progress");
+const {
+  upToDateDetail,
+  gitUpdateDetail,
+  updateFailedDetail,
+  releaseUpdateDetail,
+} = require("./dialog-copy");
 
 const { resolveAppIconPath } = require("./app-icon");
 const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
@@ -233,9 +239,9 @@ function authErrorMessage(res) {
     return `Too many tries.${wait}`;
   }
   if (classified.code === "not_found") {
-    return "Unknown view. Pick lot, book-today, or notes.";
+    return "The shop site does not have this view. Pick another one.";
   }
-  return `Shop answered ${res.status}.`;
+  return `The shop site had a problem (${res.status}). Try Refresh in a moment.`;
 }
 
 function noteErrorMessage(res) {
@@ -344,7 +350,8 @@ async function refreshView() {
     pushState();
   } catch (error) {
     busy = false;
-    setError(error instanceof Error ? error.message : "Couldn't load this view.");
+    console.error("Widget view failed:", error instanceof Error ? error.message : error);
+    setError("Couldn't reach the shop. Check that this computer is online, then Refresh.");
   }
 }
 
@@ -382,7 +389,8 @@ async function doLogin(person, pin) {
     return { ok: true };
   } catch (error) {
     busy = false;
-    setError(error instanceof Error ? error.message : "Login failed.");
+    console.error("Widget unlock failed:", error instanceof Error ? error.message : error);
+    setError("Couldn't reach the shop. Check that this computer is online, then try again.");
     return { ok: false };
   }
 }
@@ -443,7 +451,8 @@ async function doSendNote(recipient, text) {
     return { ok: true };
   } catch (error) {
     busy = false;
-    setError(error instanceof Error ? error.message : "Couldn't send the note.");
+    console.error("Widget note failed:", error instanceof Error ? error.message : error);
+    setError("Couldn't reach the shop, so the note was not sent. Try again.");
     return { ok: false };
   }
 }
@@ -487,12 +496,9 @@ async function checkForShellUpdate({ interactive }) {
       if (interactive && win && !win.isDestroyed()) {
         await dialog.showMessageBox(win, {
           type: "info",
-          title: "Desktop update",
-          message: "This checkout is up to date.",
-          detail:
-            info.mode === "git"
-              ? "Your shop-desktop git folder already matches GitHub."
-              : `You are on version ${app.getVersion()}. Portable builds only download a new .exe when there is no shop-desktop git checkout.`,
+          title: "Black Forest Shop Widget",
+          message: "Black Forest Tools is up to date",
+          detail: upToDateDetail(info.mode, app.getVersion(), process.platform),
         });
       }
       return;
@@ -505,11 +511,9 @@ async function checkForShellUpdate({ interactive }) {
           buttons: ["Download update", "Later"],
           defaultId: 0,
           cancelId: 1,
-          title: "Desktop update",
-          message: `Version ${info.remoteVersion} is available.`,
-          detail: info.gitError
-          ? "Git on this PC could not reach GitHub, so this is the published Windows release."
-          : "No shop-desktop git checkout found. Portable download is bootstrap only — prefer Windows Setup / a git clone for in-place updates.",
+          title: "Black Forest Shop Widget",
+          message: `Black Forest Tools ${info.remoteVersion} is available`,
+          detail: releaseUpdateDetail({ ...info, currentVersion: info.currentVersion || app.getVersion() }),
         });
         if (choice.response === 0 && info.downloadUrl) {
           shell.openExternal(info.downloadUrl).catch(() => {});
@@ -526,20 +530,11 @@ async function checkForShellUpdate({ interactive }) {
       buttons: [restartOnly ? "Restart" : "Update and restart", "Later"],
       defaultId: 0,
       cancelId: 1,
-      title: "Desktop update",
+      title: "Black Forest Shop Widget",
       message: restartOnly
-        ? "Restart to finish the desktop update."
-        : "A newer desktop app is available.",
-      detail: restartOnly
-        ? "The Tools folder already matches GitHub. This window is still the previous copy."
-        : [
-            "Pulls shop-desktop in place (git pull), then restarts this widget — not a Portable download.",
-            info.shortCurrent && info.shortUpstream
-              ? `Current ${info.shortCurrent} → ${info.shortUpstream}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+        ? "Restart the widget to finish updating"
+        : "An update for Black Forest Tools is ready",
+      detail: gitUpdateDetail(info, { restartOnly, what: "The widget" }),
     });
     if (choice.response !== 0) return;
 
@@ -555,15 +550,9 @@ async function checkForShellUpdate({ interactive }) {
     } catch (error) {
       await dialog.showMessageBox(win, {
         type: "warning",
-        title: "Desktop update",
-        message: "Couldn't apply the update.",
-        detail: [
-          error instanceof Error ? error.message : "The update failed.",
-          "",
-          process.platform === "win32"
-            ? "cd %USERPROFILE%\\shop-desktop\ngit pull\nnpm install"
-            : "cd ~/shop-desktop\ngit pull\nnpm install",
-        ].join("\n"),
+        title: "Black Forest Shop Widget",
+        message: "The update did not finish",
+        detail: updateFailedDetail(error, process.platform),
       });
       return;
     }
@@ -584,9 +573,13 @@ async function checkForShellUpdate({ interactive }) {
     if (interactive && win && !win.isDestroyed()) {
       await dialog.showMessageBox(win, {
         type: "warning",
-        title: "Desktop update",
-        message: "Couldn't check for updates.",
-        detail: error instanceof Error ? error.message : "The check failed.",
+        title: "Black Forest Shop Widget",
+        message: "Could not check for updates",
+        detail: [
+          "Check that this computer is online, then try again.",
+          "",
+          error instanceof Error ? error.message : "The check failed.",
+        ].join("\n"),
       });
     }
   } finally {
