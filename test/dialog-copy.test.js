@@ -157,6 +157,9 @@ function fakeShopWindow({
     isVisible() {
       return this.visible;
     },
+    on(event, fn) {
+      handlers[event] = fn;
+    },
     once(event, fn) {
       handlers[event] = fn;
     },

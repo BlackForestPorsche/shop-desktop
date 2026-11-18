@@ -25,7 +25,8 @@ const {
   checkShellUpdate,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
-const { openUpdateProgress, openStartingNotice, bindStartingNoticeDismiss } = require("./update-progress");
+const { openUpdateProgress, openStartingNotice } = require("./update-progress");
+const { bindShopInputUnblock } = require("./input-block-guards");
 const {
   upToDateDetail,
   gitUpdateDetail,
@@ -2247,6 +2248,19 @@ if (gotLock) {
     } else {
       console.log(`pirate: ${ev}${reason ? ` ${reason}` : ""}`);
     }
+    try {
+      const shellWc = pirateOverlay && pirateOverlay.webContents ? pirateOverlay.webContents : null;
+      if (
+        shellWc &&
+        _event &&
+        _event.sender === shellWc &&
+        (ev === "overlay-dismissed" || ev === "launch-aborted")
+      ) {
+        closePirateShellOverlay(reason || ev);
+      }
+    } catch {
+      // ignore
+    }
   });
 
   // Shell overlay (WebContentsView) asked to close — stand down / water click / failed boot.
@@ -2347,7 +2361,7 @@ if (gotLock) {
     await startupStep("gate-exchange", () => exchangeSharedSessionToGate({ force: true, reload: false }), BOOT_SYNC_TIMEOUT_MS);
     try {
       const shopWindow = createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
-      bindStartingNoticeDismiss(shopWindow, startingNotice);
+      bindShopInputUnblock(shopWindow, startingNotice);
     } catch (error) {
       console.error("Could not create the main window:", error);
       await dialog

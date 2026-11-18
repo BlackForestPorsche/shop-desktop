@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const UPDATING_HTML = path.join(__dirname, "..", "assets", "updating.html");
 const STARTING_HTML = path.join(__dirname, "..", "assets", "starting.html");
+const { registerFloatingBlocker } = require("./input-block-guards");
 
 /**
  * Small notice shown while an update downloads and installs, so the person at
@@ -14,10 +15,17 @@ const STARTING_HTML = path.join(__dirname, "..", "assets", "starting.html");
  */
 function openUpdateProgress(
   parent,
-  { BrowserWindow, page = UPDATING_HTML, title = "Updating Black Forest Tools", closable = false } = {},
+  {
+    BrowserWindow,
+    page = UPDATING_HTML,
+    title = "Updating Black Forest Tools",
+    closable = false,
+    shouldShow = () => true,
+  } = {},
 ) {
   let notice = null;
   let finished = false;
+  let unregister = null;
   try {
     const hasParent = Boolean(parent && !parent.isDestroyed());
     notice = new BrowserWindow({
@@ -47,14 +55,33 @@ function openUpdateProgress(
       if (!finished && !closable) event.preventDefault();
     });
     notice.once("ready-to-show", () => {
-      if (notice && !notice.isDestroyed() && !finished) notice.show();
+      if (!notice || notice.isDestroyed() || finished) return;
+      try {
+        if (!shouldShow()) {
+          finished = true;
+          notice.destroy();
+          notice = null;
+          if (unregister) unregister();
+          unregister = null;
+          return;
+        }
+      } catch {
+        // If the guard throws, do not leave an invisible always-on-top window up.
+        finished = true;
+        notice.destroy();
+        notice = null;
+        if (unregister) unregister();
+        unregister = null;
+        return;
+      }
+      notice.show();
     });
     notice.loadFile(page).catch(() => {});
   } catch (error) {
     console.error("Could not show the update notice:", error && error.message ? error.message : error);
     notice = null;
   }
-  return {
+  const handle = {
     close() {
       finished = true;
       try {
@@ -63,8 +90,12 @@ function openUpdateProgress(
         // The update result matters, not the notice.
       }
       notice = null;
+      if (unregister) unregister();
+      unregister = null;
     },
   };
+  if (!parent) unregister = registerFloatingBlocker(handle);
+  return handle;
 }
 
 /**
@@ -95,8 +126,9 @@ function openStartingNotice({
       title: "Opening Black Forest Tools",
       // Quitting during a slow start must still work.
       closable: true,
+      shouldShow: () => !closed && !isReady(),
     });
-    if (isReady()) notice.close();
+    if (closed || isReady()) notice.close();
   }, delayMs);
   return {
     close() {
@@ -109,36 +141,11 @@ function openStartingNotice({
 }
 
 /**
- * Close the slow-start notice once the shop window is shown or the main frame
- * has finished loading (including Follow silent navigations).
- *
- * @param {import("electron").BrowserWindow | null | undefined} win
- * @param {{ close: () => void }} startingNotice
+ * @deprecated Use bindShopInputUnblock from input-block-guards (re-exported here).
  */
 function bindStartingNoticeDismiss(win, startingNotice) {
-  if (!win || win.isDestroyed()) {
-    startingNotice.close();
-    return;
-  }
-  let done = false;
-  const dismiss = () => {
-    if (done) return;
-    done = true;
-    startingNotice.close();
-  };
-
-  const wc = win.webContents;
-  win.once("show", dismiss);
-  win.once("closed", dismiss);
-  wc.on("did-finish-load", dismiss);
-  wc.on("did-navigate", dismiss);
-  wc.on("did-navigate-in-page", dismiss);
-
-  if (win.isVisible()) dismiss();
-  else if ((!wc.isDestroyed || !wc.isDestroyed()) && !wc.isLoading()) {
-    const url = wc.getURL();
-    if (url && url !== "about:blank") dismiss();
-  }
+  const { bindShopInputUnblock } = require("./input-block-guards");
+  bindShopInputUnblock(win, startingNotice);
 }
 
 module.exports = {
