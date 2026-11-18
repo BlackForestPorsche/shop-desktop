@@ -1121,14 +1121,8 @@ function openFollowJob(payload) {
   if (!win || win.isDestroyed()) {
     return { ok: true, followed: false, reason: "no_window", href };
   }
-  try {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-  } catch {
-    // Focus is best-effort; navigation still proceeds.
-  }
-  loadUrlSafe(win, href);
+  // Silent background navigate — Desk pings must not orange the taskbar.
+  loadUrlSafe(win.webContents, href);
   console.log(`follow: open /job?ro=${payload.ro}`);
   return { ok: true, followed: true, reason: "open_job", href };
 }
