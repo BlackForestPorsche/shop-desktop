@@ -74,11 +74,21 @@ function openUpdateProgress(
  *
  * @returns {{ close: () => void }}
  */
-function openStartingNotice({ BrowserWindow, delayMs = 1200, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}) {
+function openStartingNotice({
+  BrowserWindow,
+  delayMs = 1200,
+  isReady = () => false,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
   let notice = null;
   let closed = false;
   const timer = setTimeoutFn(() => {
     if (closed) return;
+    if (isReady()) {
+      closed = true;
+      return;
+    }
     notice = openUpdateProgress(null, {
       BrowserWindow,
       page: STARTING_HTML,
@@ -86,6 +96,7 @@ function openStartingNotice({ BrowserWindow, delayMs = 1200, setTimeoutFn = setT
       // Quitting during a slow start must still work.
       closable: true,
     });
+    if (isReady()) notice.close();
   }, delayMs);
   return {
     close() {
@@ -97,4 +108,43 @@ function openStartingNotice({ BrowserWindow, delayMs = 1200, setTimeoutFn = setT
   };
 }
 
-module.exports = { openUpdateProgress, openStartingNotice, UPDATING_HTML, STARTING_HTML };
+/**
+ * Close the slow-start notice once the shop window is shown or the main frame
+ * has finished loading (including Follow silent navigations).
+ *
+ * @param {import("electron").BrowserWindow | null | undefined} win
+ * @param {{ close: () => void }} startingNotice
+ */
+function bindStartingNoticeDismiss(win, startingNotice) {
+  if (!win || win.isDestroyed()) {
+    startingNotice.close();
+    return;
+  }
+  let done = false;
+  const dismiss = () => {
+    if (done) return;
+    done = true;
+    startingNotice.close();
+  };
+
+  const wc = win.webContents;
+  win.once("show", dismiss);
+  win.once("closed", dismiss);
+  wc.on("did-finish-load", dismiss);
+  wc.on("did-navigate", dismiss);
+  wc.on("did-navigate-in-page", dismiss);
+
+  if (win.isVisible()) dismiss();
+  else if ((!wc.isDestroyed || !wc.isDestroyed()) && !wc.isLoading()) {
+    const url = wc.getURL();
+    if (url && url !== "about:blank") dismiss();
+  }
+}
+
+module.exports = {
+  openUpdateProgress,
+  openStartingNotice,
+  bindStartingNoticeDismiss,
+  UPDATING_HTML,
+  STARTING_HTML,
+};

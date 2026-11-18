@@ -12,7 +12,13 @@ const {
   releaseUpdateDetail,
   aboutDetail,
 } = require("../src/dialog-copy");
-const { openUpdateProgress, openStartingNotice, STARTING_HTML, UPDATING_HTML } = require("../src/update-progress");
+const {
+  openUpdateProgress,
+  openStartingNotice,
+  bindStartingNoticeDismiss,
+  STARTING_HTML,
+  UPDATING_HTML,
+} = require("../src/update-progress");
 
 // Words a person at the desk should never have to read in a dialog.
 const INTERNAL = /git pull|npm install|checkout|bootstrap|localhost|127\.0\.0\.1|Bearer|SPA|\.json|:8080|:8788/i;
@@ -118,6 +124,91 @@ test("the update notice cannot be closed by hand until the update ends", () => {
   notice.close();
   assert.equal(made[0].destroyed, true);
   notice.close();
+});
+
+function fakeShopWindow({
+  visible = false,
+  loading = true,
+  url = "about:blank",
+  handlers = {},
+} = {}) {
+  const wcHandlers = {};
+  return {
+    destroyed: false,
+    visible,
+    webContents: {
+      destroyed: false,
+      loading,
+      getURL: () => url,
+      isDestroyed() {
+        return this.destroyed;
+      },
+      isLoading: () => loading,
+      on(event, fn) {
+        wcHandlers[event] = fn;
+      },
+      emit(event, ...args) {
+        if (wcHandlers[event]) wcHandlers[event](...args);
+      },
+    },
+    isDestroyed() {
+      return this.destroyed;
+    },
+    isVisible() {
+      return this.visible;
+    },
+    once(event, fn) {
+      handlers[event] = fn;
+    },
+    emit(event) {
+      if (handlers[event]) handlers[event]();
+    },
+    wcHandlers,
+  };
+}
+
+test("the starting notice goes away when the shop finishes loading", () => {
+  const made = [];
+  let pending = null;
+  const timers = {
+    setTimeoutFn: (fn) => {
+      pending = fn;
+      return 1;
+    },
+    clearTimeoutFn: () => {},
+  };
+  const notice = openStartingNotice({ BrowserWindow: fakeBrowserWindow(made), ...timers });
+  const win = fakeShopWindow({ visible: false, loading: true, url: "https://shop.example/" });
+  bindStartingNoticeDismiss(win, notice);
+  pending();
+  assert.equal(made.length, 1);
+  win.webContents.loading = false;
+  win.webContents.emit("did-finish-load");
+  assert.equal(made[0].destroyed, true);
+});
+
+test("the starting notice skips the splash when the shop is already usable", () => {
+  const made = [];
+  let pending = null;
+  const ready = { ok: true };
+  const timers = {
+    setTimeoutFn: (fn) => {
+      pending = fn;
+      return 1;
+    },
+    clearTimeoutFn: () => {
+      pending = null;
+    },
+  };
+  const start = openStartingNotice({
+    BrowserWindow: fakeBrowserWindow(made),
+    isReady: () => ready.ok,
+    ...timers,
+  });
+  ready.ok = true;
+  pending();
+  assert.equal(made.length, 0);
+  start.close();
 });
 
 test("the starting notice shows only for a slow start", () => {
