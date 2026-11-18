@@ -170,9 +170,9 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.35", () => {
+test("package version is 1.5.36", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.35");
+  assert.equal(pkg.version, "1.5.36");
 });
 
 test("death screen shows shop day, week, month, and this revision", () => {
@@ -219,4 +219,25 @@ test("combat has sound and the screensaver stays quiet", () => {
   const end = source.indexOf("function stepShips");
   assert.ok(start > 0 && end > start);
   assert.equal(/audio\./.test(source.slice(start, end)), false);
+});
+
+test("the Yard says what each refit does and the wreck screen owns the window", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  assert.match(source, /function setChip\(button, title, detail\)/);
+  assert.match(source, /\$\{spec\.blurb\} · \$\{spec\.cost\} doubloons · \$\{rank\} of \$\{spec\.max\}/);
+  assert.match(source, /\.hud:has\(\.wreck:not\(\[hidden\]\)\) \.panel/);
+  assert.match(source, /scrollbar-width: thin/);
+  assert.match(source, /s\.reloadT \+= OPENING_GRACE_S/);
+  assert.equal(/needs \$\{\(cost/.test(source), false);
+});
+
+test("the widget names its buttons and its empty views", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "assets", "widget.html"), "utf8");
+  assert.match(html, /id="btn-refresh"[^>]*>Refresh</);
+  assert.match(html, /id="btn-lock"[^>]*>Lock</);
+  assert.match(html, /No cars on the lot right now\./);
+  assert.match(html, /Nothing on the book today\./);
+  assert.match(html, /id="loading">Loading…</);
+  assert.equal(/[↻▣⊘]/.test(html), false);
+  assert.equal(/View: \$\{/.test(html), false);
 });

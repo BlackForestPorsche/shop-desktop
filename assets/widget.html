@@ -45,9 +45,9 @@
       }
       header {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         gap: 8px;
-        padding: 12px 12px 8px;
+        padding: 10px 12px 8px;
         border-bottom: 1px solid var(--line);
         background: rgba(255, 255, 255, 0.35);
       }
@@ -64,6 +64,32 @@
         display: flex;
         gap: 4px;
         flex-shrink: 0;
+      }
+      .toolbar button {
+        font-size: 12px;
+        padding: 4px 8px;
+        min-height: 28px;
+      }
+      header h1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 28px;
+      }
+      footer {
+        align-items: center;
+      }
+      footer button {
+        font-size: 11px;
+        padding: 3px 8px;
+        min-height: 24px;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--brand-bright);
+        outline-offset: 1px;
       }
       button,
       select {
@@ -107,6 +133,9 @@
       .status {
         color: var(--muted);
         font-size: 12px;
+      }
+      main p {
+        margin: 0;
       }
       .error {
         color: var(--danger);
@@ -203,33 +232,34 @@
     <header>
       <h1 id="title">Black Forest Shop</h1>
       <div class="toolbar">
-        <button type="button" class="ghost" id="btn-refresh" title="Refresh" disabled>↻</button>
-        <button type="button" class="ghost" id="btn-tools" title="Open Tools">▣</button>
-        <button type="button" class="ghost" id="btn-lock" title="Lock widgets" disabled>⊘</button>
+        <button type="button" class="ghost" id="btn-refresh" title="Load this view again" disabled>Refresh</button>
+        <button type="button" class="ghost" id="btn-tools" title="Open the shop in Black Forest Tools">Tools</button>
+        <button type="button" class="ghost" id="btn-lock" title="Lock every widget on this computer" disabled>Lock</button>
       </div>
     </header>
 
     <main>
       <p class="status" id="status-line">Black Forest Shop</p>
-      <p class="error hidden" id="error-line"></p>
 
-      <div class="row">
+      <div class="row" id="view-row">
         <label for="view-select">View</label>
         <select id="view-select"></select>
       </div>
 
-      <label class="check">
+      <label class="check" id="top-row">
         <input type="checkbox" id="always-on-top" checked />
         Always on top
       </label>
 
+      <p class="error hidden" id="error-line" role="alert"></p>
+
       <section id="unlock-panel" class="stack">
         <p class="status">
-          Unlock with your shop person and PIN. This session is shared by every
-          Black Forest Shop widget on this computer.
+          Pick your name and enter your shop PIN. Every Black Forest Shop
+          widget on this computer unlocks with it.
         </p>
         <div class="row">
-          <label for="person">Person</label>
+          <label for="person">Who are you</label>
           <select id="person"></select>
         </div>
         <div class="row hidden" id="person-other-row">
@@ -260,12 +290,13 @@
       </section>
 
       <div id="list" class="list"></div>
+      <p class="empty hidden" id="loading">Loading…</p>
       <p class="empty hidden" id="empty">Nothing to show.</p>
     </main>
 
     <footer>
-      <span id="footer-view">View: lot</span>
-      <button type="button" class="ghost" id="btn-update">Updates</button>
+      <span id="footer-view"></span>
+      <button type="button" class="ghost" id="btn-update">Check for updates</button>
     </footer>
 
     <script>
@@ -281,6 +312,11 @@
       }
 
       const OTHER_PERSON = "__other__";
+      const EMPTY_TEXT = {
+        lot: "No cars on the lot right now.",
+        "book-today": "Nothing on the book today.",
+        notes: "No open notes for you.",
+      };
 
       function displayName(id) {
         const text = String(id ?? "").trim();
@@ -295,9 +331,7 @@
         $("title").textContent =
           (payload && payload.title) || "Black Forest Shop";
         $("status-line").textContent = signedIn
-          ? `Signed in as ${next.session.person || "…"}${
-              payload && payload.summary ? " · " + payload.summary : ""
-            }`
+          ? `Signed in as ${displayName(next.session.person) || "…"}`
           : "Locked";
 
         const err = $("error-line");
@@ -329,6 +363,9 @@
         $("btn-unlock").textContent = next.busy ? "Checking…" : "Unlock";
 
         $("unlock-panel").classList.toggle("hidden", signedIn);
+        // The view and window options matter once there is something to show.
+        $("view-row").classList.toggle("hidden", !signedIn);
+        $("top-row").classList.toggle("hidden", !signedIn);
 
         const person = $("person");
         const people = next.unlockPeople || [];
@@ -355,7 +392,8 @@
         if (signedIn && isNotes) {
           $("notes-hint").textContent = next.canCreateNotes
             ? ""
-            : "This unlock can read notes. Desk or bot can leave a note for someone.";
+            : "You can read notes here. Leaving a note needs a desk sign-in.";
+          $("notes-hint").classList.toggle("hidden", !!next.canCreateNotes);
           $("recipient-row").classList.toggle("hidden", !next.canCreateNotes);
           $("note-text-row").classList.toggle("hidden", !next.canCreateNotes);
           $("btn-send-note").classList.toggle("hidden", !next.canCreateNotes);
@@ -366,7 +404,7 @@
           const desk = next.deskPeople || [];
           if (recipient.dataset.ids !== desk.join("|")) {
             recipient.innerHTML = desk
-              .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
+              .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(displayName(p))}</option>`)
               .join("");
             recipient.dataset.ids = desk.join("|");
             const me = (next.session.person || "").toLowerCase();
@@ -396,16 +434,20 @@
               </article>`,
             )
             .join("");
+          const waiting = next.busy && !payload && !next.errorText;
+          $("loading").classList.toggle("hidden", !waiting);
+          $("empty").textContent = EMPTY_TEXT[next.viewId] || "Nothing to show.";
           $("empty").classList.toggle(
             "hidden",
-            items.length > 0 || next.busy || !!next.errorText,
+            items.length > 0 || !payload || !!next.errorText,
           );
         } else {
           list.innerHTML = "";
+          $("loading").classList.add("hidden");
           $("empty").classList.add("hidden");
         }
 
-        $("footer-view").textContent = `View: ${next.viewId}`;
+        $("footer-view").textContent = next.version ? `Black Forest Tools ${next.version}` : "";
       }
 
       async function boot() {
