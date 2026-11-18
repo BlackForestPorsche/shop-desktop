@@ -25,7 +25,7 @@ const {
   checkShellUpdate,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
-const { openUpdateProgress, openStartingNotice } = require("./update-progress");
+const { openUpdateProgress, openStartingNotice, bindStartingNoticeDismiss } = require("./update-progress");
 const {
   upToDateDetail,
   gitUpdateDetail,
@@ -2330,14 +2330,24 @@ if (gotLock) {
     // Bounded: no network at logon (autostart) must not leave the app without a window.
     // With no network at login the two steps below wait out their timeouts.
     // Say so instead of showing nothing; a normal start never sees the notice.
-    const startingNotice = openStartingNotice({ BrowserWindow });
+    const startingNotice = openStartingNotice({
+      BrowserWindow,
+      isReady: () => {
+        const win = mainWindow;
+        if (!win || win.isDestroyed()) return false;
+        const wc = win.webContents;
+        if (win.isVisible() && !wc.isDestroyed() && !wc.isLoading()) {
+          const url = wc.getURL();
+          return Boolean(url && url !== "about:blank");
+        }
+        return false;
+      },
+    });
     await startupStep("gate-session", () => ensureSharedSessionFromGate(), BOOT_SYNC_TIMEOUT_MS);
     await startupStep("gate-exchange", () => exchangeSharedSessionToGate({ force: true, reload: false }), BOOT_SYNC_TIMEOUT_MS);
     try {
       const shopWindow = createWindow(shopUrlFromArgv(process.argv) || SHOP_HOME);
-      // Closed only once the shop window is up, so the app never has zero windows.
-      shopWindow.once("show", () => startingNotice.close());
-      shopWindow.once("closed", () => startingNotice.close());
+      bindStartingNoticeDismiss(shopWindow, startingNotice);
     } catch (error) {
       console.error("Could not create the main window:", error);
       await dialog
