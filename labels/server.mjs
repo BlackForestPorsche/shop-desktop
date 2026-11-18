@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import { describePrinter } from "./shared/detect.mjs";
 import { sendPdfToQueue, sendToQueue } from "./shared/print.mjs";
 import { safePageKey } from "./shared/media.mjs";
-import { corsAllowed } from "./shared/cors.mjs";
+import { corsAllowed, shopPrintCorsEnabled } from "./shared/cors.mjs";
 import { createRoPrintStore } from "./shared/ro-idempotency.mjs";
 import { normalizeRoPayload, planRoPrint, renderRoLabelPdf, roLabelLines } from "./shared/ro-label.mjs";
 import {
@@ -69,15 +69,21 @@ function send(res, status, body, type = "application/json; charset=utf-8") {
 function applyCors(req, res, url) {
   const origin = String(req.headers.origin || "");
   if (!origin) return false;
-  if (!corsAllowed(origin, req.method, url.pathname, url.searchParams)) {
+  const allowed = corsAllowed(origin, req.method, url.pathname, url.searchParams);
+  if (!allowed) {
     if (req.method === "OPTIONS") {
       res.writeHead(403, { "cache-control": "no-store" });
       res.end();
       return true;
     }
+    if (req.method === "POST" || req.method === "PUT") {
+      send(res, 403, { error: "origin_not_allowed", message: "This Labels service does not allow that web origin." });
+      return true;
+    }
     return false;
   }
   res.setHeader("access-control-allow-origin", origin);
+  res.setHeader("access-control-allow-private-network", "true");
   res.setHeader("vary", "Origin");
   if (req.method !== "OPTIONS") return false;
   res.writeHead(204, {
@@ -145,7 +151,10 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/printer") {
       const info = await exclusive(() => describePrinter());
-      send(res, 200, info);
+      send(res, 200, {
+        ...info,
+        capabilities: { shopPrintCors: shopPrintCorsEnabled() },
+      });
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/labels") {

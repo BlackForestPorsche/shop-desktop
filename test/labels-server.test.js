@@ -44,6 +44,7 @@ test("startLabelsServer adopts an already-healthy Labels endpoint", async () => 
     appRoot: "/tmp/unused",
     ownerFile: tmpOwnerFile(),
     probeFn: async () => true,
+    corsProbeFn: async () => true,
     spawnFn: () => {
       throw new Error("should not spawn when adopted");
     },
@@ -181,6 +182,7 @@ test("startLabelsServer marks an adopted server as ours when the record matches"
     appRoot: "/tmp/unused",
     ownerFile: file,
     probeFn: async () => true,
+    corsProbeFn: async () => true,
     findOwnedFn: async ({ port, file: seen, entry }) => {
       assert.equal(port, 8080);
       assert.equal(seen, file);
@@ -195,6 +197,52 @@ test("startLabelsServer marks an adopted server as ours when the record matches"
   assert.equal(handle.owned, false);
   assert.equal(handle.ours.pid, 6001);
   assert.equal(handle.ownerFile, file);
+});
+
+test("startLabelsServer reports stale CORS when another program owns the port", async () => {
+  const handle = await startLabelsServer({
+    appRoot: path.join(__dirname, ".."),
+    ownerFile: tmpOwnerFile(),
+    probeFn: async () => true,
+    corsProbeFn: async () => false,
+    findOwnedFn: async () => null,
+    spawnFn: () => {
+      throw new Error("should not spawn");
+    },
+  });
+  assert.equal(handle.ok, true);
+  assert.equal(handle.corsStale, true);
+  assert.match(handle.reason, /too old for shop Print/i);
+});
+
+test("startLabelsServer respawns when Tools-owned Labels lacks shop Print CORS", async () => {
+  const appRoot = path.join(__dirname, "..");
+  const ownerFile = tmpOwnerFile();
+  let spawnCalled = false;
+  const handle = await startLabelsServer({
+    appRoot,
+    ownerFile,
+    version: "1.5.42",
+    probeFn: async () => true,
+    corsProbeFn: async () => false,
+    findOwnedFn: async () => ({
+      pid: 9_999_999,
+      port: 8080,
+      entry: labelsServerEntry(path.join(appRoot, "labels")),
+      version: "1.5.0",
+    }),
+    waitUntilDownFn: async () => true,
+    waitFn: async () => true,
+    ensureDepsFn: () => ({ ok: true, installed: false }),
+    spawnFn: (bin, args, opts) => {
+      spawnCalled = true;
+      return { pid: 5150, unref() {}, on() {}, kill() {} };
+    },
+  });
+  assert.equal(spawnCalled, true);
+  assert.equal(handle.ok, true);
+  assert.equal(handle.owned, true);
+  assert.equal(handle.adopted, false);
 });
 
 test("stopLabelsServer never touches a server Tools did not start", () => {

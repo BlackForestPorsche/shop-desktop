@@ -139,6 +139,52 @@ function probeLabels(url, timeoutMs = PROBE_TIMEOUT_MS) {
   });
 }
 
+const SHOP_CORS_ORIGIN = "https://shop.blackforestautomotive.com";
+
+/**
+ * Old label-connect / early Tools servers answered GET /api/printer but rejected
+ * shop POST /api/print preflight — the embedded editor could not print.
+ */
+function probeLabelsShopPrintCors(url, timeoutMs = PROBE_TIMEOUT_MS, origin = SHOP_CORS_ORIGIN) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL("/api/print", url);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const req = http.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: "OPTIONS",
+        timeout: timeoutMs,
+        headers: {
+          Origin: origin,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type,x-page-size,x-width-pt,x-height-pt,x-copies",
+          "Access-Control-Request-Private-Network": "true",
+        },
+      },
+      (res) => {
+        res.resume();
+        const methods = String(res.headers["access-control-allow-methods"] || "");
+        const pna = String(res.headers["access-control-allow-private-network"] || "").toLowerCase();
+        resolve(res.statusCode === 204 && /POST/i.test(methods) && pna === "true");
+      },
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
 const OWNER_FILE = "labels-server.json";
 
 /** Folder for labels-server.log and the owner record. Same folder as tools.log. */
@@ -468,32 +514,77 @@ async function startLabelsServer(options) {
 
   const ownerFile = options.ownerFile === undefined ? ownerFilePath(env) : options.ownerFile;
 
+  const labelsRoot = labelsRootFromAppRoot(options.appRoot, options.resourcesPath);
+  const entryForOwned = labelsServerEntry(labelsRoot);
+  const corsProbe = options.corsProbeFn || probeLabelsShopPrintCors;
+
   if (await probe(url)) {
+    const corsOk = await corsProbe(url);
     const findOwned = options.findOwnedFn || findOwnedLabels;
     const ours = ownerFile
       ? await findOwned({
           port,
           file: ownerFile,
-          entry: labelsServerEntry(labelsRootFromAppRoot(options.appRoot, options.resourcesPath)),
+          entry: entryForOwned,
         })
       : null;
-    return {
-      ok: true,
-      owned: false,
-      adopted: true,
-      ours,
-      ownerFile,
-      port,
-      url,
-      child: null,
-      reason: ours
-        ? "Labels already answering on port — adopted the server Tools started earlier."
-        : "Labels already answering on port — adopted existing server.",
-    };
+    if (corsOk) {
+      return {
+        ok: true,
+        owned: false,
+        adopted: true,
+        ours,
+        ownerFile,
+        port,
+        url,
+        child: null,
+        reason: ours
+          ? "Labels already answering on port — adopted the server Tools started earlier."
+          : "Labels already answering on port — adopted existing server.",
+      };
+    }
+    if (ours?.pid) {
+      log(`Labels on ${url} is too old for shop Print — restarting Tools-owned server.`);
+      try {
+        killLabelsProcess(ours.pid, null);
+        if (ownerFile) clearOwnerRecord(ownerFile);
+      } catch (error) {
+        log("Could not stop stale Labels server:", error);
+      }
+      const waitDown = options.waitUntilDownFn || waitUntilDown;
+      const down = await waitDown(url, { probeFn: probe });
+      if (!down) {
+        return {
+          ok: true,
+          owned: false,
+          adopted: true,
+          corsStale: true,
+          ours,
+          ownerFile,
+          port,
+          url,
+          child: null,
+          reason:
+            "Labels on this port is too old for shop Print and could not be restarted automatically. Choose Labels → Restart Labels service.",
+        };
+      }
+    } else {
+      return {
+        ok: true,
+        owned: false,
+        adopted: true,
+        corsStale: true,
+        ours: null,
+        ownerFile,
+        port,
+        url,
+        child: null,
+        reason:
+          "Another program on port 8080 is too old for shop Print. Stop it or restart this computer, then open Black Forest Tools.",
+      };
+    }
   }
-
-  const labelsRoot = labelsRootFromAppRoot(options.appRoot, options.resourcesPath);
-  const entry = labelsServerEntry(labelsRoot);
+  const entry = entryForOwned;
   if (!fs.existsSync(entry)) {
     return {
       ok: false,
@@ -687,6 +778,7 @@ module.exports = {
   npmCommand,
   findOnPath,
   probeLabels,
+  probeLabelsShopPrintCors,
   waitUntilReady,
   waitUntilDown,
   labelsStateDir,

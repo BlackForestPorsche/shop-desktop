@@ -12,6 +12,12 @@ async function loadCors() {
 
 const SHOP = "https://shop.blackforestautomotive.com";
 
+test("www shop origin may use Labels editor APIs", async () => {
+  const { corsAllowed } = await loadCors();
+  const q = new URLSearchParams();
+  assert.equal(corsAllowed("https://www.shop.blackforestautomotive.com", "POST", "/api/print", q), true);
+});
+
 test("shop origin may use Labels editor APIs", async () => {
   const { corsAllowed } = await loadCors();
   const q = new URLSearchParams();
