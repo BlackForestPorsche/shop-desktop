@@ -484,6 +484,9 @@ function renderStatus() {
   } else if (info.state === "paused") {
     pill.classList.add("warn");
     pill.textContent = "Paused";
+  } else if (info.queuePresent && (info.state === "idle" || info.state === "printing")) {
+    pill.textContent = info.rollProbe === "manual" ? "Ready — pick size" : "No roll yet";
+    if (info.rollProbe === "manual") pill.classList.add("warn");
   } else {
     pill.classList.add("warn");
     pill.textContent = info.usbError === "EACCES" ? "Can't read the roll" : "No roll yet";
@@ -665,7 +668,15 @@ async function printLabel() {
     $("error").textContent = copies > 1 ? `${sent} (${copies} copies)` : sent;
   } catch (error) {
     $("error").classList.add("error");
-    $("error").textContent = error instanceof Error ? error.message : "The 550 did not take the label.";
+    let message = error instanceof Error ? error.message : "The 550 did not take the label.";
+    if (error instanceof TypeError && /fetch|network/i.test(message)) {
+      message = state.printer?.capabilities?.shopPrintCors === false
+        ? "Shop Print is blocked on this Labels service. In Black Forest Tools choose Labels → Restart Labels service."
+        : state.printer
+          ? "Could not reach the Labels print service. Keep Black Forest Tools open on this desk, then try Print again."
+          : "Open Black Forest Tools on this desk so the LabelWriter service is running, then try Print again.";
+    }
+    $("error").textContent = message;
   } finally {
     $("print").disabled = false;
     $("print-mobile").disabled = false;

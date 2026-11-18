@@ -157,6 +157,9 @@ async function probeNode(path) {
 }
 
 export async function readRoll() {
+  if (process.platform === "win32") {
+    return { status: null, dump: null, device: "", error: null, manual: true };
+  }
   const nodes = await lpNodes();
   for (const path of nodes) {
     try {
@@ -191,18 +194,24 @@ export async function describePrinter() {
       source: "printer",
     };
   }
+  const rollProbe = roll.manual ? "manual" : "usb";
+  let message = rollInfo
+    ? `${rollInfo.name}${rollInfo.remaining ? ` · ${rollInfo.remaining} left` : ""}`
+    : roll.status
+      ? roll.status.bayLabel
+      : queue.message;
+  if (!rollInfo && roll.manual && queue.present && queue.state === "idle") {
+    message = `${queue.message} · Pick the loaded label size below — Print does not need a roll read.`;
+  }
   return {
     queue: queueName,
     ppd,
     queuePresent: queue.present,
     state: queue.state,
     uri: queue.uri,
-    message: rollInfo
-      ? `${rollInfo.name}${rollInfo.remaining ? ` · ${rollInfo.remaining} left` : ""}`
-      : roll.status
-        ? roll.status.bayLabel
-        : queue.message,
+    message,
     roll: rollInfo,
+    rollProbe,
     usb: roll.device || "",
     usbError: roll.error || "",
     sizes: media.map((item) => ({

@@ -86,6 +86,7 @@ const {
 const {
   labelsUrl,
   probeLabels,
+  probeLabelsShopPrintCors,
   startLabelsServer,
   stopLabelsServer,
   waitUntilDown,
@@ -696,9 +697,14 @@ async function stopOwnLabelsServer() {
 async function refreshLabelsAfterUpdate() {
   const handle = labelsServerHandle;
   if (!handle || !handle.ok || !handle.ours) return;
-  if (handle.ours.version === app.getVersion()) return;
+  const url = handle.url || labelsUrl(8080);
+  const corsOk = handle.corsStale ? false : await probeLabelsShopPrintCors(url);
+  const versionStale = handle.ours.version !== app.getVersion();
+  if (!versionStale && corsOk) return;
   console.log(
-    `Labels server was started by Tools ${handle.ours.version || "(unknown)"}; restarting it for ${app.getVersion()}.`,
+    versionStale
+      ? `Labels server was started by Tools ${handle.ours.version || "(unknown)"}; restarting it for ${app.getVersion()}.`
+      : "Labels server is missing shop Print CORS; restarting for the embedded editor.",
   );
   if (!(await stopOwnLabelsServer())) return;
   labelsServerHandle = null;
