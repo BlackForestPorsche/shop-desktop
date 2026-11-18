@@ -37,6 +37,8 @@ function installedRevisionLabel() {
  *   onLabelsStatus: () => void,
  *   onRestartLabels: () => void,
  *   onLockShop: () => void,
+ *   onToggleFollowMode?: (menuItem: { checked?: boolean }) => void,
+ *   followModeEnabled?: boolean,
  *   onOpenInBrowser: () => void,
  *   onAbout: () => void,
  *   onOpenLogs?: () => void,
@@ -49,6 +51,18 @@ function buildAppMenuTemplate(handlers) {
   const revisionItems = revisionLabel
     ? [{ label: revisionLabel, enabled: false }, { type: "separator" }]
     : [];
+  const followItem =
+    typeof handlers.onToggleFollowMode === "function"
+      ? [
+          {
+            label: "Follow AllData R/O",
+            type: "checkbox",
+            checked: Boolean(handlers.followModeEnabled),
+            click: handlers.onToggleFollowMode,
+          },
+          { type: "separator" },
+        ]
+      : [];
   return [
     {
       label: "Shop",
@@ -102,6 +116,7 @@ function buildAppMenuTemplate(handlers) {
           click: handlers.onCheckAppUpdates,
         },
         { type: "separator" },
+        ...followItem,
         {
           label: "Launch pirate game",
           click: handlers.onLaunchPirateGame,

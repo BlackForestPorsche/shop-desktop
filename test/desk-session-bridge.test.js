@@ -9,6 +9,7 @@ const {
   DEFAULT_PORT,
   PATH_SESSION,
   PATH_LOCK,
+  PATH_FOLLOW,
 } = require("../src/desk-session-bridge");
 
 test("loopback bridge answers on ::1 and allows private-network preflight", async () => {
@@ -323,6 +324,64 @@ test("POST /v1/lock locks Tools session via alias", async () => {
     assert.equal(body.locked, true);
     assert.equal(lockSource, "v1-lock");
     assert.equal(written, null);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("POST /v1/follow calls onFollow and returns followed", async () => {
+  let seen = "";
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => null,
+    onFollow: (text) => {
+      seen = text;
+      return { ok: true, followed: true, reason: "open_job", href: "https://shop.blackforestautomotive.com/job?ro=1042" };
+    },
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_FOLLOW}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ro: "1042", event: "open" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.followed, true);
+    assert.equal(body.reason, "open_job");
+    assert.match(body.href, /\/job\?ro=1042/);
+    assert.match(seen, /1042/);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("POST /v1/follow without handler is followed:false", async () => {
+  const bridge = startDeskSessionBridge({
+    port: 0,
+    readSession: () => null,
+  });
+  await new Promise((resolve, reject) => {
+    bridge.server.once("listening", resolve);
+    bridge.server.once("error", reject);
+  });
+  const { port } = bridge.server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${PATH_FOLLOW}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ro: "1042" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.followed, false);
+    assert.equal(body.reason, "no_handler");
   } finally {
     await bridge.close();
   }

@@ -10,6 +10,7 @@
  * POST   /v1/widget-session  — Desk (or site capture) publishes token into the shared file
  * DELETE /v1/widget-session  — website/Desk lock → clear shared Bearer (+ Tools SPA via onLock)
  * POST   /v1/lock            — same as DELETE (explicit lock alias)
+ * POST   /v1/follow          — AllData RO scrape → open /job in Tools when Follow is on
  */
 
 const http = require("node:http");
@@ -28,6 +29,7 @@ const DEFAULT_PORT = 8788;
 const PATH_HEALTH = "/health";
 const PATH_SESSION = "/v1/widget-session";
 const PATH_LOCK = "/v1/lock";
+const PATH_FOLLOW = "/v1/follow";
 const HEALTH_REMINT_MS = 4_000;
 
 function bridgePort(env = process.env) {
@@ -311,6 +313,45 @@ function startDeskSessionBridge(opts = {}) {
       return;
     }
 
+    if (pathname === PATH_FOLLOW) {
+      if (method !== "POST") {
+        json(res, 405, { ok: false, error: "method_not_allowed" });
+        return;
+      }
+      readBody(req)
+        .then((text) => {
+          if (typeof opts.onFollow !== "function") {
+            json(res, 200, { ok: true, followed: false, reason: "no_handler" });
+            return;
+          }
+          return Promise.resolve(opts.onFollow(text)).then((result) => {
+            const body =
+              result && typeof result === "object"
+                ? result
+                : { ok: true, followed: Boolean(result) };
+            json(res, body.ok === false && body.error === "missing_ro" ? 400 : 200, {
+              ok: body.ok !== false,
+              followed: Boolean(body.followed),
+              reason: body.reason || (body.followed ? "open_job" : "follow_off"),
+              ...(body.error ? { error: body.error } : {}),
+              ...(body.href ? { href: body.href } : {}),
+            });
+          });
+        })
+        .catch((error) => {
+          if (error && error.message === "body_too_large") {
+            json(res, 413, { ok: false, error: "body_too_large", followed: false });
+            return;
+          }
+          json(res, 200, {
+            ok: true,
+            followed: false,
+            reason: "follow_error",
+          });
+        });
+      return;
+    }
+
     if (pathname === PATH_SESSION) {
       if (method === "GET") {
         const respondMiss = () => {
@@ -474,6 +515,7 @@ module.exports = {
   PATH_HEALTH,
   PATH_SESSION,
   PATH_LOCK,
+  PATH_FOLLOW,
   bridgeHost,
   bridgePort,
   startDeskSessionBridge,

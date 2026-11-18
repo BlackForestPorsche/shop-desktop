@@ -69,6 +69,11 @@ const {
   SHOP_BASE,
 } = require("./shared-session");
 const { startDeskSessionBridge } = require("./desk-session-bridge");
+const {
+  createFollowState,
+  parseFollowBody,
+  jobUrl,
+} = require("./follow-mode");
 const { firefoxLaunchPlan } = require("./firefox-launch");
 const {
   readLatch,
@@ -166,6 +171,8 @@ let applyingRemoteLock = false;
 let mintingWidgetSession = false;
 let exchangingGate = false;
 let deskSessionBridge = null;
+/** AllData Follow mode — Desk :8788/v1/follow → /job?ro=… when enabled. */
+let followMode = null;
 let labelsServerHandle = null;
 /** Avoid tight reload loops when /unlock keeps loading while exchange fails. */
 let unlockExchangeAttemptAt = 0;
@@ -1098,6 +1105,47 @@ async function showPirateLeaderboard() {
   });
 }
 
+function ensureFollowMode() {
+  if (followMode) return followMode;
+  followMode = createFollowState({ userDataDir: app.getPath("userData") });
+  return followMode;
+}
+
+/** Open the shared site job page for an AllData RO (Follow mode). */
+function openFollowJob(payload) {
+  const href = jobUrl(payload.ro, { tab: payload.tab });
+  if (!href) {
+    return { ok: true, followed: false, reason: "missing_ro" };
+  }
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) {
+    return { ok: true, followed: false, reason: "no_window", href };
+  }
+  try {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  } catch {
+    // Focus is best-effort; navigation still proceeds.
+  }
+  loadUrlSafe(win, href);
+  console.log(`follow: open /job?ro=${payload.ro}`);
+  return { ok: true, followed: true, reason: "open_job", href };
+}
+
+function handleFollowPost(text) {
+  const payload = parseFollowBody(text);
+  if (!payload.ok) {
+    return { ok: false, followed: false, error: payload.error, reason: payload.error };
+  }
+  const state = ensureFollowMode();
+  const decision = state.decide(payload);
+  if (!decision.navigate) {
+    return { ok: true, followed: false, reason: decision.reason };
+  }
+  return openFollowJob(payload);
+}
+
 function shopMenu() {
   const send = (channel) => {
     const win = mainWindow;
@@ -1108,6 +1156,7 @@ function shopMenu() {
     if (channel === "back" && win.webContents.canGoBack()) win.webContents.goBack();
     if (channel === "forward" && win.webContents.canGoForward()) win.webContents.goForward();
   };
+  const follow = ensureFollowMode();
 
   return Menu.buildFromTemplate(
     buildAppMenuTemplate({
@@ -1118,6 +1167,13 @@ function shopMenu() {
       onHardReload: () => send("hard"),
       onCheckSiteUpdates: () => checkForSiteUpdate({ interactive: true }),
       onCheckAppUpdates: () => checkForShellUpdate({ interactive: true }),
+      followModeEnabled: follow.isEnabled(),
+      onToggleFollowMode: (menuItem) => {
+        const enabled = Boolean(menuItem && menuItem.checked);
+        follow.setEnabled(enabled);
+        console.log(`follow: ${enabled ? "on" : "off"}`);
+        Menu.setApplicationMenu(shopMenu());
+      },
       onLaunchPirateGame: () => {
         // Log synchronously in the click handler so a hung async path still
         // leaves a tools.log breadcrumb (proves the menu item fired).
@@ -2225,9 +2281,11 @@ if (gotLock) {
     await startupStep("session", configureSession);
     await startupStep("session-watch", watchSharedSessionFile);
     try {
+      ensureFollowMode();
       deskSessionBridge = startDeskSessionBridge({
         acceptPublish: (next) => !lockLatched || acceptsPublish(readLatch(), next),
         lockInfo: () => ({ locked: lockLatched, lockedAt: lockLatchedAt }),
+        onFollow: (text) => handleFollowPost(text),
         onPublished: (session) => {
           // Desk/website unlock published a Bearer — leave local lock cooldown immediately
           // so exchange cannot return local_lock (1.5.12 race fix).
