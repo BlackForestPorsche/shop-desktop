@@ -148,6 +148,23 @@ test("createFollowState skips reload for duplicate RO and tab", () => {
   assert.equal(state.decide(otherRo, { nowMs: 9050 }).navigate, true);
 });
 
+test("openFollowJob does not request window attention", () => {
+  const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const m = main.match(/function openFollowJob\([\s\S]*?\n\}/);
+  assert.ok(m, "openFollowJob");
+  const body = m[0];
+  for (const banned of [
+    "flashFrame",
+    "setProgressBar",
+    "requestAttention",
+    ".focus(",
+    ".show(",
+    ".restore(",
+  ]) {
+    assert.equal(body.includes(banned), false, `openFollowJob must not call ${banned}`);
+  }
+});
+
 test("createFollowState persists enabled flag", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bf-follow-"));
   try {

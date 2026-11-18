@@ -162,6 +162,7 @@ What Tools does on Windows, matching Manjaro:
 - **Look (1.5.36):** the Yard says what each refit does, what it costs, and how far it is fitted; the wreck screen hides the helm readout behind it and scrolls as one page; ships already on the sea hold fire for 2.5 seconds when you take the helm. The Shop Widget has named buttons (Refresh, Tools, Lock), names with capitals, a "Loading…" state, its own words for an empty lot, book, or notes, and an unlock form that fits the window.
 - **Follow AllData (1.5.37):** **Settings → Follow AllData R/O** (off by default). When on, Desk posting an RO to Tools on `127.0.0.1:8788/v1/follow` opens that job on the shop site at `/job?ro=…` (optional `tab`). Labels still print if Follow fails.
 - **Follow no-flash (1.5.38):** repeated `/v1/follow` pings for the same RO and tab no longer reload `/job` — only a new RO or tab change navigates.
+- **Follow silent (1.5.39):** Follow navigation no longer raises the Tools window or flashes the taskbar — background `loadURL` only.
 
 **Portable (secondary):** GitHub Actions also builds a portable `.exe`. It is only a bootstrap for a machine that cannot run Setup yet — it has no git auto-update, no login autostart and no widget shortcut. Do not treat it as the day-to-day desk; run Setup.
 
