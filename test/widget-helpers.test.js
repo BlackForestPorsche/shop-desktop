@@ -9,6 +9,7 @@ const {
   shouldRefreshToken,
   classifyWidgetHttpError,
   DEFAULT_DESK_PEOPLE,
+  sharedSessionChange,
   canCreateNotes,
 } = require("../src/widget-helpers");
 
@@ -129,4 +130,13 @@ test("canCreateNotes allows desk and bot only", () => {
   assert.equal(canCreateNotes("viewer"), false);
   assert.equal(canCreateNotes("tech"), false);
   assert.equal(canCreateNotes(""), false);
+});
+
+test("a widget follows the session file other windows and Tools share", () => {
+  const mine = { token: "aaa", expiresAt: "2099-01-01T00:00:00Z" };
+  assert.equal(sharedSessionChange(mine, { ...mine }), "same");
+  assert.equal(sharedSessionChange(null, null), "same");
+  assert.equal(sharedSessionChange(mine, null), "locked");
+  assert.equal(sharedSessionChange(null, mine), "replaced");
+  assert.equal(sharedSessionChange(mine, { token: "bbb" }), "replaced");
 });

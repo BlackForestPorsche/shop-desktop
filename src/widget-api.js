@@ -107,14 +107,20 @@ const WIDGET_VIEWS = [
   { id: "notes", label: "My open notes" },
 ];
 
+/**
+ * Names offered on the widget unlock form, in the order the shop unlock screen
+ * shows once it has loaded its roster. The shop has no public roster route, so
+ * the form also takes a typed name: someone added on the site can unlock
+ * before this list catches up.
+ */
 const UNLOCK_PEOPLE = [
   "logan",
   "stephen",
   "steve",
   "carla",
-  "john",
   "dwight",
   "viewer",
+  "sue",
 ];
 
 module.exports = {

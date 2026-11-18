@@ -27,6 +27,7 @@ const {
   classifyWidgetHttpError,
   DEFAULT_DESK_PEOPLE,
   canCreateNotes,
+  sharedSessionChange,
 } = require("./widget-helpers");
 const {
   readSession,
@@ -45,6 +46,7 @@ const {
   resolveGitUpdateRoot,
   relaunchAfterGitUpdate,
 } = require("./shell-update");
+const { openUpdateProgress } = require("./update-progress");
 
 const { resolveAppIconPath } = require("./app-icon");
 const ICON_PATH = resolveAppIconPath(path.join(__dirname, ".."));
@@ -53,6 +55,7 @@ const STATE_NAME = "widget-window-state.json";
 const APP_ROOT = appRootFromMain(__dirname);
 const LAUNCH_SHA = captureLaunchSha(APP_ROOT);
 const DEFAULT_POLL_MS = 60_000;
+const SESSION_FOLLOW_MS = 3_000;
 const SHELL_UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 const VIEW_IDS = new Set(Api.WIDGET_VIEWS.map((v) => v.id));
 
@@ -82,6 +85,7 @@ let noteStatus = "";
 let busy = false;
 let alwaysOnTop = true;
 let pollTimer = null;
+let sessionFollowTimer = null;
 let shellUpdateTimer = null;
 let shellChecking = false;
 
@@ -119,8 +123,13 @@ function writeWindowState() {
     viewId,
     alwaysOnTop,
   };
-  fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
-  fs.writeFileSync(stateFile(), JSON.stringify(payload));
+  try {
+    fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
+    fs.writeFileSync(stateFile(), JSON.stringify(payload));
+  } catch (error) {
+    // Losing the remembered size and place must never stop the window closing.
+    console.error("Could not save the widget window state:", error && error.message ? error.message : error);
+  }
 }
 
 function publicState() {
@@ -177,6 +186,28 @@ function loadSessionFromDisk() {
     refreshView();
   }
   pushState();
+}
+
+/**
+ * Every widget window and Tools share one session file. Locking or unlocking
+ * in one of them shows here within a few seconds, not at the next view refresh.
+ */
+function followSharedSession() {
+  if (busy) return;
+  const onDisk = readSession();
+  const change = sharedSessionChange(session, onDisk);
+  if (change === "same") return;
+  if (change === "locked") {
+    session = null;
+    viewPayload = null;
+    noteStatus = "";
+    errorText = "";
+    pushState();
+    return;
+  }
+  errorText = "";
+  noteStatus = "";
+  applySession(onDisk);
 }
 
 function authErrorMessage(res) {
@@ -319,6 +350,11 @@ async function refreshView() {
 
 async function doLogin(person, pin) {
   if (busy) return { ok: false, error: "Busy" };
+  // An empty form is never sent to the shop: it would only count as a wrong PIN.
+  if (!String(person || "").trim() || !String(pin || "")) {
+    setError("Pick your name and enter your PIN.");
+    return { ok: false };
+  }
   busy = true;
   errorText = "";
   noteStatus = "";
@@ -508,7 +544,14 @@ async function checkForShellUpdate({ interactive }) {
     if (choice.response !== 0) return;
 
     try {
-      if (!restartOnly) applyGitUpdate(gitRoot);
+      if (!restartOnly) {
+        const progress = openUpdateProgress(win, { BrowserWindow });
+        try {
+          await applyGitUpdate(gitRoot);
+        } finally {
+          progress.close();
+        }
+      }
     } catch (error) {
       await dialog.showMessageBox(win, {
         type: "warning",
@@ -753,6 +796,7 @@ app.whenReady().then(() => {
     if (session) refreshView();
     else loadSessionFromDisk();
   }, DEFAULT_POLL_MS);
+  sessionFollowTimer = setInterval(followSharedSession, SESSION_FOLLOW_MS);
 
   const canGitUpdate = () => !!(resolveGitUpdateRoot(APP_ROOT) || isGitInstall(APP_ROOT));
   shellUpdateTimer = setInterval(() => {
@@ -769,6 +813,7 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (pollTimer) clearInterval(pollTimer);
+  if (sessionFollowTimer) clearInterval(sessionFollowTimer);
   if (shellUpdateTimer) clearInterval(shellUpdateTimer);
   if (tray) {
     tray.destroy();

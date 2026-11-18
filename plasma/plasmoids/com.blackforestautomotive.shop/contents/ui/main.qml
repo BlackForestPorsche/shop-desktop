@@ -37,7 +37,7 @@ PlasmoidItem {
     readonly property string viewId: plasmoid.configuration.viewId || "lot"
     readonly property int pollMs: Math.max(30, plasmoid.configuration.pollSeconds || 60) * 1000
     readonly property var people: [
-        "logan", "stephen", "steve", "carla", "john", "dwight", "viewer"
+        "logan", "stephen", "steve", "carla", "dwight", "viewer", "sue"
     ]
     readonly property bool isNotesView: viewId === "notes"
     readonly property bool canCreateNotes: {

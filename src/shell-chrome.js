@@ -45,6 +45,9 @@ const ROOT_ID = "bf-tools-shell-root";
 /** Hulls on the water when the game is launched from Settings (one yours, the rest hostile). */
 const LAUNCH_FLEET = 3;
 
+/** Depth of the helm readout along the top edge. A launched flagship starts below it. */
+const HUD_CLEAR_Y = 150;
+
 const MAX_CANVAS_PIXELS = 8_500_000;
 
 const HINT_AMBIENT = "Click to return to the shop";
@@ -264,8 +267,8 @@ function mountShellChrome(options = {}) {
       .combo { font-size: 15px; min-height: 18px; color: #f5c542; font-weight: 700; }
       .best { font-size: 11px; letter-spacing: 0.12em; color: rgba(235, 240, 248, 0.55); }
       .purse { font-size: 13px; color: #f5c542; font-weight: 700; letter-spacing: 0.08em; min-height: 16px; }
-      .yard-open { top: 58px; }
-      .stand.mute { top: 100px; }
+      .stand.yard-open { top: 58px; }
+      .stand.mute { top: 102px; }
       .stand.mute.off { color: rgba(235, 240, 248, 0.45); }
       .yard {
         position: absolute;
@@ -1164,6 +1167,7 @@ function mountShellChrome(options = {}) {
       return { ok: true, reason: "already-playing" };
     }
     const live = () => fleet.filter((s) => !(s.sinking > 0) && !(s.retire > 0));
+    const freshFleet = live().length === 0;
     const wanted = Math.min(maxShips, LAUNCH_FLEET);
     if (live().length < wanted) {
       const grown = growFleet(
@@ -1180,7 +1184,7 @@ function mountShellChrome(options = {}) {
       reportStatus("launch-aborted", "overlay-not-shown");
       return { ok: false, reason: "overlay-not-shown" };
     }
-    const flagship = live()[0];
+    const flagship = launchFlagship(live(), freshFleet);
     if (!flagship) {
       reportStatus("launch-aborted", "no-flagship");
       return { ok: false, reason: "no-flagship" };
@@ -1195,6 +1199,34 @@ function mountShellChrome(options = {}) {
     // Do not report launch-ok here — preload confirms isOverlayVisible after paint,
     // then sends launch-ok / launch-aborted. Sync probes false-negative on Windows.
     return { ok: true, reason: "started" };
+  }
+
+  /**
+   * Settings launch takes the hull nearest the middle of the sea. The first
+   * placed hull sits top-left, under the helm readout, where a new player
+   * cannot see their own ship.
+   */
+  function launchFlagship(candidates, freshFleet) {
+    const bounds = waterBounds();
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cy = (bounds.minY + bounds.maxY) / 2;
+    let best = null;
+    let bestDist = Infinity;
+    for (const ship of candidates) {
+      const dist = Math.hypot(ship.x - cx, ship.y - cy);
+      if (dist < bestDist) {
+        best = ship;
+        bestDist = dist;
+      }
+    }
+    if (!best) return null;
+    if (freshFleet) {
+      best.x = cx;
+      best.y = cy;
+    } else {
+      best.y = Math.min(bounds.maxY, Math.max(best.y, bounds.minY + HUD_CLEAR_Y));
+    }
+    return best;
   }
 
   /**
@@ -2226,7 +2258,8 @@ function mountShellChrome(options = {}) {
       hudKey = key;
       el.name.textContent = p ? p.name : run.shipName || "";
       const hp = p ? p.hp : 0;
-      const max = p ? p.maxHp : 1;
+      // A sunk flagship leaves the fleet; keep its real hull size on the readout.
+      const max = Math.max(1, p ? p.maxHp : run.stats.maxHp || 1);
       el.hullFill.style.width = `${Math.max(0, (hp / max) * 100)}%`;
       el.hullBar.classList.toggle("low", hp / max <= 0.25);
       el.hullTxt.textContent = `Hull ${hp}/${max}`;

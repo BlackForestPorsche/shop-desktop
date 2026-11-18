@@ -104,7 +104,20 @@ function canCreateNotes(role) {
   return r === "desk" || r === "bot";
 }
 
+/**
+ * How the session file every widget window and Tools share differs from the
+ * one this window holds: "same", "locked" (the file is gone or expired, so
+ * someone locked the shop elsewhere) or "replaced" (someone unlocked elsewhere).
+ */
+function sharedSessionChange(current, onDisk) {
+  const mine = current && current.token ? String(current.token) : "";
+  const theirs = onDisk && onDisk.token ? String(onDisk.token) : "";
+  if (mine === theirs) return "same";
+  return theirs ? "replaced" : "locked";
+}
+
 module.exports = {
+  sharedSessionChange,
   normalizePerson,
   parseSessionJson,
   isSessionExpired,
