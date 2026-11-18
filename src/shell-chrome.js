@@ -47,6 +47,8 @@ const LAUNCH_FLEET = 3;
 
 /** Depth of the helm readout along the top edge. A launched flagship starts below it. */
 const HUD_CLEAR_Y = 150;
+/** Seconds the ships already on the sea hold fire after someone takes the helm. */
+const OPENING_GRACE_S = 2.5;
 
 const MAX_CANVAS_PIXELS = 8_500_000;
 
@@ -306,17 +308,53 @@ function mountShellChrome(options = {}) {
         letter-spacing: 0.03em;
         text-align: left;
       }
-      .chip:hover, .chip:focus-visible { border-color: var(--blue); outline: none; }
-      .chip.on { border-color: #f5c542; color: #f5c542; }
-      .chip:disabled { opacity: 0.45; cursor: default; }
-      .yard-note { margin: 8px 0 0; font-size: 12px; color: rgba(235, 240, 248, 0.72); }
+      .chip b { display: block; font-size: 13px; }
+      .chip span {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: rgba(235, 240, 248, 0.72);
+      }
+      .chip:hover:not(:disabled), .chip:focus-visible { border-color: var(--blue); outline: none; }
+      .chip.on { border-color: #f5c542; }
+      .chip.on b { color: #f5c542; }
+      .chip:disabled { opacity: 0.5; cursor: default; }
+      .yard, .wreck {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(235, 240, 248, 0.32) transparent;
+      }
+      .yard::-webkit-scrollbar, .wreck::-webkit-scrollbar { width: 8px; height: 8px; }
+      .yard::-webkit-scrollbar-track, .wreck::-webkit-scrollbar-track { background: transparent; }
+      .yard::-webkit-scrollbar-thumb, .wreck::-webkit-scrollbar-thumb {
+        background: rgba(235, 240, 248, 0.32);
+        border-radius: 4px;
+      }
+      /* The wreck screen owns the window: the helm readout would only peek out behind it. */
+      .hud:has(.wreck:not([hidden])) .panel,
+      .hud:has(.wreck:not([hidden])) .stand.yard-open { visibility: hidden; }
+      .yard-note {
+        margin: 10px 0 0;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: rgba(235, 240, 248, 0.72);
+      }
       .yard.in-wreck {
         position: static;
         left: auto;
         bottom: auto;
         width: auto;
-        max-height: 240px;
-        margin-top: 14px;
+        max-height: none;
+        overflow: visible;
+        margin-top: 18px;
+        background: transparent;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        padding: 14px 0 0;
       }
       .chip { flex: 1 1 148px; }
       button {
@@ -505,7 +543,7 @@ function mountShellChrome(options = {}) {
         <div class="cards cond" hidden></div>
         <div class="yard cond" hidden>
           <div class="yard-head"><b>Yard</b><span class="yard-purse"></span></div>
-          <h3>PERMANENT</h3>
+          <h3>REFITS THAT STAY</h3>
           <div class="yard-row yard-perms"></div>
           <h3>LOOKS</h3>
           <div class="yard-row yard-cos"></div>
@@ -1110,7 +1148,11 @@ function mountShellChrome(options = {}) {
     const plan = combat.planWave(1);
     const room = Math.max(0, combat.maxAliveForWave(1) - 1);
     const keep = others.slice(0, Math.min(plan.length, room));
-    keep.forEach((s, i) => makeEnemy(s, plan[i]));
+    keep.forEach((s, i) => {
+      makeEnemy(s, plan[i]);
+      // Time to find the flagship and read the keys before the first shots land.
+      s.reloadT += OPENING_GRACE_S;
+    });
     for (const s of others.slice(keep.length)) s.retire = 1;
     run.queue = plan.slice(keep.length);
     hazards = [];
@@ -2027,13 +2069,22 @@ function mountShellChrome(options = {}) {
     el.prestige.textContent =
       cost != null && run.score >= cost
         ? `Commission the ${next.title}`
-        : `${next.title} needs ${(cost || 0).toLocaleString()}`;
+        : `${next.title}: score ${(cost || 0).toLocaleString()} in one run`;
+  }
+
+  /** Yard button: a name, and under it what it does and what it costs. */
+  function setChip(button, title, detail) {
+    const name = document.createElement("b");
+    name.textContent = title;
+    const note = document.createElement("span");
+    note.textContent = detail;
+    button.replaceChildren(name, note);
   }
 
   function paintYard() {
     paintPurse();
     const hull = combat.hullByTier(save.hull);
-    el.yardNote.textContent = `${hull.title}. Permanent refits and looks stay on this desk.`;
+    el.yardNote.textContent = `You sail a ${hull.title.toLowerCase()}. Refits and looks are paid in doubloons and stay on this computer.`;
     el.yardPerms.replaceChildren();
     for (const spec of combat.PERM_UPGRADES) {
       const rank = (save.perms && save.perms[spec.id]) || 0;
@@ -2042,7 +2093,13 @@ function mountShellChrome(options = {}) {
       b.className = "chip";
       const maxed = rank >= spec.max;
       b.disabled = maxed || save.doubloons < spec.cost;
-      b.textContent = maxed ? `${spec.title} maxed` : `${spec.title} · ${spec.cost} · ${rank}/${spec.max}`;
+      setChip(
+        b,
+        spec.title,
+        maxed
+          ? `${spec.blurb} · fully fitted`
+          : `${spec.blurb} · ${spec.cost} doubloons · ${rank} of ${spec.max}`,
+      );
       b.addEventListener("click", (event) => {
         event.stopPropagation();
         const before = combat.createPlayerStats(save);
@@ -2084,7 +2141,7 @@ function mountShellChrome(options = {}) {
       b.type = "button";
       b.className = worn ? "chip on" : "chip";
       b.disabled = !owned && save.doubloons < spec.cost;
-      b.textContent = worn ? `${spec.title} worn` : owned ? spec.title : `${spec.title} · ${spec.cost}`;
+      setChip(b, spec.title, worn ? "Wearing" : owned ? "Owned · click to wear" : `${spec.cost} doubloons`);
       b.addEventListener("click", (event) => {
         event.stopPropagation();
         const res = combat.buyCosmetic(save, spec.id);

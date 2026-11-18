@@ -371,7 +371,7 @@ async function doLogin(person, pin) {
     busy = false;
     if (res.status !== 200 || !res.body?.token) {
       if (res.status === 401) {
-        setError("Wrong person or PIN.");
+        setError("Wrong name or PIN.");
         return { ok: false };
       }
       setError(authErrorMessage(res));
