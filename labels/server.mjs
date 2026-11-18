@@ -82,8 +82,8 @@ function applyCors(req, res, url) {
   if (req.method !== "OPTIONS") return false;
   res.writeHead(204, {
     "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET, POST, OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-allow-headers": "content-type, x-page-size, x-width-pt, x-height-pt, x-copies",
     "access-control-allow-private-network": "true",
     "access-control-max-age": "600",
     "cache-control": "no-store",
