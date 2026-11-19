@@ -16,15 +16,30 @@ export function shopOrigins(env = process.env) {
   return out;
 }
 
+/** Desk (Chrome / Firefox) backgrounds send these Origins on Create RO print. */
+export function isDeskExtensionOrigin(origin) {
+  const value = String(origin || "");
+  return /^chrome-extension:\/\//i.test(value) || /^moz-extension:\/\//i.test(value);
+}
+
 /**
  * Shop-site Labels page (layout editor + print) talks to this desk service.
- * Create RO real prints stay on Desk (same machine, no shop Origin needed).
+ * Live Create RO print is Desk only (chrome-extension:// / moz-extension://).
+ * Shop may dry-run /api/print-ro; real print stays off the shop Origin.
  * Lock/gate never goes through this server.
  */
 export function corsAllowed(origin, method, pathname, query, env = process.env) {
-  if (!shopOrigins(env).has(origin)) return false;
   const read = method === "GET" || method === "OPTIONS";
   const write = method === "POST" || method === "PUT" || method === "OPTIONS";
+
+  // Tools 1.5.42 hardened non-shop POST to 403. Desk still posts live Create RO
+  // with an extension Origin — allow that path only (not shop live print-ro).
+  if (isDeskExtensionOrigin(origin)) {
+    if (pathname === "/api/print-ro") return write;
+    return false;
+  }
+
+  if (!shopOrigins(env).has(origin)) return false;
   if (pathname === "/api/printer") return read;
   if (pathname === "/api/qr") return read;
   if (pathname === "/api/labels") return read || method === "PUT" || method === "OPTIONS";

@@ -37,3 +37,18 @@ test("Create RO real print stays off the shop origin", async () => {
   assert.equal(corsAllowed(SHOP, "POST", "/api/print-ro", live), false);
   assert.equal(corsAllowed("https://evil.example", "GET", "/api/printer", live), false);
 });
+
+test("Desk extension Origin may live-print Create RO", async () => {
+  const { corsAllowed, isDeskExtensionOrigin } = await loadCors();
+  const live = new URLSearchParams();
+  const chrome = "chrome-extension://abcdefghijklmnopqrstuvwxyzabcdef";
+  const firefox = "moz-extension://11111111-2222-3333-4444-555555555555";
+  assert.equal(isDeskExtensionOrigin(chrome), true);
+  assert.equal(isDeskExtensionOrigin(firefox), true);
+  assert.equal(corsAllowed(chrome, "POST", "/api/print-ro", live), true);
+  assert.equal(corsAllowed(firefox, "POST", "/api/print-ro", live), true);
+  assert.equal(corsAllowed(chrome, "OPTIONS", "/api/print-ro", live), true);
+  assert.equal(corsAllowed(chrome, "POST", "/api/print", live), false);
+  assert.equal(corsAllowed(chrome, "GET", "/api/printer", live), false);
+  assert.equal(corsAllowed("https://manageonline.alldata.com", "POST", "/api/print-ro", live), false);
+});
