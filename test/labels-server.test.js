@@ -14,6 +14,7 @@ const {
   readOwnerRecord,
   writeOwnerRecord,
   findOwnedLabels,
+  isLabelsServerCommand,
 } = require("../src/labels-server");
 
 function tmpOwnerFile() {
@@ -21,6 +22,13 @@ function tmpOwnerFile() {
   const os = require("node:os");
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bft-labels-owner-")), "labels-server.json");
 }
+
+test("isLabelsServerCommand matches Tools and legacy label-connect", () => {
+  assert.equal(isLabelsServerCommand("/home/logan/shop-desktop/labels/server.mjs"), true);
+  assert.equal(isLabelsServerCommand("node /home/logan/label-connect/server.mjs"), true);
+  assert.equal(isLabelsServerCommand("C:\\Users\\logan\\shop-desktop\\labels\\server.mjs"), true);
+  assert.equal(isLabelsServerCommand("node /usr/bin/something-else.js"), false);
+});
 
 test("labelsPort defaults to 8080 and honors LABELS_PORT", () => {
   assert.equal(labelsPort({}), 8080);
@@ -199,13 +207,14 @@ test("startLabelsServer marks an adopted server as ours when the record matches"
   assert.equal(handle.ownerFile, file);
 });
 
-test("startLabelsServer reports stale CORS when another program owns the port", async () => {
+test("startLabelsServer reports stale CORS when nothing Labels-like owns the port", async () => {
   const handle = await startLabelsServer({
     appRoot: path.join(__dirname, ".."),
     ownerFile: tmpOwnerFile(),
     probeFn: async () => true,
     corsProbeFn: async () => false,
     findOwnedFn: async () => null,
+    findLabelsLikeFn: async () => null,
     spawnFn: () => {
       throw new Error("should not spawn");
     },
@@ -215,6 +224,43 @@ test("startLabelsServer reports stale CORS when another program owns the port", 
   assert.match(handle.reason, /too old for shop Print/i);
 });
 
+test("startLabelsServer replaces a foreign Labels process that lacks shop Print CORS", async () => {
+  const appRoot = path.join(__dirname, "..");
+  const ownerFile = tmpOwnerFile();
+  let killed = 0;
+  let spawnCalled = false;
+  const handle = await startLabelsServer({
+    appRoot,
+    ownerFile,
+    version: "1.5.43",
+    probeFn: async () => true,
+    corsProbeFn: async () => false,
+    findOwnedFn: async () => null,
+    findLabelsLikeFn: async () => ({
+      pid: 8_888_888,
+      port: 8080,
+      entry: "/home/logan/label-connect/server.mjs",
+      version: "",
+      foreign: true,
+    }),
+    waitUntilDownFn: async () => {
+      killed += 1;
+      return true;
+    },
+    waitFn: async () => true,
+    ensureDepsFn: () => ({ ok: true, installed: false }),
+    spawnFn: () => {
+      spawnCalled = true;
+      return { pid: 4242, unref() {}, on() {}, kill() {} };
+    },
+  });
+  assert.equal(killed, 1);
+  assert.equal(spawnCalled, true);
+  assert.equal(handle.ok, true);
+  assert.equal(handle.owned, true);
+  assert.equal(handle.adopted, false);
+});
+
 test("startLabelsServer respawns when Tools-owned Labels lacks shop Print CORS", async () => {
   const appRoot = path.join(__dirname, "..");
   const ownerFile = tmpOwnerFile();
@@ -222,7 +268,7 @@ test("startLabelsServer respawns when Tools-owned Labels lacks shop Print CORS",
   const handle = await startLabelsServer({
     appRoot,
     ownerFile,
-    version: "1.5.42",
+    version: "1.5.43",
     probeFn: async () => true,
     corsProbeFn: async () => false,
     findOwnedFn: async () => ({

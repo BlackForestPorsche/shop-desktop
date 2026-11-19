@@ -91,6 +91,7 @@ const {
   stopLabelsServer,
   waitUntilDown,
 } = require("./labels-server");
+const { shopSessionPermissionAllowed } = require("./shop-session-permissions");
 const {
   shouldHandleGateCookieSet,
   shouldMintAfterLeavingUnlock,
@@ -2212,15 +2213,11 @@ function configureSession() {
       console.error("Could not apply unlock widgetToken:", error);
     }
   });
+  // Labels Print → 127.0.0.1:8080 needs Chromium loopback-network (LNA).
   shopSession.setPermissionRequestHandler((_contents, permission, callback) => {
-    const allowed = new Set([
-      "notifications",
-      "clipboard-read",
-      "clipboard-sanitized-write",
-      "fullscreen",
-    ]);
-    callback(allowed.has(permission));
+    callback(shopSessionPermissionAllowed(permission));
   });
+  shopSession.setPermissionCheckHandler((_contents, permission) => shopSessionPermissionAllowed(permission));
   try {
     shopSession.setSpellCheckerLanguages(["en-US"]);
   } catch {

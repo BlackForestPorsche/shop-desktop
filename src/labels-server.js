@@ -285,6 +285,36 @@ function comparablePath(text) {
   return String(text || "").replace(/\\/g, "/").toLowerCase();
 }
 
+/**
+ * True for Tools' vendored Labels server or a legacy label-connect checkout.
+ * Used to take over :8080 when shop Print CORS is missing.
+ */
+function isLabelsServerCommand(commandLine) {
+  const line = comparablePath(commandLine);
+  if (!line.includes("server.mjs")) return false;
+  return (
+    line.includes("/labels/server.mjs") ||
+    line.includes("/label-connect/server.mjs") ||
+    line.includes("/labels/") ||
+    line.includes("/label-connect/")
+  );
+}
+
+/** Any Labels-like Node process, including one Tools did not start. */
+async function findLabelsLikeProcess({
+  listProcessesFn = listProcesses,
+  excludePid = process.pid,
+} = {}) {
+  const rows = await listProcessesFn();
+  for (const row of rows || []) {
+    if (!row || row.pid === excludePid) continue;
+    if (isLabelsServerCommand(row.commandLine)) {
+      return { pid: row.pid, port: 0, entry: "", version: "", foreign: true };
+    }
+  }
+  return null;
+}
+
 /** Every running process as { pid, commandLine }. Empty when the list cannot be read. */
 function listProcesses({ platform = process.platform, execFileFn } = {}) {
   if (platform === "linux") {
@@ -543,10 +573,16 @@ async function startLabelsServer(options) {
           : "Labels already answering on port — adopted existing server.",
       };
     }
-    if (ours?.pid) {
-      log(`Labels on ${url} is too old for shop Print — restarting Tools-owned server.`);
+    const findForeign = options.findLabelsLikeFn || findLabelsLikeProcess;
+    const stale = ours?.pid ? ours : await findForeign();
+    if (stale?.pid) {
+      log(
+        ours?.pid
+          ? `Labels on ${url} is too old for shop Print — restarting Tools-owned server.`
+          : `Labels on ${url} is too old for shop Print — replacing foreign Labels process ${stale.pid}.`,
+      );
       try {
-        killLabelsProcess(ours.pid, null);
+        killLabelsProcess(stale.pid, null);
         if (ownerFile) clearOwnerRecord(ownerFile);
       } catch (error) {
         log("Could not stop stale Labels server:", error);
@@ -559,7 +595,7 @@ async function startLabelsServer(options) {
           owned: false,
           adopted: true,
           corsStale: true,
-          ours,
+          ours: ours || stale,
           ownerFile,
           port,
           url,
@@ -568,6 +604,7 @@ async function startLabelsServer(options) {
             "Labels on this port is too old for shop Print and could not be restarted automatically. Choose Labels → Restart Labels service.",
         };
       }
+      // Port is free — fall through and start the vendored server.
     } else {
       return {
         ok: true,
@@ -788,6 +825,8 @@ module.exports = {
   clearOwnerRecord,
   processCommandLine,
   findOwnedLabels,
+  findLabelsLikeProcess,
+  isLabelsServerCommand,
   listProcesses,
   ensureLabelsDeps,
   ensureLabelsDepsAsync,
