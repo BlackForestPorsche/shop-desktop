@@ -170,9 +170,31 @@ test("pirate shell overlay preferred over dedicated window", () => {
   assert.ok(inPageAt > 0 && shellAt > inPageAt && dedicatedAt > shellAt);
 });
 
-test("package version is 1.5.43", () => {
+test("package version is 1.5.45", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-  assert.equal(pkg.version, "1.5.43");
+  assert.equal(pkg.version, "1.5.45");
+});
+
+test("Pirate idle overlay is Settings-toggleable; Launch pirate stays available", () => {
+  const chrome = fs.readFileSync(path.join(__dirname, "..", "src", "shell-chrome.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const menu = fs.readFileSync(path.join(__dirname, "..", "src", "app-menu.js"), "utf8");
+  assert.match(chrome, /function setIdleEnabled/);
+  assert.match(chrome, /let idleEnabled = options\.idleEnabled !== false/);
+  assert.match(chrome, /if \(!idleEnabled\) return;/);
+  assert.match(chrome, /launchOnly \|\| !idleEnabled/);
+  assert.match(preload, /idleEnabled/);
+  assert.match(preload, /shell:pirate-idle-pref/);
+  assert.match(preload, /setIdleEnabled/);
+  assert.match(main, /createPirateIdlePref/);
+  assert.match(main, /onTogglePirateIdleOverlay/);
+  assert.match(main, /broadcastPirateIdlePref/);
+  assert.match(main, /shell:pirate-idle-pref/);
+  assert.match(menu, /label: "Pirate idle overlay"/);
+  assert.match(menu, /weaker PCs/);
+  assert.match(menu, /Launch pirate game still works/);
+  assert.match(menu, /label: "Launch pirate game"/);
 });
 
 test("death screen shows shop day, week, month, and this revision", () => {

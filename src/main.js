@@ -75,6 +75,7 @@ const {
   parseFollowBody,
   jobUrl,
 } = require("./follow-mode");
+const { createPirateIdlePref } = require("./pirate-idle-pref");
 const { firefoxLaunchPlan } = require("./firefox-launch");
 const {
   readLatch,
@@ -176,6 +177,7 @@ let exchangingGate = false;
 let deskSessionBridge = null;
 /** AllData Follow mode — Desk :8788/v1/follow → /job?ro=… when enabled. */
 let followMode = null;
+let pirateIdlePref = null;
 let labelsServerHandle = null;
 /** Avoid tight reload loops when /unlock keeps loading while exchange fails. */
 let unlockExchangeAttemptAt = 0;
@@ -1119,6 +1121,28 @@ function ensureFollowMode() {
   return followMode;
 }
 
+function ensurePirateIdlePref() {
+  if (pirateIdlePref) return pirateIdlePref;
+  pirateIdlePref = createPirateIdlePref({ userDataDir: app.getPath("userData") });
+  return pirateIdlePref;
+}
+
+/** Tell the shop window (and any pirate shell overlay) the idle-overlay pref. */
+function broadcastPirateIdlePref(enabled) {
+  const payload = { enabled: Boolean(enabled) };
+  const targets = [];
+  if (mainWindow && !mainWindow.isDestroyed()) targets.push(mainWindow.webContents);
+  if (pirateOverlay && pirateOverlay.webContents) targets.push(pirateOverlay.webContents);
+  if (pirateWindow && !pirateWindow.isDestroyed()) targets.push(pirateWindow.webContents);
+  for (const wc of targets) {
+    try {
+      if (wc && !wc.isDestroyed()) wc.send("shell:pirate-idle-pref", payload);
+    } catch (error) {
+      console.warn("pirate: idle-pref broadcast failed", error);
+    }
+  }
+}
+
 /** Open the shared site job page for an AllData RO (Follow mode). */
 function openFollowJob(payload) {
   const href = jobUrl(payload.ro, { tab: payload.tab });
@@ -1159,6 +1183,7 @@ function shopMenu() {
     if (channel === "forward" && win.webContents.canGoForward()) win.webContents.goForward();
   };
   const follow = ensureFollowMode();
+  const idlePref = ensurePirateIdlePref();
 
   return Menu.buildFromTemplate(
     buildAppMenuTemplate({
@@ -1174,6 +1199,14 @@ function shopMenu() {
         const enabled = Boolean(menuItem && menuItem.checked);
         follow.setEnabled(enabled);
         console.log(`follow: ${enabled ? "on" : "off"}`);
+        Menu.setApplicationMenu(shopMenu());
+      },
+      pirateIdleOverlayEnabled: idlePref.isEnabled(),
+      onTogglePirateIdleOverlay: (menuItem) => {
+        const enabled = Boolean(menuItem && menuItem.checked);
+        idlePref.setEnabled(enabled);
+        console.log(`pirate: idle-overlay ${enabled ? "on" : "off"}`);
+        broadcastPirateIdlePref(enabled);
         Menu.setApplicationMenu(shopMenu());
       },
       onLaunchPirateGame: () => {
@@ -2271,6 +2304,10 @@ if (gotLock) {
     const reason =
       payload && typeof payload.reason === "string" ? payload.reason.slice(0, 200) : "ipc-close";
     closePirateShellOverlay(reason);
+  });
+
+  ipcMain.handle("shell:pirate-idle-pref", () => {
+    return { enabled: ensurePirateIdlePref().isEnabled() };
   });
 
   ipcMain.handle("shell:check-updates", async () => {

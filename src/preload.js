@@ -178,15 +178,27 @@ function reportPirateStatus(event, reason) {
   }
 }
 
-function boot() {
+async function readPirateIdleEnabled() {
+  try {
+    const pref = await ipcRenderer.invoke("shell:pirate-idle-pref");
+    return !(pref && pref.enabled === false);
+  } catch {
+    return true;
+  }
+}
+
+async function boot() {
   // Idle fleet only — Check for updates lives in Settings → Check for updates.
   // BF_IDLE_MS (ms) shortens the interval for QA; unset → 5 minutes.
   // The overlay is optional chrome: if it cannot mount, the shop window still loads.
+  // Settings → Pirate idle overlay (default ON) can disable ambient spawn on weaker PCs.
   let chrome = null;
+  const idleEnabled = await readPirateIdleEnabled();
   try {
     chrome = mountShellChrome({
       idleIntervalMs: resolveIdleIntervalMs(process.env.BF_IDLE_MS),
       revision: require("../package.json").version,
+      idleEnabled,
       onError: (error) => reportShellError("idle-overlay", error),
       onStatus: (info) => reportPirateStatus(info && info.event, info && info.reason),
       submitPirateScore: (run) => ipcRenderer.invoke("shell:pirate-board", run),
@@ -249,6 +261,17 @@ function boot() {
   ipcRenderer.on("shell:launch-pirate", () => {
     runPirateLaunch("ipc").catch((error) => reportShellError("launch-pirate", error));
   });
+
+  // Settings → Pirate idle overlay checkbox.
+  ipcRenderer.on("shell:pirate-idle-pref", (_event, payload) => {
+    try {
+      if (chrome && typeof chrome.setIdleEnabled === "function") {
+        chrome.setIdleEnabled(!(payload && payload.enabled === false));
+      }
+    } catch (error) {
+      reportShellError("pirate-idle-pref", error);
+    }
+  });
 }
 
 window.addEventListener("error", (event) => {
@@ -258,8 +281,12 @@ window.addEventListener("error", (event) => {
   }
 });
 
+function startBoot() {
+  boot().catch((error) => reportShellError("boot", error));
+}
+
 if (document.readyState === "loading") {
-  window.addEventListener("DOMContentLoaded", boot, { once: true });
+  window.addEventListener("DOMContentLoaded", startBoot, { once: true });
 } else {
-  boot();
+  startBoot();
 }

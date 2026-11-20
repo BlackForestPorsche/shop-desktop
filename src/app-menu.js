@@ -33,6 +33,8 @@ function installedRevisionLabel() {
  *   onCheckAppUpdates: () => void,
  *   onLaunchPirateGame?: () => void,
  *   onPirateLeaderboard?: () => void,
+ *   pirateIdleOverlayEnabled?: boolean,
+ *   onTogglePirateIdleOverlay?: (menuItem: { checked?: boolean }) => void,
  *   onOpenFirefoxSignedIn: () => void,
  *   onLabelsStatus: () => void,
  *   onRestartLabels: () => void,
@@ -117,6 +119,21 @@ function buildAppMenuTemplate(handlers) {
         },
         { type: "separator" },
         ...followItem,
+        ...(typeof handlers.onTogglePirateIdleOverlay === "function"
+          ? [
+              {
+                label: "Pirate idle overlay",
+                type: "checkbox",
+                checked:
+                  handlers.pirateIdleOverlayEnabled === undefined
+                    ? true
+                    : Boolean(handlers.pirateIdleOverlayEnabled),
+                toolTip:
+                  "Idle ships after ~5 minutes. Turn off on weaker PCs to save GPU/RAM. Launch pirate game still works.",
+                click: handlers.onTogglePirateIdleOverlay,
+              },
+            ]
+          : []),
         {
           label: "Launch pirate game",
           click: handlers.onLaunchPirateGame,
