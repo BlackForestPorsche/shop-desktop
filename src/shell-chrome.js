@@ -3,6 +3,7 @@
 /**
  * Electron-shell chrome injected into the BrowserWindow (not the hosted shop site).
  * - Pirate idle overlay after 5 minutes without input; more ships every +5 minutes
+ *   (Settings → Pirate idle overlay; default ON; weaker PCs can turn it off).
  * - Ships sail, fire, collide, and sink; sunk hulls respawn toward the idle target.
  *   Idle-only people get this forever: no prompts, no pressure to play.
  * - Pirate combat (opt-in): click a ship to take the helm. W sails up,
@@ -76,6 +77,7 @@ const KEY_MAP = Object.freeze({
  *   onError?: (error: unknown) => void,
  *   onStatus?: (info: { event: string, reason?: string }) => void,
  *   launchOnly?: boolean,
+ *   idleEnabled?: boolean,
  *   submitPirateScore?: (run: { score: number, wave: number, sunk: number }) => Promise<unknown>,
  * }} [options]
  */
@@ -84,6 +86,8 @@ function mountShellChrome(options = {}) {
   const onStatus = typeof options.onStatus === "function" ? options.onStatus : null;
   /** When true (shell overlay / dedicated window), dismiss + stand-down close the session. */
   const launchOnly = !!options.launchOnly;
+  /** Ambient idle spawn. Settings can turn this off on weaker PCs; Launch pirate stays. */
+  let idleEnabled = options.idleEnabled !== false;
   function reportIdleError(error) {
     try {
       if (onError) onError(error);
@@ -828,6 +832,7 @@ function mountShellChrome(options = {}) {
   }
 
   function syncFleet() {
+    if (!idleEnabled) return;
     if (!appActive && !overlay.classList.contains("on")) return;
     if (mode !== "ambient") return;
     const idleMs = now() - lastActivity;
@@ -1490,7 +1495,8 @@ function mountShellChrome(options = {}) {
   function standDown() {
     if (mode !== "play") return;
     // Shell overlay / dedicated launch: stand down means return to the shop.
-    if (launchOnly) {
+    // Idle overlay off: no ambient screensaver after combat — dismiss to the shop.
+    if (launchOnly || !idleEnabled) {
       resetIdle(true);
       return;
     }
@@ -1506,6 +1512,26 @@ function mountShellChrome(options = {}) {
       fleet.push(placeShip(pickShipStyle(), fleet.length));
     }
     lastActivity = now() - idleIntervalMs * Math.min(maxShips, Math.max(1, fleet.length));
+  }
+
+  /**
+   * Apply Settings → Pirate idle overlay. When turning off, drop an ambient
+   * screensaver (combat in progress is left alone until stand-down).
+   */
+  function setIdleEnabled(next) {
+    const enabled = !!next;
+    if (idleEnabled === enabled) return idleEnabled;
+    idleEnabled = enabled;
+    reportStatus("idle-pref", enabled ? "on" : "off");
+    if (!enabled) {
+      if (mode === "ambient" && (fleet.length || overlay.classList.contains("on"))) {
+        resetIdle(true);
+      }
+    } else {
+      // Fresh idle clock so a long-off desk does not instantly spawn a fleet.
+      lastActivity = now();
+    }
+    return idleEnabled;
   }
 
   function showBanner(title, sub, boss) {
@@ -2652,6 +2678,7 @@ function mountShellChrome(options = {}) {
 
   return {
     launchGame,
+    setIdleEnabled,
     isOverlayVisible,
     refreshLayout,
     /** Clear a clipped/invisible overlay so a shell-level fallback can take over. */
@@ -2660,6 +2687,9 @@ function mountShellChrome(options = {}) {
     },
     get disabled() {
       return failed || !ctx;
+    },
+    get idleEnabled() {
+      return idleEnabled;
     },
     dispose() {
       disposed = true;
@@ -2712,6 +2742,10 @@ function mountShellChrome(options = {}) {
       softActivity: onSoftActivity,
       takeCommand,
       launchGame,
+      setIdleEnabled,
+      get idleEnabled() {
+        return idleEnabled;
+      },
       standDown,
       playerFire,
       shipAt,

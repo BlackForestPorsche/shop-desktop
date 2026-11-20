@@ -174,3 +174,27 @@ test("Settings menu exposes Launch pirate game, and only there", () => {
     assert.ok(!menu.submenu.some((entry) => /pirate/i.test(entry.label || "")));
   }
 });
+
+test("Settings menu exposes Pirate idle overlay checkbox when wired (default on)", () => {
+  let checked = null;
+  const h = handlers();
+  h.pirateIdleOverlayEnabled = true;
+  h.onTogglePirateIdleOverlay = (menuItem) => {
+    checked = Boolean(menuItem && menuItem.checked);
+  };
+  const settings = buildAppMenuTemplate(h).find((item) => item.label === "Settings");
+  const item = settings.submenu.find((entry) => entry.label === "Pirate idle overlay");
+  assert.ok(item);
+  assert.equal(item.type, "checkbox");
+  assert.equal(item.checked, true);
+  assert.match(item.toolTip || "", /weaker PCs/i);
+  assert.match(item.toolTip || "", /Launch pirate/i);
+  const launch = settings.submenu.find((entry) => entry.label === "Launch pirate game");
+  const idleIdx = settings.submenu.indexOf(item);
+  const launchIdx = settings.submenu.indexOf(launch);
+  assert.ok(idleIdx >= 0 && launchIdx > idleIdx);
+  item.click({ checked: false });
+  assert.equal(checked, false);
+  const bare = buildAppMenuTemplate(handlers()).find((entry) => entry.label === "Settings");
+  assert.ok(!bare.submenu.some((entry) => entry.label === "Pirate idle overlay"));
+});
