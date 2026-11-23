@@ -8,12 +8,16 @@ import {
   POWERSHELL_ARGS,
   parseWindowsPrinterList,
   pickWindowsPrinter,
+  windowsPrinterOverride,
   windowsQueueStatus,
 } from "./winprint.mjs";
 
 const PPD_CANDIDATES = [
   `/etc/cups/ppd/${QUEUE}.ppd`,
   `/etc/cups/ppd/${QUEUE.toLowerCase()}.ppd`,
+  // CUPS often hyphenates the model (LabelWriter-550) when the queue is re-added.
+  "/etc/cups/ppd/LabelWriter-550.ppd",
+  "/etc/cups/ppd/labelwriter-550.ppd",
   // Readable copy when the queue PPD is root:cups mode 640.
   "/usr/share/cups/model/dymo/lw550.ppd",
 ];
@@ -78,16 +82,54 @@ export async function windowsQueue(runFn = run, env = process.env) {
   return { ...windowsQueueStatus(found, String(env.LABELS_PRINTER || "").trim() || QUEUE), name: pick.name };
 }
 
-export async function queueStatus() {
-  if (process.platform === "win32") return windowsQueue();
-  const listed = await run("lpstat", ["-p", QUEUE, "-l"]);
-  const uri = await run("lpstat", ["-v", QUEUE]);
+/** Parse `lpstat -a` queue names (first token per line). */
+export function parseCupsQueueNames(stdout) {
+  const names = [];
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    const name = line.trim().split(/\s+/)[0] || "";
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+export async function listCupsQueues(runFn = run) {
+  const listed = await runFn("lpstat", ["-a"]);
+  if (listed.code !== 0) return [];
+  return parseCupsQueueNames(listed.stdout);
+}
+
+function noCupsPrinterMessage(pick) {
+  if (pick?.reason === "override-missing") {
+    return "LABELS_PRINTER does not match an installed CUPS queue. Use the exact name from lpstat -a.";
+  }
+  return "No LabelWriter/DYMO CUPS queue is installed on this computer.";
+}
+
+/**
+ * Linux CUPS queue: exact LABELS_PRINTER / LabelWriter550, then any LabelWriter/DYMO
+ * queue (Manjaro often re-adds as LabelWriter-550).
+ */
+export async function cupsQueue(runFn = run, env = process.env) {
+  const names = await listCupsQueues(runFn);
+  const pick = pickWindowsPrinter(names, env);
+  if (!pick.name) {
+    return {
+      present: false,
+      state: "missing",
+      uri: "",
+      message: noCupsPrinterMessage(pick),
+      name: windowsPrinterOverride(env) || QUEUE,
+    };
+  }
+  const listed = await runFn("lpstat", ["-p", pick.name, "-l"]);
+  const uri = await runFn("lpstat", ["-v", pick.name]);
   if (listed.code !== 0) {
     return {
       present: false,
       state: "missing",
       uri: "",
-      message: `No print queue named ${QUEUE} on this computer.`,
+      message: noCupsPrinterMessage({ reason: "override-missing" }),
+      name: pick.name,
     };
   }
   const text = `${listed.stdout}\n${uri.stdout}`;
@@ -98,11 +140,16 @@ export async function queueStatus() {
   else if (/now printing/i.test(listed.stdout) || /processing/i.test(listed.stdout)) state = "printing";
   const message =
     state === "paused"
-      ? `${QUEUE} is paused.`
+      ? `${pick.name} is paused.`
       : device
-        ? `${QUEUE} · ${device}`
-        : `${QUEUE} is ready.`;
-  return { present: true, state, uri: device, message, raw: text };
+        ? `${pick.name} · ${device}`
+        : `${pick.name} is ready.`;
+  return { present: true, state, uri: device, message, raw: text, name: pick.name };
+}
+
+export async function queueStatus(runFn = run, env = process.env) {
+  if (process.platform === "win32") return windowsQueue(runFn, env);
+  return cupsQueue(runFn, env);
 }
 
 async function lpNodes() {
