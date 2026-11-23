@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { QUEUE, safePageKey } from "./media.mjs";
-import { listWindowsPrinters, run } from "./detect.mjs";
+import { listCupsQueues, listWindowsPrinters, run } from "./detect.mjs";
 import {
   NATIVE_PRINT_SCRIPT,
   POWERSHELL_ARGS,
@@ -18,10 +18,11 @@ import {
   windowsPrintMode,
 } from "./winprint.mjs";
 
-export function printArgs(pageKey, pdfPath) {
+export function printArgs(pageKey, pdfPath, queueName = QUEUE) {
   const key = safePageKey(pageKey);
   if (!key) throw new Error("That label size is not on the 550.");
-  return ["-d", QUEUE, "-o", `PageSize=${key}`, "-o", "PrintQuality=Graphics", "-n", "1", pdfPath];
+  const queue = String(queueName || QUEUE).trim() || QUEUE;
+  return ["-d", queue, "-o", `PageSize=${key}`, "-o", "PrintQuality=Graphics", "-n", "1", pdfPath];
 }
 
 export async function pngToPdf(png, widthPt, heightPt, copies) {
@@ -103,9 +104,20 @@ export async function sendPdfWindows(pdfPath, { pageKey, deps = {} } = {}) {
   return { job: (result.stdout || "").trim() || pick.name };
 }
 
-async function sendPdfLinux(pdfPath, pageKey) {
-  const args = printArgs(pageKey, pdfPath);
-  let result = await run("lp", args, 20000);
+function noCupsPrinterMessage(pick) {
+  if (pick?.reason === "override-missing") {
+    return "LABELS_PRINTER does not match an installed CUPS queue. Use the exact name from lpstat -a.";
+  }
+  return "No LabelWriter/DYMO CUPS queue is installed on this computer.";
+}
+
+async function sendPdfLinux(pdfPath, pageKey, deps = {}) {
+  const d = { run, env: process.env, ...deps };
+  const names = await listCupsQueues(d.run);
+  const pick = pickWindowsPrinter(names, d.env);
+  if (!pick.name) throw new Error(noCupsPrinterMessage(pick));
+  const args = printArgs(pageKey, pdfPath, pick.name);
+  let result = await d.run("lp", args, 20000);
   if (result.code !== 0 && /PrintQuality/i.test(`${result.stderr}\n${result.stdout}`)) {
     const cleaned = [];
     for (let i = 0; i < args.length; i += 1) {
@@ -115,14 +127,14 @@ async function sendPdfLinux(pdfPath, pageKey) {
       }
       cleaned.push(args[i]);
     }
-    result = await run("lp", cleaned, 20000);
+    result = await d.run("lp", cleaned, 20000);
   }
-  if (result.code === 127) throw new Error(`This computer cannot reach ${QUEUE}.`);
+  if (result.code === 127) throw new Error(`This computer cannot reach ${pick.name}.`);
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout || "The printer did not take the label.").trim();
     throw new Error(detail.split("\n")[0]);
   }
-  return { job: (result.stdout || "").trim() };
+  return { job: (result.stdout || "").trim() || pick.name };
 }
 
 /** Send an already-rendered PDF to the LabelWriter queue (Linux CUPS or Windows PrintTo). */
